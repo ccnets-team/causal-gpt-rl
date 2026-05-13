@@ -1,31 +1,81 @@
-# Causal GPT RL
+# Causal GPT-RL
 
-Public inference runtime for Causal-GPT-RL policies.
+GPT-style transformers (GPT-2, Llama) running as RL policies in continuous-control environments.
 
-This repository contains the code needed to load a policy bundle and run it in
-an environment. It is intentionally focused on inference: model
-construction, bundle loading, action decoding, rolling context state, state
-normalization, and simple evaluation helpers.
+The autoregressive structure is the same on both sides:
 
-Model creation workflows and experiment infrastructure are outside this runtime
-boundary.
+```text
+action → next state → next action      (RL rollouts)
+token  → next token  → next token      (LLM generation)
+```
 
-## What This Package Provides
+Causal GPT-RL policies act stably under their own rollouts — long-horizon control without the drift that has historically kept transformers from being usable as RL agents.
 
-- `causal_gpt_rl.model`: autoregressive policy model definitions and JSON-safe
-  state/action specs.
-- `causal_gpt_rl.inference.load_runner(...)`: load an exported bundle into a
-  ready-to-run `PolicyRunner`.
-- `PolicyRunner`: step-wise policy execution with `reset(...)`, `act(...)`, and
-  `observe(...)`.
-- `run_episodes(...)`: small single-environment evaluation helper.
-- `export_bundle(...)`: write a public inference bundle from an in-memory model.
-- `convert_legacy_bundle_to_safetensors(...)`: migrate old `.pt` bundle weights
-  to `safetensors`.
+A single autoregressive model drives full-episode rollouts via KV cache — no critic, no auxiliary networks at inference.
+
+This repository is the public inference runtime. It loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers.
+
+- **Run logs (W&B, public):** [wandb.ai/junhopark/Causal GPT-RL](https://wandb.ai/junhopark/Causal%20GPT-RL)
+- **Models (Hugging Face):** https://huggingface.co/ccnets
+- Website: https://ccnets.org
+- LinkedIn: https://www.linkedin.com/company/ccnets
+
+Released under PolyForm Noncommercial 1.0.0. For commercial licensing, contact the maintainers via ccnets.org.
+
+## Install
+
+For Hub loading and MuJoCo environments:
+
+```bash
+pip install "causal-gpt-rl[hub,mujoco]"
+```
+
+For local development:
+
+```bash
+git clone https://github.com/ccnets-team/causal-gpt-rl.git
+cd causal-gpt-rl
+python -m pip install -e ".[hub,mujoco]"
+```
+
+For private bundles, authenticate first:
+
+```bash
+hf auth login
+```
+
+## Quick Start
+
+```python
+import gymnasium as gym
+
+from causal_gpt_rl.inference import load_runner_from_hub, run_episodes
+
+env = gym.make("Ant-v5")
+runner = load_runner_from_hub(
+    repo_id="ccnets/causal-gpt-rl",
+    subfolder="ant-v5",
+)
+
+stats = run_episodes(env, runner, num_episodes=5, seed=0)
+env.close()
+print(stats["return_mean"], stats["return_std"])
+```
+
+Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
+
+## Supported Environments
+
+| Environment | Gymnasium ID | Hub subfolder |
+|---|---|---|
+| Ant | `Ant-v5` | `ant-v5` |
+| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` |
+| Walker2d | `Walker2d-v5` | `walker2d-v5` |
+| Humanoid | `Humanoid-v5` | `humanoid-v5` |
 
 ## Bundle Format
 
-A deployment bundle is a single directory:
+All public bundles include:
 
 ```text
 bundle/
@@ -34,92 +84,13 @@ bundle/
   state_normalizer.safetensors
 ```
 
-`model.safetensors` contains only the model state dict needed for inference.
-`config.json` contains public metadata required to reconstruct the runner:
-model config, observation specs, action specs, and context length.
-`state_normalizer.safetensors` stores the state normalization statistics used
-by the exported policy. Public MuJoCo bundles should include this file so Hub
-loading and local loading run the same normalized observation path.
+- `model.safetensors` — model state dict for inference.
+- `config.json` — model config, observation specs, action specs, and context length.
+- `state_normalizer.safetensors` — state normalization statistics used by the policy.
 
-The bundle does not include experiment metadata or development-only state.
+## Hugging Face Layout
 
-## Installation
-
-Install the runtime dependencies in your environment:
-
-```bash
-pip install torch transformers safetensors numpy gymnasium
-```
-
-For MuJoCo environments, install the appropriate Gymnasium extras as well:
-
-```bash
-pip install "gymnasium[mujoco]"
-```
-
-To load bundles directly from Hugging Face Hub, install the Hub extra:
-
-```bash
-pip install "causal-gpt-rl[hub]"
-```
-
-If you are developing directly from this repository, install it editable:
-
-```bash
-pip install -e .
-```
-
-## Quick Start
-
-```python
-import gymnasium as gym
-
-from causal_gpt_rl.inference import load_runner
-
-env = gym.make("HalfCheetah-v5")
-runner = load_runner(
-    "path/to/bundle",
-    device="cuda",          # or "cpu"
-    kv_cache_max_len=None,  # default: 4 * context_length
-    use_windowed=False,     # use cached incremental inference by default
-)
-
-obs, _ = env.reset()
-runner.reset(obs)
-
-done = False
-while not done:
-    action = runner.act()
-    obs, reward, terminated, truncated, info = env.step(action)
-    done = terminated or truncated
-    if not done:
-        runner.observe(obs)
-```
-
-The compatibility style `runner.act(obs)` is also supported. On the first call
-after `reset(obs)`, the observation is already in the buffer, so `act()` is the
-cleaner form.
-
-## Evaluation Helper
-
-For simple single-environment evaluation:
-
-```python
-import gymnasium as gym
-
-from causal_gpt_rl.inference import load_runner, run_episodes
-
-env = gym.make("HalfCheetah-v5")
-runner = load_runner("path/to/bundle", device="cuda")
-
-stats = run_episodes(env, runner, num_episodes=5, seed=0)
-print(stats["return_mean"], stats["return_std"])
-```
-
-## Hugging Face Hub
-
-Hub model repositories should use one repository with per-environment
-subfolders:
+Recommended layout:
 
 ```text
 ccnets/causal-gpt-rl/
@@ -130,69 +101,36 @@ ccnets/causal-gpt-rl/
     README.md
 ```
 
-Then load the desired environment bundle directly:
+Root-level bundles are supported by omitting `subfolder`:
 
 ```python
-from causal_gpt_rl.inference import load_runner_from_hub
-
-runner = load_runner_from_hub(
-    repo_id="ccnets/causal-gpt-rl",
-    subfolder="ant-v5",
-    device="cuda",
-)
+load_runner_from_hub(repo_id="ccnets/causal-gpt-rl-ant")
 ```
 
-Root-level bundles are still supported by omitting `subfolder`.
+For local bundles, use `load_runner("path/to/bundle")`.
 
-`run_episodes(...)` is intentionally single-env only. For vectorized or
-batched evaluation, drive `PolicyRunner` directly with `num_envs > 1`.
-
-## Public API
-
-The stable top-level inference surface is:
+## API
 
 ```python
 from causal_gpt_rl.inference import (
-    PolicyRunner,
-    load_runner,
-    run_episodes,
-    export_bundle,
-    convert_legacy_bundle_to_safetensors,
-    load_runner_from_hub,
+    PolicyRunner,                          # step-wise rollout policy with KV cache
+    load_runner,                           # load runner from a local bundle directory
+    load_runner_from_hub,                  # load runner from a Hugging Face Hub repo
+    run_episodes,                          # evaluate over N episodes; returns stats dict
+    export_bundle,                         # write a bundle directory from a runner
+    convert_legacy_bundle_to_safetensors,  # migrate legacy bundles to the safetensors format
 )
 ```
 
-Lower-level components such as `ContextBuffer`, `ContextCache`, and
-`StateNormalizer` remain available from their submodules for advanced use, but
-they are not the preferred public entrypoint.
-
-## Runtime Notes
-
-- `load_runner(...)` accepts a local bundle path.
-- `load_runner_from_hub(...)` downloads a Hugging Face Hub model repository and
-  then loads the bundle.
-- Continuous actions are clipped to the bounds stored in `action_specs`.
-- Discrete actions are decoded to integer environment actions.
-- Multi-discrete actions support batched decoding when `num_envs > 1`.
-- Invalid runtime sizes such as non-positive `context_length`,
-  `num_envs`, or `kv_cache_max_len` raise `ValueError`.
-- When `use_windowed=False`, cached incremental inference is used. When
-  `kv_cache_max_len` is omitted, the default cache cap is `4 * context_length`.
-- When `use_windowed=True`, the full rolling window is passed each step and the
-  KV cache is not used.
-
 ## Development Checks
-
-Useful local checks:
 
 ```bash
 python -m compileall -q causal_gpt_rl
 python -m unittest discover -s tests
-```
-
-For package build checks:
-
-```bash
 python -m build
 python -m twine check dist/*
 ```
+
+## License
+
+PolyForm Noncommercial License 1.0.0. See `LICENSE` for details.
