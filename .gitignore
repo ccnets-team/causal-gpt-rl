@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and tool caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local editor/system files
+.local/
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
+
+# Local runtime artifacts
+wandb/
+logs/
+models/
+saved/
+bundle/
+bundles/
+*.pt
+*.pth
+*.safetensors
+
+# Notebook checkpoints
+.ipynb_checkpoints/

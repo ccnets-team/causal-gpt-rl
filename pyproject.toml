@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "causal-gpt-rl"
+version = "0.1.0"
+description = "Inference runtime for Causal-GPT-RL policy bundles"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
+authors = [
+  { name = "PARK, Jun-Ho", email = "junho@ccnets.org" },
+]
+keywords = ["reinforcement-learning", "inference", "pytorch", "transformers"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "torch>=2.0",
+  "transformers>=4.30",
+  "safetensors>=0.4.5",
+  "numpy>=1.24,<3",
+  "gymnasium>=1.0",
+]
+
+[project.optional-dependencies]
+mujoco = [
+  "gymnasium[mujoco]>=1.0",
+]
+hub = [
+  "huggingface_hub>=0.23.0",
+]
+dev = [
+  "pytest>=7.0",
+  "build>=1.2.0",
+  "twine>=5.0.0",
+]
+
+[project.urls]
+Homepage = "https://ccnets.org/"
+Repository = "https://github.com/ccnets-team/causal-gpt-rl"
+Issues = "https://github.com/ccnets-team/causal-gpt-rl/issues"
+Changelog = "https://github.com/ccnets-team/causal-gpt-rl/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["causal_gpt_rl*"]
+
+[tool.setuptools.package-data]
+causal_gpt_rl = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
