@@ -265,6 +265,10 @@ def load_runner(
     )
 
 
+def _resolve_hub_bundle_dir(snapshot_path: Path, subfolder: str) -> Path:
+    return snapshot_path / subfolder if subfolder else snapshot_path
+
+
 def load_runner_from_hub(
     repo_id: str,
     *,
@@ -282,7 +286,8 @@ def load_runner_from_hub(
     """Download an inference bundle from Hugging Face Hub and load a runner.
 
     The Hub repository should contain the standard bundle layout at the repo
-    root, or under `subfolder` when that argument is provided.
+    root, or under `subfolder` for per-environment repositories such as
+    `ccnets/causal-gpt-rl` with `subfolder="ant-v5"`.
     """
     try:
         from huggingface_hub import snapshot_download
@@ -303,7 +308,7 @@ def load_runner_from_hub(
             local_files_only=local_files_only,
         )
     )
-    bundle_dir = snapshot_path / subfolder if subfolder else snapshot_path
+    bundle_dir = _resolve_hub_bundle_dir(snapshot_path, subfolder)
     return load_runner(
         bundle_dir,
         device=device,

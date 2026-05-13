@@ -117,25 +117,31 @@ print(stats["return_mean"], stats["return_std"])
 
 ## Hugging Face Hub
 
-Hub model repositories should contain a bundle at the repository root:
+Hub model repositories should use one repository with per-environment
+subfolders:
 
 ```text
-model.safetensors
-config.json
-state_normalizer.safetensors  # optional
-README.md
+ccnets/causal-gpt-rl/
+  ant-v5/
+    model.safetensors
+    config.json
+    state_normalizer.safetensors  # optional
+    README.md
 ```
 
-Then load it directly:
+Then load the desired environment bundle directly:
 
 ```python
 from causal_gpt_rl.inference import load_runner_from_hub
 
 runner = load_runner_from_hub(
-    "ccnets/causal-gpt-rl-ant-v5",
+    repo_id="ccnets/causal-gpt-rl",
+    subfolder="ant-v5",
     device="cuda",
 )
 ```
+
+Root-level bundles are still supported by omitting `subfolder`.
 
 `run_episodes(...)` is intentionally single-env only. For vectorized or
 batched evaluation, drive `PolicyRunner` directly with `num_envs > 1`.
