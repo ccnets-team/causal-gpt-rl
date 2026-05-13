@@ -5,7 +5,7 @@ Layout (HF-style, per-file):
     <bundle_dir>/
     model.safetensors             # weights (state_dict)
     config.json                   # ModelConfig + state/action specs + context_length
-    state_normalizer.safetensors  # optional StateNormalizer state_dict
+    state_normalizer.safetensors  # StateNormalizer state_dict
 
 `config.json` schema (`bundle_format_version=1`):
 
@@ -94,8 +94,8 @@ def convert_legacy_bundle_to_safetensors(
     """Convert legacy `model.pt` bundle weights to safetensors in-place.
 
     This is intended for old public bundles produced before safetensors export.
-    It expects `model.pt` and optional `state_normalizer.pt` to contain plain
-    tensor state_dicts, not full training checkpoints.
+    It expects `model.pt` and `state_normalizer.pt` to contain plain tensor
+    state_dicts, not full training checkpoints.
     """
     _require_safetensors()
 
@@ -115,12 +115,15 @@ def convert_legacy_bundle_to_safetensors(
 
     legacy_normalizer_path = bundle_dir / _LEGACY_NORMALIZER_FILENAME
     normalizer_path = bundle_dir / _NORMALIZER_FILENAME
-    if legacy_normalizer_path.is_file():
-        normalizer_state = _ensure_tensor_state_dict(
-            torch.load(legacy_normalizer_path, map_location="cpu"),
-            source=legacy_normalizer_path,
+    if not legacy_normalizer_path.is_file():
+        raise FileNotFoundError(
+            f"Legacy bundle state normalizer not found: {legacy_normalizer_path}"
         )
-        save_safetensors(normalizer_state, normalizer_path)
+    normalizer_state = _ensure_tensor_state_dict(
+        torch.load(legacy_normalizer_path, map_location="cpu"),
+        source=legacy_normalizer_path,
+    )
+    save_safetensors(normalizer_state, normalizer_path)
 
     if remove_legacy:
         _remove_if_exists(legacy_model_path)
@@ -137,7 +140,7 @@ def export_bundle(
     state_specs: Iterable[SpaceSpec],
     action_specs: Iterable[SpaceSpec],
     context_length: int,
-    state_normalizer: Optional[StateNormalizer] = None,
+    state_normalizer: StateNormalizer,
 ) -> Path:
     """Write the bundle to `bundle_dir`. Creates the directory if needed."""
     bundle_dir = Path(bundle_dir)
@@ -163,15 +166,13 @@ def export_bundle(
     save_safetensors(model.state_dict(), bundle_dir / _MODEL_FILENAME)
     _remove_if_exists(bundle_dir / _LEGACY_MODEL_FILENAME)
 
-    if state_normalizer is not None:
-        save_safetensors(
-            state_normalizer.state_dict(),
-            bundle_dir / _NORMALIZER_FILENAME,
-        )
-        _remove_if_exists(bundle_dir / _LEGACY_NORMALIZER_FILENAME)
-    else:
-        _remove_if_exists(bundle_dir / _NORMALIZER_FILENAME)
-        _remove_if_exists(bundle_dir / _LEGACY_NORMALIZER_FILENAME)
+    if state_normalizer is None:
+        raise ValueError("state_normalizer is required for public inference bundles.")
+    save_safetensors(
+        state_normalizer.state_dict(),
+        bundle_dir / _NORMALIZER_FILENAME,
+    )
+    _remove_if_exists(bundle_dir / _LEGACY_NORMALIZER_FILENAME)
 
     return bundle_dir
 
@@ -243,6 +244,11 @@ def load_runner(
             torch.load(legacy_normalizer_path, map_location=torch_device)
         )
         normalizer.to(torch_device)
+    else:
+        raise FileNotFoundError(
+            f"Bundle state normalizer not found: {normalizer_path} or "
+            f"{legacy_normalizer_path}"
+        )
 
     action_mode, head_sizes, action_size, lows, highs = PolicyRunner._resolve_action_specs(
         action_specs

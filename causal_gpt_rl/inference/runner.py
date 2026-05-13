@@ -1,6 +1,6 @@
 """PolicyRunner public step-wise inference API.
 
-Wraps the rolling context buffer, KV cache, and optional state normalizer
+Wraps the rolling context buffer, KV cache, and state normalizer
 around a trained AutoregressiveModel and exposes a small
 `reset(state) / act(state) -> env_action` interface. After reset, callers may
 also use `act()` because the initial state is already seeded in the buffer.
@@ -43,7 +43,7 @@ class PolicyRunner:
         state_size: int,
         action_size: int,
         context_length: int,
-        state_normalizer: Optional[StateNormalizer] = None,
+        state_normalizer: StateNormalizer,
         num_envs: int = 1,
         kv_cache_max_len: Optional[int] = None,
         use_windowed: bool = False,
@@ -65,6 +65,8 @@ class PolicyRunner:
             raise ValueError(f"context_length must be > 0, got {context_length}")
         if self.num_envs <= 0:
             raise ValueError(f"num_envs must be > 0, got {num_envs}")
+        if state_normalizer is None:
+            raise ValueError("state_normalizer is required for policy inference.")
 
         self.default_kv_cache_max_len = (
             self.context_length * DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER

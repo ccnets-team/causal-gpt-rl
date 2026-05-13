@@ -4,8 +4,8 @@ Public inference runtime for Causal-GPT-RL policies.
 
 This repository contains the code needed to load a policy bundle and run it in
 an environment. It is intentionally focused on inference: model
-construction, bundle loading, action decoding, rolling context state, optional
-state normalization, and simple evaluation helpers.
+construction, bundle loading, action decoding, rolling context state, state
+normalization, and simple evaluation helpers.
 
 Model creation workflows and experiment infrastructure are outside this runtime
 boundary.
@@ -31,14 +31,15 @@ A deployment bundle is a single directory:
 bundle/
   model.safetensors
   config.json
-  state_normalizer.safetensors  # optional
+  state_normalizer.safetensors
 ```
 
 `model.safetensors` contains only the model state dict needed for inference.
 `config.json` contains public metadata required to reconstruct the runner:
 model config, observation specs, action specs, and context length.
-`state_normalizer.safetensors` is optional and stores state normalization
-statistics when the policy expects normalized observations.
+`state_normalizer.safetensors` stores the state normalization statistics used
+by the exported policy. Public MuJoCo bundles should include this file so Hub
+loading and local loading run the same normalized observation path.
 
 The bundle does not include experiment metadata or development-only state.
 
@@ -125,7 +126,7 @@ ccnets/causal-gpt-rl/
   ant-v5/
     model.safetensors
     config.json
-    state_normalizer.safetensors  # optional
+    state_normalizer.safetensors
     README.md
 ```
 
