@@ -297,10 +297,10 @@ class ModelConfig:
 
     network_name: str = "Llama"  # e.g. "Llama", "GPT-2".
     num_layers: int = 4
-    d_model: int = 192
+    d_model: int = 256
     num_heads: int = 8
-    dropout: float = 0.05
-    init_log_std: float = -1.0
+    dropout: float = 0.0
+    init_log_std: float = -1.5
     rope_theta: float = 1e3
     intermediate_size: Optional[int] = None
     max_position_embeddings: Optional[int] = None

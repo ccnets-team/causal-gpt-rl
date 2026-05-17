@@ -15,7 +15,8 @@ Layout (HF-style, per-file):
       "model_config":    { ... ModelConfig.to_dict() ... },
       "state_specs":     [ ... SpaceSpec.to_json_dict() ... ],
       "action_specs":    [ ... SpaceSpec.to_json_dict() ... ],
-      "context_length":  <int>
+      "context_length":  <int>,
+      "env_id":          "<gymnasium env id>"  # optional, added 0.2.0+
     }
 
 Release-candidate v1 details:
@@ -141,6 +142,7 @@ def export_bundle(
     action_specs: Iterable[SpaceSpec],
     context_length: int,
     state_normalizer: StateNormalizer,
+    env_id: Optional[str] = None,
 ) -> Path:
     """Write the bundle to `bundle_dir`. Creates the directory if needed."""
     bundle_dir = Path(bundle_dir)
@@ -157,6 +159,8 @@ def export_bundle(
         "action_specs": [s.to_json_dict() for s in action_specs],
         "context_length": int(context_length),
     }
+    if env_id:
+        config_payload["env_id"] = str(env_id)
     (bundle_dir / _CONFIG_FILENAME).write_text(
         json.dumps(config_payload, indent=2, allow_nan=False),
         encoding="utf-8",

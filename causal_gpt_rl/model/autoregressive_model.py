@@ -247,18 +247,18 @@ class AutoregressiveModel(nn.Module):
         return self._extract_mean_action(outputs)
 
     @torch.inference_mode()
-    def sample_action_from_heads(self, out: list[torch.Tensor]) -> torch.Tensor:
+    def sample_action_from_heads(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         if self._is_continuous:
-            return self._sample_continuous(out)
+            return self._sample_continuous(out, std_scale=std_scale)
         if self._is_discrete:
             return self._sample_discrete(out)
         raise NotImplementedError("Mixed continuous/discrete action heads are not supported in action sampling.")
 
-    def _sample_continuous(self, out: list[torch.Tensor]) -> torch.Tensor:
+    def _sample_continuous(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         mean = torch.cat([out[i] for i in self.mean_action_indices], dim=-1)
         log_std = torch.cat([out[i] for i in self.log_std_action_indices], dim=-1)
         log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
-        z = mean + log_std.exp() * torch.randn_like(mean)
+        z = mean + std_scale * log_std.exp() * torch.randn_like(mean)
         squashed = torch.tanh(z)
         scale = self._action_scale.to(dtype=squashed.dtype)
         bias = self._action_bias.to(dtype=squashed.dtype)

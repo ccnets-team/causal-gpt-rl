@@ -87,7 +87,8 @@ bundle/
 ```
 
 - `model.safetensors` — model state dict for inference.
-- `config.json` — model config, observation specs, action specs, and context length.
+- `config.json` — model config, observation specs, action specs, context length,
+  and optional `env_id`.
 - `state_normalizer.safetensors` — state normalization statistics used by the policy.
 
 ## Hugging Face Layout
