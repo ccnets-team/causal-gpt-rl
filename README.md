@@ -68,12 +68,12 @@ Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
 
 | Environment | Gymnasium ID | Hub subfolder | Return (mean ± std) |
 |---|---|---|---|
-| Ant | `Ant-v5` | `ant-v5` | 3033 ± 895 |
-| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 2066 ± 2776 |
-| Walker2d | `Walker2d-v5` | `walker2d-v5` | 2961 ± 756 |
-| Humanoid | `Humanoid-v5` | `humanoid-v5` | 3634 ± 2152 |
+| Ant | `Ant-v5` | `ant-v5` | 2614 ± 1515 |
+| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 2680 ± 2059 |
+| Walker2d | `Walker2d-v5` | `walker2d-v5` | 2345 ± 879 |
+| Humanoid | `Humanoid-v5` | `humanoid-v5` | 2371 ± 2850 |
 
-Returns are over 5 episodes with `seed=0`, run on CPU via `run_episodes`.
+Returns are over 5 episodes with `seed=0` (HalfCheetah-v5: 50 episodes), run on CPU via `run_episodes`.
 
 ## Bundle Format
 
