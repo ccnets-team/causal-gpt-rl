@@ -69,7 +69,7 @@ Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
 | Environment | Gymnasium ID | Hub subfolder | Return (mean ± std) |
 |---|---|---|---|
 | Ant | `Ant-v5` | `ant-v5` | 2614 ± 1515 |
-| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 2680 ± 2059 |
+| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 3251 ± 1916 |
 | Walker2d | `Walker2d-v5` | `walker2d-v5` | 2345 ± 879 |
 | Humanoid | `Humanoid-v5` | `humanoid-v5` | 2371 ± 2850 |
 
@@ -102,12 +102,6 @@ ccnets/causal-gpt-rl/
     config.json
     state_normalizer.safetensors
     README.md
-```
-
-Root-level bundles are supported by omitting `subfolder`:
-
-```python
-load_runner_from_hub(repo_id="ccnets/causal-gpt-rl-ant")
 ```
 
 For local bundles, use `load_runner("path/to/bundle")`.
