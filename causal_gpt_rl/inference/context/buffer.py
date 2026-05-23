@@ -110,6 +110,8 @@ class ContextBuffer:
         self.states = np.roll(self.states, shift=-1, axis=1)
         # Place the new observations at the last position
         self.states[:, -1] = dec_next_states
+        if is_bos != 0.0:
+            self.states[:, -2] = dec_next_states
 
         # Shift the sequence by one step to the left
         self.actions = np.roll(self.actions, shift=-1, axis=1)

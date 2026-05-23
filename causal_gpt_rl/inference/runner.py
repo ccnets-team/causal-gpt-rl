@@ -23,6 +23,7 @@ import torch
 
 from ..model.autoregressive_model import AutoregressiveModel
 from ..model.schema import DataSpec, ensure_tensor_heads
+from ..model.utils.kv_cache import cache_has_history
 from .checkpoint import load_inference_checkpoint
 from .context.buffer import ContextBuffer
 from .state_normalizer import StateNormalizer
@@ -96,6 +97,7 @@ class PolicyRunner:
         )
         self._last_buffer_action: Optional[np.ndarray] = None
         self._is_reset = False
+        self._reset_kv_after_next_act = False
 
         self.model.eval()
         if self.state_normalizer is not None:
@@ -109,6 +111,7 @@ class PolicyRunner:
         self.buffer.update_data(state, zeros, is_bos=1.0)
         self._last_buffer_action = None
         self._is_reset = True
+        self._reset_kv_after_next_act = True
 
     @torch.inference_mode()
     def act(self, state=None) -> np.ndarray:
@@ -136,6 +139,11 @@ class PolicyRunner:
                 padding_mask=mask_t,
             )
         else:
+            if not cache_has_history(past_kv):
+                states_t = states_t[:, -1:]
+                actions_t = actions_t[:, -1:]
+                is_bos_t = is_bos_t[:, -1:]
+                mask_t = mask_t[:, -1:]
             next_action, past_kv = self.model.predict_incremental_cached(
                 states=states_t,
                 actions=actions_t,
@@ -144,7 +152,11 @@ class PolicyRunner:
                 past_key_values=past_kv,
                 cache_max_len=self.kv_cache_max_len,
             )
-            self.buffer.set_past_key_values(past_kv)
+            if self._reset_kv_after_next_act:
+                self.buffer.set_past_key_values(None)
+                self._reset_kv_after_next_act = False
+            else:
+                self.buffer.set_past_key_values(past_kv)
 
         last_step = ensure_tensor_heads(next_action)[:, -1]
         env_action, buffer_action = self._decode(last_step.detach().cpu().numpy())
