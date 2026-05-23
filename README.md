@@ -66,14 +66,14 @@ Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
 
 ## Supported Environments
 
-| Environment | Gymnasium ID | Hub subfolder | Return (mean ± std) |
-|---|---|---|---|
-| Ant | `Ant-v5` | `ant-v5` | 2614 ± 1515 |
-| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 3251 ± 1916 |
-| Walker2d | `Walker2d-v5` | `walker2d-v5` | 2345 ± 879 |
-| Humanoid | `Humanoid-v5` | `humanoid-v5` | 5420 ± 3176 |
+| Environment | Gymnasium ID | Hub subfolder | Context length | Return (mean ± std) |
+|---|---|---|---:|---:|
+| Ant | `Ant-v5` | `ant-v5` | 16 | 2575.95 ± 1522.32 |
+| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 4738.95 ± 1817.96 |
+| Walker2d | `Walker2d-v5` | `walker2d-v5` | 24 | 3045.41 ± 965.62 |
+| Humanoid | `Humanoid-v5` | `humanoid-v5` | 32 | 5420 ± 3176 |
 
-Returns are over 5 episodes with `seed=0` (HalfCheetah-v5 and Humanoid-v5: 50 episodes), run on CPU via `run_episodes`. KV cache max length is capped to the listed context length.
+Returns are over 50 episodes with seeds `0..49`. KV cache max length is capped to the listed context length.
 
 ## Bundle Format
 
