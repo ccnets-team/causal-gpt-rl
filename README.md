@@ -71,9 +71,9 @@ Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
 | Ant | `Ant-v5` | `ant-v5` | 2614 ± 1515 |
 | HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 3251 ± 1916 |
 | Walker2d | `Walker2d-v5` | `walker2d-v5` | 2345 ± 879 |
-| Humanoid | `Humanoid-v5` | `humanoid-v5` | 2371 ± 2850 |
+| Humanoid | `Humanoid-v5` | `humanoid-v5` | 5420 ± 3176 |
 
-Returns are over 5 episodes with `seed=0` (HalfCheetah-v5: 50 episodes), run on CPU via `run_episodes`.
+Returns are over 5 episodes with `seed=0` (HalfCheetah-v5 and Humanoid-v5: 50 episodes), run on CPU via `run_episodes`. KV cache max length is capped to the listed context length.
 
 ## Bundle Format
 
