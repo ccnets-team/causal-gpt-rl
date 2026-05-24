@@ -1,3 +1,15 @@
+---
+license: other
+license_name: polyform-noncommercial-1.0.0
+license_link: https://polyformproject.org/licenses/noncommercial/1.0.0/
+library_name: pytorch
+tags:
+  - reinforcement-learning
+  - gymnasium
+  - mujoco
+  - causal-gpt-rl
+---
+
 # Causal GPT-RL
 
 GPT-style transformers (GPT-2, Llama) running as RL policies in continuous-control environments.
@@ -70,7 +82,7 @@ Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
 |---|---|---|---:|---:|
 | Ant | `Ant-v5` | `ant-v5` | 16 | 2575.95 ± 1522.32 |
 | HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 4738.95 ± 1817.96 |
-| Walker2d | `Walker2d-v5` | `walker2d-v5` | 24 | 3045.41 ± 965.62 |
+| Walker2d | `Walker2d-v5` | `walker2d-v5` | 32 | 4009.41 ± 666.95 |
 | Humanoid | `Humanoid-v5` | `humanoid-v5` | 32 | 5855 ± 3297 |
 
 Returns are over 50 episodes with seeds `0..49`. KV cache max length is capped to the listed context length.
