@@ -86,6 +86,8 @@ Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team
 | `Walker2d-v5` | `walker2d-v5` | 32 | 3883.30±684.09 | 56.69±9.99 | 83.26 |
 | `Humanoid-v5` | `humanoid-v5` | 32 | 6089.64±2512.73 | 70.41±29.58 | 81.30 |
 
+Training data is expert-free: bundles are trained using Minari simple and medium datasets only; expert trajectories are not used for training.
+
 `Return` and `Norm.` are mean±std over 50 episodes with seeds `0..49`. `Ctx` is context length. `max_steps=1000`, and KV cache max length is capped to `Ctx`.
 
 Normalized scores use random=0 and expert=100:
