@@ -1,7 +1,7 @@
 ---
 license: other
 license_name: polyform-noncommercial-1.0.0
-license_link: https://polyformproject.org/licenses/noncommercial/1.0.0/
+license_link: https://polyformproject.org/licenses/noncommercial/1.0.0
 library_name: pytorch
 tags:
   - reinforcement-learning
@@ -27,8 +27,9 @@ A single autoregressive model drives full-episode rollouts via KV cache — no c
 
 This repository is the public inference runtime. It loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers.
 
+- **Code (GitHub):** [ccnets-team/causal-gpt-rl](https://github.com/ccnets-team/causal-gpt-rl)
 - **Run logs (W&B, public):** [wandb.ai/junhopark/Causal GPT-RL](https://wandb.ai/junhopark/Causal%20GPT-RL)
-- **Models (Hugging Face):** https://huggingface.co/ccnets
+- **Hugging Face org:** https://huggingface.co/ccnets
 - Website: https://ccnets.org
 - LinkedIn: https://www.linkedin.com/company/ccnets
 
@@ -74,18 +75,36 @@ env.close()
 print(stats["return_mean"], stats["return_std"])
 ```
 
-Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
+Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team/causal-gpt-rl/blob/main/examples/hub_quickstart.ipynb)
 
 ## Supported Environments
 
-| Environment | Gymnasium ID | Hub subfolder | Context length | Return (mean ± std) |
-|---|---|---|---:|---:|
-| Ant | `Ant-v5` | `ant-v5` | 32 | 3245.71 ± 1140.68 |
-| HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 4738.95 ± 1817.96 |
-| Walker2d | `Walker2d-v5` | `walker2d-v5` | 32 | 4009.41 ± 666.95 |
-| Humanoid | `Humanoid-v5` | `humanoid-v5` | 32 | 6684.22 ± 2407.42 |
+| Env | Bundle | Ctx | Return | Norm. | Medium Ref. |
+|---|---|---:|---:|---:|---:|
+| `Ant-v5` | `ant-v5` | 32 | 3339.51±1115.40 | 50.56±16.54 | 86.54 |
+| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 4877.39±1899.50 | 31.12±11.51 | 74.83 |
+| `Walker2d-v5` | `walker2d-v5` | 32 | 3883.30±684.09 | 56.69±9.99 | 83.26 |
+| `Humanoid-v5` | `humanoid-v5` | 32 | 6089.64±2512.73 | 70.41±29.58 | 81.30 |
 
-Returns are over 50 episodes with seeds `0..49`. KV cache max length is capped to the listed context length.
+`Return` and `Norm.` are mean±std over 50 episodes with seeds `0..49`. `Ctx` is context length. `max_steps=1000`, and KV cache max length is capped to `Ctx`.
+
+Normalized scores use random=0 and expert=100:
+
+```text
+100 * (return - random_ref) / (expert_ref - random_ref)
+```
+
+Medium reference scores are shown for context and are not the normalization baseline.
+
+Evaluation runtime:
+
+```text
+causal-gpt-rl 0.2.1
+torch 2.12.0+cu132
+gymnasium 1.2.2
+mujoco 3.8.1
+minari 0.5.3
+```
 
 ## Bundle Format
 
