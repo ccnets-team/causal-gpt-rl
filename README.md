@@ -80,10 +80,10 @@ Notebook version: [examples/hub_quickstart.ipynb](examples/hub_quickstart.ipynb)
 
 | Environment | Gymnasium ID | Hub subfolder | Context length | Return (mean ± std) |
 |---|---|---|---:|---:|
-| Ant | `Ant-v5` | `ant-v5` | 16 | 2575.95 ± 1522.32 |
+| Ant | `Ant-v5` | `ant-v5` | 32 | 3245.71 ± 1140.68 |
 | HalfCheetah | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 4738.95 ± 1817.96 |
 | Walker2d | `Walker2d-v5` | `walker2d-v5` | 32 | 4009.41 ± 666.95 |
-| Humanoid | `Humanoid-v5` | `humanoid-v5` | 32 | 5855 ± 3297 |
+| Humanoid | `Humanoid-v5` | `humanoid-v5` | 32 | 6684.22 ± 2407.42 |
 
 Returns are over 50 episodes with seeds `0..49`. KV cache max length is capped to the listed context length.
 
