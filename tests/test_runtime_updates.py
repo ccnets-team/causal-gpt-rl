@@ -18,7 +18,6 @@ class TestRuntimeUpdates(unittest.TestCase):
         self.assertEqual(config.d_model, 256)
         self.assertEqual(config.num_heads, 8)
         self.assertEqual(config.dropout, 0.0)
-        self.assertEqual(config.init_log_std, -1.5)
 
     def test_continuous_sampling_std_scale_zero_uses_mean_action(self):
         model = AutoregressiveModel(

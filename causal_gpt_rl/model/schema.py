@@ -300,7 +300,6 @@ class ModelConfig:
     d_model: int = 256
     num_heads: int = 8
     dropout: float = 0.0
-    init_log_std: float = -1.5
     rope_theta: float = 1e3
     intermediate_size: Optional[int] = None
     max_position_embeddings: Optional[int] = None
