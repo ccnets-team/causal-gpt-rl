@@ -35,6 +35,25 @@ This repository is the public inference runtime. It loads policy bundles, runs G
 
 Released under PolyForm Noncommercial 1.0.0. For commercial licensing, contact the maintainers via ccnets.org.
 
+## Product Overview
+
+Causal GPT-RL is a GPT-based reinforcement learning product that turns offline trajectory data into deployable decision-making agents.
+
+The system is designed for users who have recorded interaction data, simulation logs, or control trajectories and want to train policies that can act in sequential decision-making environments.
+
+At the public package level, causal-gpt-rl provides the inference runtime for loading and evaluating trained policy bundles. These bundles can be executed in Gymnasium / MuJoCo environments and used to reproduce rollout behavior, benchmark performance, and demonstrate GPT-style reinforcement learning agents.
+
+For commercial use, Causal GPT-RL is intended to support custom training from private offline datasets, cloud-based training workflows, and deployment of trained policy bundles through managed infrastructure.
+
+In short:
+
+- Public PyPI package: provides the inference runtime for loading Hugging Face or local policy bundles
+- Hugging Face Hub: provides public pretrained policy bundles for testing, evaluation, and demos
+- Commercial product: trains custom GPT-style RL agents from user-provided offline datasets
+- Future direction: managed cloud training and SaaS-based decision-agent deployment
+
+Causal GPT-RL is positioned as a bridge between offline reinforcement learning research and deployable AI agents for real-world sequential decision-making.
+
 ## Install
 
 For Hub loading and MuJoCo environments:
