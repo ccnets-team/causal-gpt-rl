@@ -56,7 +56,7 @@ class GPTBackbone(nn.Module):
         num_heads = int(getattr(config, "num_heads", 8))
         d_model = int(getattr(config, "d_model", 256))
         num_layers = int(getattr(config, "num_layers", 4))
-        dropout = float(getattr(config, "dropout", 0.05))
+        dropout = float(getattr(config, "dropout", 0.02))
         rope_theta = float(getattr(config, "rope_theta", 1e3))
         intermediate_size = int(getattr(config, "intermediate_size", None) or d_model * 4)
         context_length = int(

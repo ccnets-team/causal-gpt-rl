@@ -6,95 +6,67 @@ Hyperparameter schema for a Causal-GPT-RL training job. Instantiate
 you want to override, and submit the result as the job payload. Any
 field left at its default is treated as "use the recipe default".
 
-Quick-Reference for Key Fields:
+Quick-Reference for Domain-Specific Fields:
 -------------------------------------------------------------------
 
-data_source          : (str)    "byo" trains on your own Minari datasets
-                                supplied via the job's training channel;
-                                "minari_remote" downloads from the public
-                                Minari registry.
+dataset_ids          : (list)   Minari dataset identifiers to train on.
+                                Required. Your datasets are supplied via the
+                                job's training channel (bring-your-own).
 
-dataset_ids          : (list)   Minari dataset identifiers. Required when
-                                data_source="byo".
+env_id               : (str)    Optional Gymnasium environment id for
+                                environment-based evaluation. Omit for
+                                offline/data-only evaluation.
 
-td_lambda            : (float)  TD(lambda) bootstrap coefficient used in
-                                return estimation. Typically near 1.0 for
-                                longer-horizon tasks. Accepted alias:
-                                "lambd".
-
-context_length       : (int)    Model context window: the trajectory length
-                                the transformer operates over. Applies both
-                                at training time and to the exported model at
-                                inference.
-
-tau                  : (float)  "Soft update" factor for the target network.
-                                Lower means slower, more stable updates.
-
-max_grad_norm        : (float)  Gradient clipping threshold. Lower means more
-                                stable training.
-
-scheduler_type       : (str)    LR scheduler after warmup. One of
-                                "linear", "exponential", "cosine".
-
-network_name         : (str)    Backbone architecture (e.g. "Llama").
-
-d_model / num_heads  : (int)    Hidden dim and attention head count.
-                                d_model must be divisible by num_heads.
+context_length       : (int)    RL trajectory context window passed to the
+                                Hugging Face Transformers Llama backbone.
+                                Applies both at training time and to the
+                                exported model at inference.
 -------------------------------------------------------------------
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 
 @dataclass
 class Hyperparameters:
-    # Data
-    data_source: str = "byo"
-    dataset_ids: Optional[list[str]] = None
-    env_id: Optional[str] = None
-    difficulties: list[str] = field(default_factory=lambda: ["simple", "medium"])
-    no_download: bool = False
 
-    # Run
-    seed: int = 42
-    device: Optional[str] = None
-    max_iters: int = 200_000
+    # 1) Data - managed jobs are bring-your-own: data arrives via the training
+    # channel, so dataset_ids is required.
+    dataset_ids: Optional[list[str]] = None                     # required BYO Minari dataset ids
+    env_id: Optional[str]  = None                               # optional Gymnasium env id for evaluation
 
-    # Training
-    batch_size: int = 128
-    gamma: float = 0.99
-    td_lambda: float = 0.95
-    extra_td_ratio: float = 0.25
-    init_log_std: float = -1.0
+    # 2) Training
+    seed: int = 42                                              # reproducibility seed
+    max_steps: int = 100_000                                    # optimizer updates; 0 is allowed for smoke tests
+    batch_size: int = 128                                       # minibatch size
+    gamma: float = 0.99                                         # RL discount factor
+    td_lambda: float = 0.95                                     # TD(lambda) coefficient; JSON key "lambda" is also accepted
 
-    # Optimization
-    learning_rate: float = 1e-4
-    tau: float = 0.005
-    scheduler_type: str = "cosine"
-    warmup_ratio: float = 0.05
-    lr_decay_rate: float = 0.01
-    max_grad_norm: float = 1.0
+    # 3) Optimization
+    learning_rate: float = 1e-4                                 # peak LR (after warmup)
+    min_lr: float = 1e-6                                        # LR decay floor (absolute); 0 < min_lr <= learning_rate
+    lr_scheduler_type: str = "cosine"                           # LR scheduler choice: "linear" | "cosine"
+    warmup_ratio: float = 0.05                                  # fraction of training steps used for LR warmup
+    max_grad_norm: float = 1.0                                  # gradient clipping threshold
 
-    # Network
-    network_name: str = "Llama"
-    num_layers: int = 4
-    d_model: int = 256
-    num_heads: int = 8
-    dropout: float = 0.05
-    rope_theta: float = 1e3
-    context_length: int = 32
-    intermediate_size: Optional[int] = None
-    max_position_embeddings: Optional[int] = None
+    # 4) Network
+    d_model: int = 256                                          # model width; maps to HF LlamaConfig.hidden_size
+    num_heads: int = 8                                          # attention heads; d_model must be divisible by this
+    num_layers: int = 4                                         # transformer layer count
+    context_length: int = 32                                    # trajectory timesteps visible to the policy
 
-    def set_config(self, **kwargs) -> None:
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
+    # -----------------------
+    # Methods
+    # -----------------------
+    def set_config(self, **kwargs):
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
             else:
-                print(f"Warning: No attribute '{key}' in Hyperparameters")
+                print(f"Warning: No attribute '{k}' in Hyperparameters")
 
     def to_dict(self) -> dict:
         return asdict(self)

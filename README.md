@@ -14,11 +14,11 @@ tags:
 
 GPT-style transformers (GPT-2, Llama) running as RL policies in continuous-control environments.
 
-The autoregressive structure is the same on both sides:
+Both LLM generation and RL interaction are autoregressive:
 
 ```text
-action → next state → next action      (RL rollouts)
-token  → next token  → next token      (LLM generation)
+token           → next token                           (LLM generation)
+(state, action) → (next state from env, next action)   (RL rollout)
 ```
 
 Causal GPT-RL policies act stably under their own rollouts — long-horizon control without the drift that has historically kept transformers from being usable as RL agents.
@@ -101,7 +101,8 @@ Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team
 | Env | Bundle | Ctx | Return | Norm. | Medium Ref. |
 |---|---|---:|---:|---:|---:|
 | `Ant-v5` | `ant-v5` | 32 | 3339.51±1115.40 | 50.56±16.54 | 86.54 |
-| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 4877.39±1899.50 | 31.12±11.51 | 74.83 |
+| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 5989.04±1902.22 | 37.86±11.53 | 74.83 |
+| `Hopper-v5` | `hopper-v5` | 32 | 2836.28±987.67 | 73.40±25.72 | 72.91 |
 | `Walker2d-v5` | `walker2d-v5` | 32 | 3883.30±684.09 | 56.69±9.99 | 83.26 |
 | `Humanoid-v5` | `humanoid-v5` | 32 | 6089.64±2512.73 | 70.41±29.58 | 81.30 |
 
@@ -182,4 +183,4 @@ python -m twine check dist/*
 
 ## License
 
-PolyForm Noncommercial License 1.0.0. See `LICENSE` for details.
+Released under PolyForm Noncommercial License 1.0.0. See `LICENSE` for details. For commercial licensing, contact the maintainers via ccnets.org.
