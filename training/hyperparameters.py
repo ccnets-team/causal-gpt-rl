@@ -11,11 +11,10 @@ Quick-Reference for Domain-Specific Fields:
 
 dataset_ids          : (list)   Minari dataset identifiers to train on.
                                 Required. Your datasets are supplied via the
-                                job's training channel (bring-your-own).
-
-env_id               : (str)    Optional Gymnasium environment id for
-                                environment-based evaluation. Omit for
-                                offline/data-only evaluation.
+                                job's training channel (bring-your-own). The
+                                target environment is read from each dataset's
+                                Minari metadata; managed jobs always evaluate
+                                offline (data-only), so no env id is supplied.
 
 context_length       : (int)    RL trajectory context window passed to the
                                 Hugging Face Transformers Llama backbone.
@@ -34,9 +33,9 @@ from typing import Optional
 class Hyperparameters:
 
     # 1) Data - managed jobs are bring-your-own: data arrives via the training
-    # channel, so dataset_ids is required.
+    # channel, so dataset_ids is required. The target env is read from the
+    # dataset's own Minari metadata (env_spec), so no env_id field is needed.
     dataset_ids: Optional[list[str]] = None                     # required BYO Minari dataset ids
-    env_id: Optional[str]  = None                               # optional Gymnasium env id for evaluation
 
     # 2) Training
     seed: int = 42                                              # reproducibility seed
@@ -53,9 +52,10 @@ class Hyperparameters:
     max_grad_norm: float = 1.0                                  # gradient clipping threshold
 
     # 4) Network
-    d_model: int = 256                                          # model width; maps to HF LlamaConfig.hidden_size
+    d_model: int = 256                                          # model width; HF LlamaConfig.hidden_size alias accepted
     num_heads: int = 8                                          # attention heads; d_model must be divisible by this
     num_layers: int = 4                                         # transformer layer count
+    dropout: float = 0.05                                       # transformer dropout probability
     context_length: int = 32                                    # trajectory timesteps visible to the policy
 
     # -----------------------
