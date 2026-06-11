@@ -101,7 +101,7 @@ Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team
 | Env | Bundle | Ctx | Return | Norm. | Medium Ref. |
 |---|---|---:|---:|---:|---:|
 | `Ant-v5` | `ant-v5` | 32 | 3339.51±1115.40 | 50.56±16.54 | 86.54 |
-| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 5989.04±1902.22 | 37.86±11.53 | 74.83 |
+| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6865.15±2657.69 | 43.17±16.11 | 74.83 |
 | `Hopper-v5` | `hopper-v5` | 32 | 2836.28±987.67 | 73.40±25.72 | 72.91 |
 | `Walker2d-v5` | `walker2d-v5` | 32 | 3883.30±684.09 | 56.69±9.99 | 83.26 |
 | `Humanoid-v5` | `humanoid-v5` | 32 | 6511.87±2855.54 | 75.38±33.62 | 81.30 |
