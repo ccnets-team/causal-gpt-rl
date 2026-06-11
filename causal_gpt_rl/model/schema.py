@@ -299,7 +299,7 @@ class ModelConfig:
     num_layers: int = 4
     d_model: int = 256
     num_heads: int = 8
-    dropout: float = 0.02
+    dropout: float = 0.05
     rope_theta: float = 1e3
     intermediate_size: Optional[int] = None
     max_position_embeddings: Optional[int] = None
