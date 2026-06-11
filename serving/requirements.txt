@@ -1,0 +1,5 @@
+# Serving-only dependencies for the SageMaker inference container.
+# The model runtime itself (torch, transformers, safetensors, numpy, gymnasium)
+# is installed from the causal-gpt-rl package via `pip install .` in the Dockerfile.
+flask>=3.0
+gunicorn>=21.2

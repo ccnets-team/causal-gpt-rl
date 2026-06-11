@@ -1,0 +1,22 @@
+# Keep the image build context (repo root) lean. The inference Dockerfile only
+# needs pyproject.toml, README.md, LICENSE, causal_gpt_rl/, and serving/.
+.git
+.github
+.claude
+.local
+.vscode
+.idea
+.pytest_cache
+.mypy_cache
+.ruff_cache
+__pycache__
+*.egg-info
+*.py[cod]
+build
+dist
+examples
+tests
+training
+docs
+*.ipynb
+.ipynb_checkpoints
