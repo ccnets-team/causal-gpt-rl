@@ -1,0 +1,69 @@
+﻿# SageMaker Checkpoints
+
+Causal GPT-RL training can save intermediate training state while a SageMaker training job is running. The SageMaker setting is a checkpoint S3 prefix, so this document uses the term checkpoint.
+
+## What Is Saved Where
+
+There are two related outputs:
+
+- Checkpoint S3 prefix: resume/retraining state synced by SageMaker during training.
+- SageMaker output artifact: final `model.tar.gz`, which contains inference bundles.
+
+## Checkpoint S3 Prefix
+
+Set a SageMaker checkpoint S3 prefix when creating the training job.
+
+```text
+s3://my-bucket/cgrl/checkpoints/<training-job-name>/
+```
+
+The checkpoint prefix stores full training checkpoints under an archive directory:
+
+```text
+<checkpoint-prefix>/
+  <run-name>/
+    archive/
+      model_checkpoint_slot_000.pt
+      model_checkpoint_slot_001.pt
+      ...
+      model_checkpoint_slot_009.pt
+```
+
+These `.pt` files contain training state for resume/retraining, including model state and optimizer/scheduler state.
+
+## Slot Rotation
+
+At most 10 checkpoint slots are kept. After `model_checkpoint_slot_009.pt`, training rotates back to `model_checkpoint_slot_000.pt` and overwrites older slots.
+
+## Bundle and Snapshots
+
+The final SageMaker output artifact is separate from the checkpoint prefix. After training finishes, `model.tar.gz` contains:
+
+```text
+model.tar.gz
+  reports/
+    summary.json
+  <run-name>/
+    bundle/
+      model.safetensors
+      config.json
+      state_normalizer.safetensors
+    snapshots/
+      manifest.json
+      slot_000/
+        model.safetensors
+        config.json
+        state_normalizer.safetensors
+        metrics.json
+      ...
+      slot_009/
+```
+
+- `bundle/` is the canonical inference bundle to load by default.
+- `snapshots/slot_NNN/` are intermediate policy bundles aligned with checkpoint slots. They can be loaded by the public inference runtime without restoring a training checkpoint.
+- `archive/*.pt` checkpoints are for resume/retraining, not normal inference.
+
+## Why Snapshots Exist
+
+Checkpoint `.pt` files contain optimizer and scheduler state and are meant for training resume. Snapshot bundles are exported so intermediate policies can be inspected or loaded with `causal_gpt_rl.inference` without the training stack. To roll out a policy, the caller still needs compatible observations or an evaluation environment, but not the original training job state.
+
