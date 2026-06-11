@@ -34,7 +34,7 @@ estimator = AlgorithmEstimator(
     algorithm_arn=algorithm_arn,
     role=role_arn,
     instance_count=1,
-    instance_type="ml.m5.xlarge",
+    instance_type="ml.g5.xlarge",
     output_path="s3://my-bucket/cgrl/output/",
     hyperparameters={
         "dataset_ids": "mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0",
@@ -52,7 +52,7 @@ estimator.fit({
 
 The current Marketplace training example uses a single training instance type:
 
-- Training: `ml.m5.xlarge`
+- Training: `ml.g5.xlarge`
 
 ## Output Bundles
 
@@ -65,4 +65,5 @@ The final `model.tar.gz` contains a canonical `bundle/` for normal inference. It
 - Output artifact: `training/docs/sagemaker-output-artifacts.md`
 - Checkpoints: `training/docs/sagemaker-checkpoints.md`
 - Retraining: `training/docs/sagemaker-retraining.md`
+
 
