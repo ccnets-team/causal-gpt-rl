@@ -3,19 +3,31 @@
 Layout (HF-style, per-file):
 
     <bundle_dir>/
-    model.safetensors             # weights (state_dict)
+    model.safetensors             # weights (state_dict); embeds state normalization (v2)
     config.json                   # ModelConfig + state/action specs + context_length
-    state_normalizer.safetensors  # StateNormalizer state_dict
+    state_normalizer.safetensors  # legacy StateNormalizer sidecar (v1 only)
 
-`config.json` schema (`bundle_format_version=1`):
+Format versions:
+  * v1 — state normalization shipped as a `state_normalizer.safetensors`
+    sidecar. Still emitted when `write_state_normalizer_sidecar=True` so the
+    bundle stays readable by older (<=0.2.x) loaders.
+  * v2 — no sidecar; normalization statistics are embedded in the model
+    `state_dict`. Older loaders reject this with a clear "unsupported version"
+    error instead of failing on the missing sidecar.
+
+`config.json` schema:
 
     {
-      "bundle_format_version": 1,
+      "bundle_format_version": 1 | 2,   # 2 when the sidecar is omitted
       "package_version": "<causal-gpt-rl version that exported this>",  # optional, added 0.1.0+
       "model_config":    { ... ModelConfig.to_dict() ... },
       "state_specs":     [ ... SpaceSpec.to_json_dict() ... ],
       "action_specs":    [ ... SpaceSpec.to_json_dict() ... ],
       "context_length":  <int>,
+      "state_normalization": {          # added 0.3.0+
+        "embedded":      <bool>,        # stats live in model.safetensors
+        "legacy_sidecar": <bool>        # state_normalizer.safetensors written
+      },
       "env_id":          "<gymnasium env id>"  # optional, added 0.2.0+
     }
 
@@ -51,8 +63,9 @@ from ..model.schema import ModelConfig, SpaceSpec
 from .runner import PolicyRunner
 from .state_normalizer import StateNormalizer
 
-BUNDLE_FORMAT_VERSION = 1
-_SUPPORTED_BUNDLE_VERSIONS = (1,)
+BUNDLE_FORMAT_VERSION = 2
+_LEGACY_SIDECAR_BUNDLE_VERSION = 1
+_SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 
 _MODEL_FILENAME = "model.safetensors"
 _LEGACY_MODEL_FILENAME = "model.pt"
@@ -141,8 +154,9 @@ def export_bundle(
     state_specs: Iterable[SpaceSpec],
     action_specs: Iterable[SpaceSpec],
     context_length: int,
-    state_normalizer: StateNormalizer,
+    state_normalizer: Optional[StateNormalizer] = None,
     env_id: Optional[str] = None,
+    write_state_normalizer_sidecar: bool = True,
 ) -> Path:
     """Write the bundle to `bundle_dir`. Creates the directory if needed."""
     bundle_dir = Path(bundle_dir)
@@ -151,13 +165,33 @@ def export_bundle(
     state_specs = list(state_specs)
     action_specs = list(action_specs)
 
+    if state_normalizer is not None and hasattr(
+        model, "set_state_normalization_from_state_dict"
+    ):
+        model.set_state_normalization_from_state_dict(state_normalizer.state_dict())
+
+    write_sidecar = bool(
+        state_normalizer is not None and write_state_normalizer_sidecar
+    )
+    # v1 keeps the sidecar so older loaders can still read it; v2 drops the
+    # sidecar and relies on normalization embedded in the model state_dict.
+    bundle_format_version = (
+        _LEGACY_SIDECAR_BUNDLE_VERSION if write_sidecar else BUNDLE_FORMAT_VERSION
+    )
+
     config_payload = {
-        "bundle_format_version": BUNDLE_FORMAT_VERSION,
+        "bundle_format_version": bundle_format_version,
         "package_version": _PACKAGE_VERSION,
         "model_config": model_config.to_dict(),
         "state_specs": [s.to_json_dict() for s in state_specs],
         "action_specs": [s.to_json_dict() for s in action_specs],
         "context_length": int(context_length),
+        "state_normalization": {
+            "embedded": bool(
+                getattr(model, "has_embedded_state_normalizer", lambda: False)()
+            ),
+            "legacy_sidecar": write_sidecar,
+        },
     }
     if env_id:
         config_payload["env_id"] = str(env_id)
@@ -170,13 +204,24 @@ def export_bundle(
     save_safetensors(model.state_dict(), bundle_dir / _MODEL_FILENAME)
     _remove_if_exists(bundle_dir / _LEGACY_MODEL_FILENAME)
 
-    if state_normalizer is None:
-        raise ValueError("state_normalizer is required for public inference bundles.")
-    save_safetensors(
-        state_normalizer.state_dict(),
-        bundle_dir / _NORMALIZER_FILENAME,
+    has_embedded_normalizer = bool(
+        getattr(model, "has_embedded_state_normalizer", lambda: False)()
     )
-    _remove_if_exists(bundle_dir / _LEGACY_NORMALIZER_FILENAME)
+    if state_normalizer is None and not has_embedded_normalizer:
+        raise ValueError(
+            "state_normalizer or embedded model state normalization is required "
+            "for public inference bundles."
+        )
+
+    if write_sidecar:
+        save_safetensors(
+            state_normalizer.state_dict(),
+            bundle_dir / _NORMALIZER_FILENAME,
+        )
+        _remove_if_exists(bundle_dir / _LEGACY_NORMALIZER_FILENAME)
+    else:
+        _remove_if_exists(bundle_dir / _NORMALIZER_FILENAME)
+        _remove_if_exists(bundle_dir / _LEGACY_NORMALIZER_FILENAME)
 
     return bundle_dir
 
@@ -231,7 +276,7 @@ def load_runner(
         model_state = load_safetensors(str(model_path), device=str(torch_device))
     else:
         model_state = torch.load(legacy_model_path, map_location=torch_device)
-    model.load_state_dict(model_state)
+    model.load_state_dict(model_state, strict=False)
     model.eval()
 
     normalizer: Optional[StateNormalizer] = None
@@ -248,11 +293,13 @@ def load_runner(
             torch.load(legacy_normalizer_path, map_location=torch_device)
         )
         normalizer.to(torch_device)
-    else:
-        raise FileNotFoundError(
-            f"Bundle state normalizer not found: {normalizer_path} or "
-            f"{legacy_normalizer_path}"
-        )
+    if (
+        normalizer is not None
+        and not model.has_embedded_state_normalizer()
+        and hasattr(model, "set_state_normalization_from_state_dict")
+    ):
+        model.set_state_normalization_from_state_dict(normalizer.state_dict())
+        normalizer = None
 
     action_mode, head_sizes, action_size, lows, highs = PolicyRunner._resolve_action_specs(
         action_specs

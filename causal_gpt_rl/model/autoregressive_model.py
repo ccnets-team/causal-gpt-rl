@@ -24,6 +24,7 @@ from .utils.layers import TransformLayer
 from .utils.output_adapter import OutputToInputAdapter
 
 LOG_STD_MIN, LOG_STD_MAX = -20.0, 2.0
+STATE_NORMALIZATION_EPS = 1e-8
 
 
 def _resolve_action_value_routing(flat_output_specs):
@@ -71,6 +72,19 @@ class AutoregressiveModel(nn.Module):
         self.flat_input_specs = flatten_specs(input_specs)
         self.flat_output_specs = flatten_specs(output_specs)  # for autoreg, input_specs includes output_specs
         self.device = device
+        self.state_size = int(sum(spec.size for spec in self.state_specs))
+        self.register_buffer(
+            "state_normalization_enabled",
+            torch.zeros(1, dtype=torch.float32),
+        )
+        self.register_buffer(
+            "state_normalization_mean",
+            torch.zeros(self.state_size, dtype=torch.float32),
+        )
+        self.register_buffer(
+            "state_normalization_std",
+            torch.ones(self.state_size, dtype=torch.float32),
+        )
 
         # I/O wiring
         self.total_input_dim = sum(spec.size for spec in self.flat_input_specs)
@@ -154,6 +168,91 @@ class AutoregressiveModel(nn.Module):
     def adapt_output_heads(self, outputs):
         """Apply per-spec post-processing (e.g., tanh squash) to head outputs."""
         return [adapter(out) for out, adapter in zip(outputs, self.output_adapter)]
+
+    # Representation helpers ---------------------------------------------
+
+    def has_embedded_state_normalizer(self) -> bool:
+        return bool(float(self.state_normalization_enabled.item()) > 0.5)
+
+    @torch.no_grad()
+    def set_state_normalization(
+        self,
+        *,
+        mean: torch.Tensor,
+        std: torch.Tensor | None = None,
+        var: torch.Tensor | None = None,
+        enabled: bool = True,
+    ) -> None:
+        mean = torch.as_tensor(
+            mean,
+            device=self.state_normalization_mean.device,
+            dtype=self.state_normalization_mean.dtype,
+        ).reshape(-1)
+        if std is None:
+            if var is None:
+                raise ValueError("Either std or var must be provided.")
+            std = torch.sqrt(
+                torch.as_tensor(
+                    var,
+                    device=self.state_normalization_std.device,
+                    dtype=self.state_normalization_std.dtype,
+                ).reshape(-1)
+            ) + STATE_NORMALIZATION_EPS
+        else:
+            std = torch.as_tensor(
+                std,
+                device=self.state_normalization_std.device,
+                dtype=self.state_normalization_std.dtype,
+            ).reshape(-1)
+
+        if mean.numel() != self.state_size or std.numel() != self.state_size:
+            raise ValueError(
+                f"Expected state normalization size {self.state_size}, "
+                f"got mean={mean.numel()} std={std.numel()}."
+            )
+
+        self.state_normalization_mean.copy_(mean)
+        self.state_normalization_std.copy_(std.clamp_min(STATE_NORMALIZATION_EPS))
+        self.state_normalization_enabled.fill_(1.0 if enabled else 0.0)
+
+    @torch.no_grad()
+    def set_state_normalization_from_state_dict(
+        self,
+        state_dict: dict,
+        *,
+        enabled: bool = True,
+    ) -> None:
+        if "mean" not in state_dict:
+            raise KeyError("state_dict must contain a 'mean' entry.")
+        if "var" in state_dict:
+            self.set_state_normalization(
+                mean=state_dict["mean"],
+                var=state_dict["var"],
+                enabled=enabled,
+            )
+        elif "std" in state_dict:
+            self.set_state_normalization(
+                mean=state_dict["mean"],
+                std=state_dict["std"],
+                enabled=enabled,
+            )
+        else:
+            raise KeyError("state_dict must contain either a 'var' or 'std' entry.")
+
+    def normalize_states_for_inference(self, states: torch.Tensor) -> torch.Tensor:
+        states = states.to(dtype=torch.float32)
+        if not self.has_embedded_state_normalizer():
+            return states
+
+        feat = states.size(-1)
+        mean = self.state_normalization_mean[-feat:].view(1, 1, -1)
+        std = self.state_normalization_std[-feat:].view(1, 1, -1)
+        if mean.device != states.device:
+            mean = mean.to(states.device)
+            std = std.to(states.device)
+        return ((states - mean) / std.clamp_min(STATE_NORMALIZATION_EPS)).to(
+            dtype=torch.float32
+        )
 
     # Forward variants ----------------------------------------------------
 

@@ -1,6 +1,6 @@
 """PolicyRunner public step-wise inference API.
 
-Wraps the rolling context buffer, KV cache, and state normalizer
+Wraps the rolling context buffer, KV cache, and state representation handling
 around a trained AutoregressiveModel and exposes a small
 `reset(state) / act(state) -> env_action` interface. After reset, callers may
 also use `act()` because the initial state is already seeded in the buffer.
@@ -44,7 +44,7 @@ class PolicyRunner:
         state_size: int,
         action_size: int,
         context_length: int,
-        state_normalizer: StateNormalizer,
+        state_normalizer: Optional[StateNormalizer] = None,
         num_envs: int = 1,
         kv_cache_max_len: Optional[int] = None,
         use_windowed: bool = False,
@@ -66,9 +66,6 @@ class PolicyRunner:
             raise ValueError(f"context_length must be > 0, got {context_length}")
         if self.num_envs <= 0:
             raise ValueError(f"num_envs must be > 0, got {num_envs}")
-        if state_normalizer is None:
-            raise ValueError("state_normalizer is required for policy inference.")
-
         self.default_kv_cache_max_len = (
             self.context_length * DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER
         )
@@ -79,7 +76,7 @@ class PolicyRunner:
         )
         if self.kv_cache_max_len <= 0:
             raise ValueError(f"kv_cache_max_len must be > 0, got {kv_cache_max_len}")
-        self.state_normalizer = state_normalizer
+        self.state_normalizer = self._resolve_state_normalizer(state_normalizer)
         self.action_low = (
             None if action_low is None else np.asarray(action_low, dtype=np.float32)
         )
@@ -102,6 +99,23 @@ class PolicyRunner:
         self.model.eval()
         if self.state_normalizer is not None:
             self.state_normalizer.to(self.model.device).eval()
+
+    def _resolve_state_normalizer(
+        self,
+        state_normalizer: Optional[StateNormalizer],
+    ) -> Optional[StateNormalizer]:
+        if state_normalizer is None:
+            return None
+        if hasattr(self.model, "has_embedded_state_normalizer") and (
+            self.model.has_embedded_state_normalizer()
+        ):
+            return None
+        if hasattr(self.model, "set_state_normalization_from_state_dict"):
+            self.model.set_state_normalization_from_state_dict(
+                state_normalizer.state_dict()
+            )
+            return None
+        return state_normalizer
 
     def reset(self, initial_state) -> None:
         """Reset internal buffers and seed with the initial observation."""
@@ -128,8 +142,7 @@ class PolicyRunner:
         is_bos_t = torch.as_tensor(is_bos, dtype=torch.float32, device=device)
         mask_t = torch.as_tensor(mask, dtype=torch.float32, device=device).bool()
 
-        if self.state_normalizer is not None:
-            states_t = self.state_normalizer(states_t)
+        states_t = self._normalize_states_for_inference(states_t)
 
         if self.use_windowed:
             next_action = self.model.predict_with_window(
@@ -189,7 +202,7 @@ class PolicyRunner:
     ) -> "PolicyRunner":
         """Load a training checkpoint into `model` and build a runner."""
         ckpt = load_inference_checkpoint(checkpoint_path, map_location=map_location)
-        model.load_state_dict(ckpt["model_state"])
+        model.load_state_dict(ckpt["model_state"], strict=False)
 
         normalizer: Optional[StateNormalizer] = None
         if "state_normalizer_state" in ckpt:
@@ -224,6 +237,13 @@ class PolicyRunner:
                 f"got {arr.shape}"
             )
         return arr
+
+    def _normalize_states_for_inference(self, states: torch.Tensor) -> torch.Tensor:
+        if self.state_normalizer is not None:
+            return self.state_normalizer(states)
+        if hasattr(self.model, "normalize_states_for_inference"):
+            return self.model.normalize_states_for_inference(states)
+        return states.to(dtype=torch.float32)
 
     def _decode(self, action: np.ndarray):
         """Return (env_action, buffer_action) from the model's last-step output."""
