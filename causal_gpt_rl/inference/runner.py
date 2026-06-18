@@ -130,6 +130,20 @@ class PolicyRunner:
     @torch.inference_mode()
     def act(self, state=None) -> np.ndarray:
         """Predict the next env-ready action for the current state."""
+        env_action, _ = self._step(state, return_info=False)
+        return env_action
+
+    @torch.inference_mode()
+    def act_with_info(self, state=None) -> tuple[np.ndarray, dict]:
+        """Like `act()`, but also returns auxiliary per-step outputs.
+
+        The info dict carries `termination_prob` (float for `num_envs == 1`,
+        else a per-env array; `None` when the model has no EOS head). This is
+        the opt-in companion to `act()` — the action contract is unchanged.
+        """
+        return self._step(state, return_info=True)
+
+    def _step(self, state, *, return_info: bool) -> tuple[np.ndarray, dict]:
         if state is not None:
             self.observe(state)
         elif not self._is_reset:
@@ -144,27 +158,38 @@ class PolicyRunner:
 
         states_t = self._normalize_states_for_inference(states_t)
 
+        info_raw: Optional[dict] = None
         if self.use_windowed:
-            next_action = self.model.predict_with_window(
+            result = self.model.predict_with_window(
                 states=states_t,
                 actions=actions_t,
                 is_bos=is_bos_t,
                 padding_mask=mask_t,
+                return_info=return_info,
             )
+            if return_info:
+                next_action, info_raw = result
+            else:
+                next_action = result
         else:
             if not cache_has_history(past_kv):
                 states_t = states_t[:, -1:]
                 actions_t = actions_t[:, -1:]
                 is_bos_t = is_bos_t[:, -1:]
                 mask_t = mask_t[:, -1:]
-            next_action, past_kv = self.model.predict_incremental_cached(
+            result = self.model.predict_incremental_cached(
                 states=states_t,
                 actions=actions_t,
                 is_bos=is_bos_t,
                 padding_mask=mask_t,
                 past_key_values=past_kv,
                 cache_max_len=self.kv_cache_max_len,
+                return_info=return_info,
             )
+            if return_info:
+                next_action, past_kv, info_raw = result
+            else:
+                next_action, past_kv = result
             if self._reset_kv_after_next_act:
                 self.buffer.set_past_key_values(None)
                 self._reset_kv_after_next_act = False
@@ -174,7 +199,20 @@ class PolicyRunner:
         last_step = ensure_tensor_heads(next_action)[:, -1]
         env_action, buffer_action = self._decode(last_step.detach().cpu().numpy())
         self._last_buffer_action = buffer_action
-        return env_action
+        return env_action, self._build_step_info(info_raw)
+
+    def _build_step_info(self, info_raw: Optional[dict]) -> dict:
+        """Reduce a raw model info dict to last-step, env-facing values."""
+        info: dict = {}
+        if not info_raw:
+            return info
+        term = info_raw.get("termination_prob")
+        if term is None:
+            info["termination_prob"] = None
+        else:
+            t = term[:, -1].detach().cpu().numpy().reshape(-1)
+            info["termination_prob"] = float(t[0]) if self.num_envs == 1 else t
+        return info
 
     def observe(self, state) -> None:
         """Record a new observation after the previously emitted action."""

@@ -34,6 +34,7 @@ def _resolve_action_value_routing(flat_output_specs):
     mean_action_specs = []
     log_std_action_indices = []
     value_indices = []
+    termination_indices = []
     for i, spec in enumerate(flat_output_specs):
         if spec.role == "action" and spec.sub_role == "mean":
             mean_action_indices.append(i)
@@ -43,13 +44,17 @@ def _resolve_action_value_routing(flat_output_specs):
             log_std_action_indices.append(i)
         elif spec.role == "value":
             value_indices.append(i)
+        elif spec.role == "termination":
+            termination_indices.append(i)
     assert len(value_indices) == 1, "There should be exactly one value head in the model."
+    assert len(termination_indices) <= 1, "There should be at most one termination head."
     return {
         "mean_action_indices": mean_action_indices,
         "mean_action_types": mean_action_types,
         "mean_action_specs": mean_action_specs,
         "log_std_action_indices": log_std_action_indices,
         "value_index": value_indices[0],
+        "termination_index": termination_indices[0] if termination_indices else None,
     }
 
 
@@ -64,9 +69,12 @@ class AutoregressiveModel(nn.Module):
     ):
         super().__init__()
         self.network_name = model_config.network_name
+        self.use_eos = bool(getattr(model_config, "use_eos", False))
         self.state_specs = list(state_specs)
         self.action_specs = list(action_specs)
-        input_specs, output_specs = build_model_specs(state_specs, action_specs)
+        input_specs, output_specs = build_model_specs(
+            state_specs, action_specs, use_eos=self.use_eos
+        )
         self.input_specs = input_specs
         self.output_specs = output_specs
         self.flat_input_specs = flatten_specs(input_specs)
@@ -115,6 +123,7 @@ class AutoregressiveModel(nn.Module):
         self.mean_action_indices = routing["mean_action_indices"]
         self.log_std_action_indices = routing["log_std_action_indices"]
         self.value_index = routing["value_index"]
+        self.termination_index = routing["termination_index"]
 
         mean_types = routing["mean_action_types"]
         self._is_continuous = bool(mean_types) and all(t == "continuous" for t in mean_types)
@@ -285,6 +294,20 @@ class AutoregressiveModel(nn.Module):
             return [adapted[i] for i in self.mean_action_indices]
         return [out[i] for i in self.mean_action_indices]
 
+    def _termination_prob(self, out: list[torch.Tensor]) -> torch.Tensor | None:
+        """Sigmoid of the raw termination logit, or None when EOS is disabled.
+
+        Read from the raw projected head (pre-adapter): the termination head
+        is an unsquashed logit, so the adapter is a passthrough anyway.
+        """
+        if self.termination_index is None:
+            return None
+        return torch.sigmoid(out[self.termination_index])
+
+    def _build_info(self, out: list[torch.Tensor]) -> dict:
+        """Auxiliary per-step outputs that ride on the policy forward."""
+        return {"termination_prob": self._termination_prob(out)}
+
     @torch.inference_mode()
     def predict_incremental_cached(
         self,
@@ -294,8 +317,14 @@ class AutoregressiveModel(nn.Module):
         padding_mask: torch.Tensor | None = None,
         past_key_values=None,
         cache_max_len: int | None = None,
+        return_info: bool = False,
     ) -> list[torch.Tensor]:
-        """Eval one incremental cached step for policy inference."""
+        """Eval one incremental cached step for policy inference.
+
+        With `return_info=True`, also returns an auxiliary-output dict (e.g.
+        `termination_prob`) as a trailing tuple element so callers that need
+        EOS info can read it without a separate forward.
+        """
         self.eval()
 
         use_prefix_warm_start = not cache_has_history(past_key_values)
@@ -329,7 +358,10 @@ class AutoregressiveModel(nn.Module):
                 past_key_values, max_len=int(cache_max_len)
             )
 
-        return self._extract_mean_action(out), past_key_values
+        action = self._extract_mean_action(out)
+        if return_info:
+            return action, past_key_values, self._build_info(out)
+        return action, past_key_values
 
     @torch.inference_mode()
     def predict_with_window(
@@ -338,12 +370,20 @@ class AutoregressiveModel(nn.Module):
         actions: torch.Tensor,
         is_bos: torch.Tensor,
         padding_mask: torch.Tensor,
+        return_info: bool = False,
     ) -> list[torch.Tensor]:
-        """Eval policy outputs over a full context window."""
+        """Eval policy outputs over a full context window.
+
+        With `return_info=True`, also returns an auxiliary-output dict (e.g.
+        `termination_prob`) as a trailing tuple element.
+        """
         self.eval()
         context = torch.cat([states, actions, is_bos], dim=-1)
         outputs = self.infer_windowed(context, padding_mask=padding_mask)
-        return self._extract_mean_action(outputs)
+        action = self._extract_mean_action(outputs)
+        if return_info:
+            return action, self._build_info(outputs)
+        return action
 
     @torch.inference_mode()
     def sample_action_from_heads(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:

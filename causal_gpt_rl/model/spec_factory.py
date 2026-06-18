@@ -7,7 +7,8 @@ constructs its I/O heads, adapters, and routing from.
 
 Layout (architecture convention):
 - `input_specs`  = state heads + action-mean heads + is_bos indicator
-- `output_specs` = action-mean heads + action-log_std heads (continuous only) + value head
+- `output_specs` = action-mean heads + action-log_std heads (continuous only)
+  + value head + optional termination head (appended last when `use_eos`)
 
 Author:
     PARK, Jun-Ho, junho@ccnets.org
@@ -50,8 +51,17 @@ def _to_data_spec(
 def build_model_specs(
     state_specs: Iterable[SpaceSpec],
     action_specs: Iterable[SpaceSpec],
+    *,
+    use_eos: bool = False,
 ) -> tuple[list[DataSpec], list[DataSpec]]:
-    """Decorate env-side SpaceSpecs and return (input_specs, output_specs)."""
+    """Decorate env-side SpaceSpecs and return (input_specs, output_specs).
+
+    When `use_eos` is set, an auxiliary `termination` head is appended last
+    to `output_specs` (after the value head). It is a single raw logit
+    (continuous, no squash) — read it via the model's `termination_index`.
+    Termination is an output-only trajectory signal, never fed back as input
+    and never part of the action space, so `input_specs` is unaffected.
+    """
     state_specs = list(state_specs)
     action_specs = list(action_specs)
 
@@ -103,6 +113,18 @@ def build_model_specs(
 
     input_specs = list(decorated_state_specs) + list(mean_action_specs) + [is_bos_spec]
     output_specs = list(mean_action_specs) + list(log_std_action_specs) + [value_spec]
+
+    if use_eos:
+        termination_spec = DataSpec(
+            type="continuous",
+            size=1,
+            dtype=torch.float32,
+            init_type="xavier_uniform",
+            role="termination",
+            sub_role=None,
+        )
+        output_specs.append(termination_spec)
+
     return input_specs, output_specs
 
 

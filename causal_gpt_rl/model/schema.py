@@ -172,7 +172,7 @@ class SpaceSpec:
 class DataSpec(SpaceSpec):
     """Model-facing super-set — adds I/O routing and init metadata.
 
-    `role` ∈ {"state", "action", "value", "bos_indicator", ...}
+    `role` ∈ {"state", "action", "value", "bos_indicator", "termination", ...}
     `sub_role` ∈ {"mean", "log_std", ...} (action heads)
     `init_type` controls per-head weight initialization.
     """
@@ -300,6 +300,7 @@ class ModelConfig:
     d_model: int = 256
     num_heads: int = 8
     dropout: float = 0.05
+    use_eos: bool = False
     rope_theta: float = 1e3
     intermediate_size: Optional[int] = None
     max_position_embeddings: Optional[int] = None
@@ -307,6 +308,7 @@ class ModelConfig:
 
     def __post_init__(self) -> None:
         self.rope_theta = float(self.rope_theta)
+        self.use_eos = bool(self.use_eos)
 
         if self.context_length is None:
             self.context_length = 32
