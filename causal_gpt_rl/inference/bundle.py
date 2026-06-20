@@ -67,6 +67,21 @@ BUNDLE_FORMAT_VERSION = 2
 _LEGACY_SIDECAR_BUNDLE_VERSION = 1
 _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 
+# Fine-grained forward-compat gate, orthogonal to `bundle_format_version`.
+# `bundle_format_version` tracks the on-disk file/serialization layout;
+# `requires_capabilities` declares optional model/runtime FEATURES a bundle
+# depends on (e.g. "hybrid_action", or a future "dict_space"). A bundle lists
+# what it needs; a runtime that does not advertise a required capability refuses
+# to load it (loud) instead of silently mis-decoding actions. Additive features
+# that degrade safely on an unaware runtime (e.g. EOS via strict=False weight
+# load) must NOT be listed here — only features an unaware runtime would
+# mis-handle. Extend this set as such features ship.
+#
+# "hybrid_action": the bundle's action schedule mixes more than one spec type
+# (e.g. continuous + discrete). A runtime older than per-head decoding assumes a
+# single uniform family and cannot decode it.
+_SUPPORTED_CAPABILITIES: frozenset[str] = frozenset({"hybrid_action"})
+
 _MODEL_FILENAME = "model.safetensors"
 _LEGACY_MODEL_FILENAME = "model.pt"
 _CONFIG_FILENAME = "config.json"
@@ -156,6 +171,7 @@ def export_bundle(
     context_length: int,
     state_normalizer: Optional[StateNormalizer] = None,
     env_id: Optional[str] = None,
+    requires_capabilities: Optional[Iterable[str]] = None,
     write_state_normalizer_sidecar: bool = True,
 ) -> Path:
     """Write the bundle to `bundle_dir`. Creates the directory if needed."""
@@ -179,6 +195,16 @@ def export_bundle(
         _LEGACY_SIDECAR_BUNDLE_VERSION if write_sidecar else BUNDLE_FORMAT_VERSION
     )
 
+    # A schedule mixing more than one action spec type cannot be decoded by a
+    # runtime that assumes a single uniform family, so gate it behind the
+    # "hybrid_action" capability — older runtimes then refuse loudly instead of
+    # erroring out cryptically mid-load. Uniform-type bundles stay ungated and
+    # load on any runtime.
+    action_types = [s.type for s in action_specs]
+    capabilities = set(requires_capabilities or [])
+    if len(set(action_types)) > 1:
+        capabilities.add("hybrid_action")
+
     config_payload = {
         "bundle_format_version": bundle_format_version,
         "package_version": _PACKAGE_VERSION,
@@ -186,6 +212,13 @@ def export_bundle(
         "state_specs": [s.to_json_dict() for s in state_specs],
         "action_specs": [s.to_json_dict() for s in action_specs],
         "context_length": int(context_length),
+        "requires_capabilities": sorted(capabilities),
+        # Reserved forward-compat slot for a future named-container adapter that
+        # wraps the runner's flat per-head output back into the customer's
+        # declared Gymnasium container (Tuple/Dict). None today → positional
+        # output. A bundle that populates it will also gate itself via
+        # `requires_capabilities`, so old runtimes refuse rather than mis-shape.
+        "action_container": None,
         "state_normalization": {
             "embedded": bool(
                 getattr(model, "has_embedded_state_normalizer", lambda: False)()
@@ -259,6 +292,25 @@ def load_runner(
             f"this build supports {_SUPPORTED_BUNDLE_VERSIONS}."
         )
 
+    # Forward-compat gate: refuse (loudly) a bundle that depends on a feature
+    # this runtime does not implement, rather than silently mis-decoding. A
+    # missing/empty list means "needs only baseline capabilities".
+    required_caps = config_payload.get("requires_capabilities") or []
+    missing_caps = sorted(set(required_caps) - _SUPPORTED_CAPABILITIES)
+    if missing_caps:
+        raise ValueError(
+            f"Bundle requires capabilities not supported by causal-gpt-rl "
+            f"{_PACKAGE_VERSION}: {missing_caps}. Upgrade the package to load "
+            f"this bundle."
+        )
+
+    # Forward-compat loader contract for the reserved `action_container` slot:
+    # absent/None → positional per-head output (today's behavior); present →
+    # a future named-container adapter unflattens into the declared Gymnasium
+    # container. Such bundles also carry a `requires_capabilities` entry, so the
+    # gate above rejects them on a runtime that lacks the adapter. The runner
+    # itself stays container-agnostic; structuring lives in the adapter layer.
+
     model_config = ModelConfig.from_dict(config_payload["model_config"])
     state_specs = [SpaceSpec.from_dict(d) for d in config_payload["state_specs"]]
     action_specs = [SpaceSpec.from_dict(d) for d in config_payload["action_specs"]]
@@ -301,24 +353,18 @@ def load_runner(
         model.set_state_normalization_from_state_dict(normalizer.state_dict())
         normalizer = None
 
-    action_mode, head_sizes, action_size, lows, highs = PolicyRunner._resolve_action_specs(
-        action_specs
-    )
+    action_schedule = PolicyRunner._resolve_action_specs(action_specs)
     state_size = int(sum(s.size for s in state_specs))
 
     return PolicyRunner(
         model=model,
-        action_mode=action_mode,
-        action_head_sizes=head_sizes,
+        action_schedule=action_schedule,
         state_size=state_size,
-        action_size=action_size,
         context_length=context_length,
         state_normalizer=normalizer,
         num_envs=num_envs,
         kv_cache_max_len=kv_cache_max_len,
         use_windowed=use_windowed,
-        action_low=lows,
-        action_high=highs,
     )
 
 
