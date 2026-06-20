@@ -22,7 +22,7 @@ from typing import Iterable
 
 import torch
 
-from .schema import DataSpec, SpaceSpec
+from .schema import DataSpec, SpaceSpec, continuous_first_order
 
 
 def _to_data_spec(
@@ -64,6 +64,14 @@ def build_model_specs(
     """
     state_specs = list(state_specs)
     action_specs = list(action_specs)
+
+    # Canonical continuous-first state-head layout (identity for all-continuous
+    # state, so existing bundles are byte-unchanged). The normalization boundary
+    # becomes a single split index and typed handling is contiguous. The SAME
+    # ordering drives the inference adapter's flat permutation
+    # (`derive_continuous_first`), so the model head split and the adapter agree.
+    state_order = continuous_first_order(state_specs)
+    state_specs = [state_specs[i] for i in state_order]
 
     decorated_state_specs = [
         _to_data_spec(s, role="state", init_type="xavier_uniform")
