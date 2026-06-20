@@ -46,12 +46,9 @@ class OutputToInputAdapter(torch.nn.Module):
                 output = output * scale + bias
             return output
         
-        if self._type == "discrete":
+        if self._type in ("discrete", "multi_discrete"):
             idx = torch.argmax(output, dim=-1)
             return idx.unsqueeze(-1).long()
-        
-        if self._type == "multi_discrete":
-            return (output > 0.5).to(dtype)
 
         if self._type == "binary_classification":
             return (output > 0.5).to(dtype)
