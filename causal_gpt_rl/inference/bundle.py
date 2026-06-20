@@ -24,6 +24,9 @@ Format versions:
       "state_specs":     [ ... SpaceSpec.to_json_dict() ... ],
       "action_specs":    [ ... SpaceSpec.to_json_dict() ... ],
       "context_length":  <int>,
+      "requires_capabilities": [ "hybrid_action", ... ],  # forward-compat gate
+      "state_container":  <serialized gym space> | null,  # input adapter schema, added 0.6.0+
+      "action_container": <serialized gym space> | null,  # output adapter schema, added 0.6.0+
       "state_normalization": {          # added 0.3.0+
         "embedded":      <bool>,        # stats live in model.safetensors
         "legacy_sidecar": <bool>        # state_normalizer.safetensors written
@@ -46,9 +49,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterable, Mapping, Optional
+from typing import TYPE_CHECKING, Iterable, Mapping, Optional
 
 import torch
+
+if TYPE_CHECKING:
+    from gymnasium.spaces import Space
 
 try:
     from safetensors.torch import load_file as load_safetensors
@@ -61,6 +67,7 @@ from .. import __version__ as _PACKAGE_VERSION
 from ..model.autoregressive_model import AutoregressiveModel
 from ..model.schema import ModelConfig, SpaceSpec
 from .runner import PolicyRunner
+from .spaces import deserialize_space, serialize_space
 from .state_normalizer import StateNormalizer
 
 BUNDLE_FORMAT_VERSION = 2
@@ -80,6 +87,11 @@ _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 # "hybrid_action": the bundle's action schedule mixes more than one spec type
 # (e.g. continuous + discrete). A runtime older than per-head decoding assumes a
 # single uniform family and cannot decode it.
+#
+# "hybrid_state" is stamped by `export_bundle` for discrete/structured state but
+# is intentionally NOT advertised here yet: until the input adapter (gym.flatten
+# + continuous-first permutation) ships, this runtime cannot serve such bundles,
+# so it must keep refusing them loudly. Add it here together with that adapter.
 _SUPPORTED_CAPABILITIES: frozenset[str] = frozenset({"hybrid_action"})
 
 _MODEL_FILENAME = "model.safetensors"
@@ -169,6 +181,8 @@ def export_bundle(
     state_specs: Iterable[SpaceSpec],
     action_specs: Iterable[SpaceSpec],
     context_length: int,
+    obs_space: "Optional[Space]" = None,
+    action_space: "Optional[Space]" = None,
     state_normalizer: Optional[StateNormalizer] = None,
     env_id: Optional[str] = None,
     requires_capabilities: Optional[Iterable[str]] = None,
@@ -204,6 +218,22 @@ def export_bundle(
     capabilities = set(requires_capabilities or [])
     if len(set(action_types)) > 1:
         capabilities.add("hybrid_action")
+    # Discrete/one-hot state needs the input adapter (gym.flatten + continuous-
+    # first permutation); a runtime that feeds raw state would mis-shape it, so
+    # gate it behind "hybrid_state". Pure-continuous state stays ungated — its
+    # flatten is a plain concat and the permutation is identity.
+    if any(s.type != "continuous" for s in state_specs):
+        capabilities.add("hybrid_state")
+
+    # Serialized declared Gymnasium spaces — the lossless schema gym.spaces
+    # .unflatten needs. The model stores only flat head sizes; structure (Dict
+    # key order, Tuple order) lives here so the input/output adapters can
+    # flatten/unflatten. None when the exporter did not supply the space
+    # (positional, structure-less I/O — today's continuous bundles).
+    state_container = serialize_space(obs_space) if obs_space is not None else None
+    action_container = (
+        serialize_space(action_space) if action_space is not None else None
+    )
 
     config_payload = {
         "bundle_format_version": bundle_format_version,
@@ -213,12 +243,12 @@ def export_bundle(
         "action_specs": [s.to_json_dict() for s in action_specs],
         "context_length": int(context_length),
         "requires_capabilities": sorted(capabilities),
-        # Reserved forward-compat slot for a future named-container adapter that
-        # wraps the runner's flat per-head output back into the customer's
-        # declared Gymnasium container (Tuple/Dict). None today → positional
-        # output. A bundle that populates it will also gate itself via
+        # `action_container` is the reserved slot the output adapter unflattens
+        # into; the parallel `state_container` is the input adapter's source
+        # schema. A bundle populating these also gates itself via
         # `requires_capabilities`, so old runtimes refuse rather than mis-shape.
-        "action_container": None,
+        "state_container": state_container,
+        "action_container": action_container,
         "state_normalization": {
             "embedded": bool(
                 getattr(model, "has_embedded_state_normalizer", lambda: False)()
@@ -356,7 +386,7 @@ def load_runner(
     action_schedule = PolicyRunner._resolve_action_specs(action_specs)
     state_size = int(sum(s.size for s in state_specs))
 
-    return PolicyRunner(
+    runner = PolicyRunner(
         model=model,
         action_schedule=action_schedule,
         state_size=state_size,
@@ -366,6 +396,20 @@ def load_runner(
         kv_cache_max_len=kv_cache_max_len,
         use_windowed=use_windowed,
     )
+
+    # Forward-compat hooks for the input/output adapters: the declared Gymnasium
+    # spaces, deserialized from their lossless schema. None for older bundles
+    # that did not carry them (positional, structure-less I/O).
+    state_container = config_payload.get("state_container")
+    action_container = config_payload.get("action_container")
+    runner.obs_space = (
+        deserialize_space(state_container) if state_container is not None else None
+    )
+    runner.action_space = (
+        deserialize_space(action_container) if action_container is not None else None
+    )
+
+    return runner
 
 
 def _resolve_hub_bundle_dir(snapshot_path: Path, subfolder: str) -> Path:
