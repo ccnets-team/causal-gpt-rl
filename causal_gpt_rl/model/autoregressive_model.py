@@ -126,21 +126,50 @@ class AutoregressiveModel(nn.Module):
         self.termination_index = routing["termination_index"]
 
         mean_types = routing["mean_action_types"]
-        self._is_continuous = bool(mean_types) and all(t == "continuous" for t in mean_types)
-        self._is_discrete = bool(mean_types) and all(t in ("discrete", "multi_discrete") for t in mean_types)
+        mean_specs = routing["mean_action_specs"]
+        # Per-head continuity flags are the source of truth; core logic
+        # dispatches per head. The global `_is_continuous`/`_is_discrete` are
+        # derived views (see properties below) kept only for the homogeneous
+        # fast paths and back-compat.
+        self._mean_is_continuous = [t == "continuous" for t in mean_types]
+        # Positions of continuous heads within the mean-head order. Plain
+        # attributes derived from specs — deliberately NOT registered as buffers
+        # so they stay out of state_dict (weight compatibility).
+        self._continuous_mean_positions = [
+            i for i, is_cont in enumerate(self._mean_is_continuous) if is_cont
+        ]
 
-        if self._is_continuous:
-            mean_specs = routing["mean_action_specs"]
+        # (De)squash buffers cover the CONTINUOUS mean heads only. For an
+        # all-continuous bundle this subset is the full set in the same order,
+        # so the buffer is byte-identical to the legacy layout → state_dict
+        # stays compatible. Pure-discrete bundles register no buffer (as before).
+        if any(self._mean_is_continuous):
+            cont_specs = [
+                spec for spec, is_cont in zip(mean_specs, self._mean_is_continuous)
+                if is_cont
+            ]
             lows = torch.cat([
-                torch.as_tensor(s.low, dtype=torch.float32).reshape(-1) for s in mean_specs
+                torch.as_tensor(s.low, dtype=torch.float32).reshape(-1) for s in cont_specs
             ]).reshape(1, -1)
             highs = torch.cat([
-                torch.as_tensor(s.high, dtype=torch.float32).reshape(-1) for s in mean_specs
+                torch.as_tensor(s.high, dtype=torch.float32).reshape(-1) for s in cont_specs
             ]).reshape(1, -1)
             self.register_buffer("_action_scale", (highs - lows) / 2.0)
             self.register_buffer("_action_bias", (highs + lows) / 2.0)
 
         self.to(device)
+
+    # Derived action-type views (homogeneous fast paths / back-compat) -----
+
+    @property
+    def _is_continuous(self) -> bool:
+        """True iff every mean-action head is continuous."""
+        return bool(self._mean_is_continuous) and all(self._mean_is_continuous)
+
+    @property
+    def _is_discrete(self) -> bool:
+        """True iff every mean-action head is categorical (discrete family)."""
+        return bool(self._mean_is_continuous) and not any(self._mean_is_continuous)
 
     # I/O helpers ---------------------------------------------------------
 
@@ -289,10 +318,15 @@ class AutoregressiveModel(nn.Module):
     # Inference helpers ---------------------------------------------------
 
     def _extract_mean_action(self, out: list[torch.Tensor]) -> list[torch.Tensor]:
-        if self._is_continuous:
-            adapted = self.adapt_output_heads(out)
-            return [adapted[i] for i in self.mean_action_indices]
-        return [out[i] for i in self.mean_action_indices]
+        # Per head: continuous → its squash+scale adapter; categorical → raw
+        # logits passthrough (argmax stays the runner's single decode source).
+        # Pure-continuous keeps adapting every head, pure-discrete adapts none —
+        # both reduce to the legacy behavior exactly.
+        adapted = self.adapt_output_heads(out) if any(self._mean_is_continuous) else None
+        return [
+            adapted[i] if is_cont else out[i]
+            for is_cont, i in zip(self._mean_is_continuous, self.mean_action_indices)
+        ]
 
     def _termination_prob(self, out: list[torch.Tensor]) -> torch.Tensor | None:
         """Sigmoid of the raw termination logit, or None when EOS is disabled.
@@ -391,7 +425,46 @@ class AutoregressiveModel(nn.Module):
             return self._sample_continuous(out, std_scale=std_scale)
         if self._is_discrete:
             return self._sample_discrete(out)
-        raise NotImplementedError("Mixed continuous/discrete action heads are not supported in action sampling.")
+        return self._sample_hybrid(out, std_scale=std_scale)
+
+    def _sample_hybrid(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
+        """Per-head sampling for mixed continuous + categorical policies.
+
+        Continuous heads are sampled jointly so the squash/scale buffer (a
+        concatenation over the continuous heads, in head order) applies
+        wholesale — identical to how the pure-continuous path treats those same
+        columns. Categorical heads are sampled independently. Results are
+        reassembled in mean-head order so the output layout matches the flat
+        head schedule the runner decodes against.
+        """
+        cont_mean_indices = [
+            i for i, is_cont in zip(self.mean_action_indices, self._mean_is_continuous)
+            if is_cont
+        ]
+        cont_actions = None
+        if cont_mean_indices:
+            mean = torch.cat([out[i] for i in cont_mean_indices], dim=-1)
+            log_std = torch.cat([out[i] for i in self.log_std_action_indices], dim=-1)
+            log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+            z = mean + std_scale * log_std.exp() * torch.randn_like(mean)
+            squashed = torch.tanh(z)
+            scale = self._action_scale.to(dtype=squashed.dtype)
+            bias = self._action_bias.to(dtype=squashed.dtype)
+            cont_actions = squashed * scale + bias
+
+        parts = []
+        offset = 0
+        for i, is_cont in zip(self.mean_action_indices, self._mean_is_continuous):
+            if is_cont:
+                width = out[i].size(-1)
+                parts.append(cont_actions[..., offset:offset + width])
+                offset += width
+            else:
+                logits = out[i]
+                sampled_idx = torch.distributions.Categorical(logits=logits).sample()
+                one_hot = F.one_hot(sampled_idx, num_classes=logits.size(-1)).to(logits.dtype)
+                parts.append(one_hot)
+        return torch.cat(parts, dim=-1)
 
     def _sample_continuous(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         mean = torch.cat([out[i] for i in self.mean_action_indices], dim=-1)
