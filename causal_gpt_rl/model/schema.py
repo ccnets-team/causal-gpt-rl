@@ -198,6 +198,22 @@ def flatten_specs(spec):
     raise TypeError(type(spec))
 
 
+def continuous_first_order(specs) -> list[int]:
+    """Block permutation putting continuous specs first, discrete (one-hot)
+    specs last, preserving declared order within each group (stable).
+
+    Single source of truth for the canonical state-head layout: the model's
+    `build_model_specs` reorders state heads with it, and the inference
+    `derive_continuous_first` builds its flat permutation on it — so the model's
+    head split and the input/output adapter's permutation agree *by
+    construction*, not by coincidence. Identity for an all-continuous list.
+    """
+    specs = list(specs)
+    cont = [i for i, s in enumerate(specs) if s.type == "continuous"]
+    disc = [i for i, s in enumerate(specs) if s.type != "continuous"]
+    return cont + disc
+
+
 def nested_to_flat_list_heads(nested_heads):
     """
     Flattens a nested head structure into a flat list of tensors.
