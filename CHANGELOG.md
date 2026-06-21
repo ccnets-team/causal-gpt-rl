@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+- Added MultiBinary action/observation support (independent Bernoulli per
+  element). `MultiBinary(n)` spaces — bare or as Dict/Tuple leaves — now
+  round-trip through the bundle and decode to their {0,1} n-vector (head
+  logits thresholded at 0). This closes the last fixed-shape gymnasium space;
+  Text, Sequence and Graph stay out of scope as variable-length / structural.
+
 ## 0.7.0
 
 - Added structured action output support: `Dict` / `Tuple` action spaces are now
