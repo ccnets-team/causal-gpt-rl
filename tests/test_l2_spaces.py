@@ -146,20 +146,22 @@ def test_multidiscrete_start_serialize_roundtrip():
 
 
 def test_unsupported_space_error_is_self_describing():
-    # An out-of-scope leaf (MultiBinary) raises an error that names the type, why
-    # it is unsupported, and the supported set — on both the extract and the
-    # serialize entry points.
-    space = gym.spaces.MultiBinary(4)
+    # An out-of-scope leaf (Text) raises an error that names the type, why it is
+    # unsupported, and the supported set — on both the extract and the serialize
+    # entry points. (MultiBinary graduated into scope; Text/Sequence/Graph stay
+    # out of scope as variable-length / structural leaves.)
+    space = gym.spaces.Text(max_length=8)
     for fn in (extract_data_specs_from_space, serialize_space):
         try:
             fn(space)
         except ValueError as exc:
             msg = str(exc)
-            assert "MultiBinary" in msg
+            assert "Text" in msg
             assert "Supported" in msg
             assert "Box (1-D)" in msg and "Dict" in msg
+            assert "MultiBinary" in msg  # now listed among the supported set
         else:
-            raise AssertionError(f"{fn.__name__} should reject MultiBinary")
+            raise AssertionError(f"{fn.__name__} should reject Text")
 
 
 def test_flatten_to_model_rejects_mismatched_cf():

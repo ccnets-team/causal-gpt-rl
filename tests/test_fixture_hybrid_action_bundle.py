@@ -78,6 +78,8 @@ def _coerce_to_space(space, value):
         return int(value)
     if isinstance(space, gym.spaces.MultiDiscrete):
         return np.asarray(value, dtype=space.dtype)
+    if isinstance(space, gym.spaces.MultiBinary):
+        return np.asarray(value, dtype=space.dtype)
     if isinstance(space, gym.spaces.Tuple):
         return tuple(_coerce_to_space(s, v) for s, v in zip(space.spaces, value))
     if isinstance(space, gym.spaces.Dict):

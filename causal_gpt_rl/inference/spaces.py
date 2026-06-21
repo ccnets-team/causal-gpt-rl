@@ -32,14 +32,15 @@ def _get_squash_from_box_space(low: np.ndarray, high: np.ndarray) -> Optional[st
 # Vector spaces this package handles end-to-end (flatten/unflatten + a model
 # head type). Mirrors the branches in `extract_data_specs_from_space` and
 # `serialize_space`.
-_SUPPORTED_SPACE_TYPES = ("Box (1-D)", "Discrete", "MultiDiscrete", "Tuple", "Dict")
+_SUPPORTED_SPACE_TYPES = (
+    "Box (1-D)", "Discrete", "MultiDiscrete", "MultiBinary", "Tuple", "Dict"
+)
 
 # Known gymnasium leaf spaces deliberately out of scope (no model head), each
 # with the reason it has none — surfaced in the error so the boundary explains
 # itself instead of leaving a bare `type(...)` repr. ASCII-only: these strings
 # reach raised errors, which may print on a non-UTF-8 console (e.g. Windows).
 _OUT_OF_SCOPE_SPACE_HINTS = {
-    "MultiBinary": "independent Bernoulli leaves; no model head type yet",
     "Text": "variable-length token sequences",
     "Sequence": "variable-length sequences",
     "Graph": "graph-structured leaves",
@@ -115,6 +116,23 @@ def extract_data_specs_from_space(space: gym.spaces.Space) -> list[SpaceSpec]:
                 )
             )
 
+    elif isinstance(space, gym.spaces.MultiBinary):
+        # One head of `n` independent Bernoulli leaves. `gym.spaces.flatten`
+        # leaves a MultiBinary as its `n`-vector of {0,1} (no one-hot blowup,
+        # unlike Discrete/MultiDiscrete), so the head size is `n`. Bounds are
+        # [0, 1] but unused downstream (dropped for non-continuous action heads;
+        # the decode thresholds logits rather than clipping).
+        n = int(np.prod(space.shape))
+        specs.append(
+            SpaceSpec(
+                type="multi_binary",
+                size=n,
+                dtype=np.int8,
+                low=np.zeros((n,), dtype=np.float64),
+                high=np.ones((n,), dtype=np.float64),
+            )
+        )
+
     elif isinstance(space, gym.spaces.Tuple):
         for subspace in space.spaces:
             specs.extend(extract_data_specs_from_space(subspace))
@@ -138,9 +156,9 @@ def extract_data_specs_from_space(space: gym.spaces.Space) -> list[SpaceSpec]:
 #   .local/docs/dev/model-output/instruction/l2-api-contract.md
 # for the worked example both repos verify against.
 #
-# Scope: vector spaces only — Box (1-D), Discrete, MultiDiscrete and their
-# Tuple/Dict nesting (mirrors `extract_data_specs_from_space`). Image Box
-# (n-D) and Sequence are out of scope.
+# Scope: vector spaces only — Box (1-D), Discrete, MultiDiscrete, MultiBinary
+# and their Tuple/Dict nesting (mirrors `extract_data_specs_from_space`). Image
+# Box (n-D), Text, Sequence and Graph are out of scope.
 # ---------------------------------------------------------------------------
 
 _INF_TOKENS = {"inf": np.inf, "-inf": -np.inf, "nan": np.nan}
@@ -206,6 +224,10 @@ def serialize_space(space: gym.spaces.Space) -> dict:
             if any(start):
                 payload["start"] = start
         return payload
+    if isinstance(space, gym.spaces.MultiBinary):
+        # Scope: 1-D MultiBinary(n). `n` is the leaf count; flatten/unflatten is
+        # the identity {0,1} n-vector, so n alone round-trips losslessly.
+        return {"type": "MultiBinary", "n": int(np.prod(space.shape))}
     if isinstance(space, gym.spaces.Tuple):
         return {"type": "Tuple", "spaces": [serialize_space(s) for s in space.spaces]}
     if isinstance(space, gym.spaces.Dict):
@@ -242,6 +264,8 @@ def deserialize_space(payload: dict) -> gym.spaces.Space:
                 nvec, dtype=dtype, start=np.asarray(start, dtype=np.int64)
             )
         return gym.spaces.MultiDiscrete(nvec, dtype=dtype)
+    if kind == "MultiBinary":
+        return gym.spaces.MultiBinary(int(payload["n"]))
     if kind == "Tuple":
         return gym.spaces.Tuple([deserialize_space(s) for s in payload["spaces"]])
     if kind == "Dict":

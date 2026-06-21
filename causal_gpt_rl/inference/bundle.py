@@ -107,8 +107,9 @@ _SUPPORTED_CAPABILITIES: frozenset[str] = frozenset(
 # requiring one is refused by `load_runner` with the reason below rather than a
 # bare token, so the product boundary self-describes. An entry graduates into
 # `_SUPPORTED_CAPABILITIES` once its adapter ships (as "action_container" did
-# when P5 landed). Currently empty; the next deferred feature (e.g. a MultiBinary
-# action head type) registers its reason here.
+# when P5 landed). Currently empty. (MultiBinary action/obs is now supported via
+# the "multi_binary" head type; it needs no gate — an older runtime fails loud at
+# SpaceSpec construction on the unknown type rather than mis-decoding silently.)
 _DEFERRED_CAPABILITY_REASONS: dict[str, str] = {}
 
 _MODEL_FILENAME = "model.safetensors"

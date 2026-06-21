@@ -40,9 +40,9 @@ from causal_gpt_rl.inference.spaces import (
 from causal_gpt_rl.model.autoregressive_model import AutoregressiveModel
 from causal_gpt_rl.model.schema import ModelConfig, SpaceSpec
 
-_OUT = (
-    Path(__file__).resolve().parents[1] / ".local" / "fixtures" / "hybrid-action-bundle"
-)
+_FIXTURES = Path(__file__).resolve().parents[1] / ".local" / "fixtures"
+_OUT = _FIXTURES / "hybrid-action-bundle"
+_OUT_MB = _FIXTURES / "hybrid-action-multibinary"
 _CFG = ModelConfig(d_model=32, num_heads=4)
 
 
@@ -70,10 +70,20 @@ def _independent_oracle(action_space: gym.spaces.Tuple, model_action: np.ndarray
     return [cont.tolist(), cls]
 
 
-def main() -> None:
-    action_space = gym.spaces.Tuple(
-        (gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32), gym.spaces.Discrete(3))
-    )
+def _multibinary_oracle(action_space: gym.spaces.Tuple, model_action: np.ndarray):
+    """expected_container, hand-computed (NOT via the runner).
+
+    Continuous head clipped to its Box bounds; MultiBinary head = raw logits
+    thresholded at 0 (== prob 0.5) to {0,1}. This is the env-facing decode
+    contract serving must match for an independent-Bernoulli action head.
+    """
+    box, mb = action_space.spaces
+    cont = np.clip(model_action[:2], box.low, box.high).astype(np.float32)
+    flags = (model_action[2 : 2 + int(mb.n)] > 0.0).astype(np.int8)
+    return [cont.tolist(), flags.tolist()]
+
+
+def _write_fixture(out_dir: Path, action_space, raw_actions, oracle, name, note):
     state_size = 2
     action_specs = extract_data_specs_from_space(action_space)
     state_specs = [
@@ -85,30 +95,46 @@ def main() -> None:
         device=torch.device("cpu"),
     )
 
-    _OUT.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     bundle.export_bundle(
-        _OUT, model=model, model_config=_CFG,
+        out_dir, model=model, model_config=_CFG,
         state_specs=model.state_specs, action_specs=model.action_specs,
         context_length=8, action_space=action_space, state_normalizer=_Norm(state_size),
     )
 
-    # Raw model head outputs: [cont(2) values | discrete(3) logits].
-    raw_actions = [
-        [0.30, -0.70, 0.1, 0.9, 0.2],   # in-bounds, argmax class 1
-        [1.50, -2.00, 0.5, 0.1, 0.9],   # continuous clipped to [-1, 1], argmax class 2
-        [0.00, 0.00, 0.9, 0.1, 0.1],    # argmax class 0
-    ]
     samples = []
     for ra in raw_actions:
         arr = np.asarray(ra, dtype=np.float32)
         samples.append({
             "model_action": arr.tolist(),
-            "expected_container": _independent_oracle(action_space, arr),
+            "expected_container": oracle(action_space, arr),
         })
 
     meta = {
-        "fixture": "hybrid-action-bundle",
-        "note": (
+        "fixture": name,
+        "note": note,
+        "action_space": serialize_space(action_space),
+        "action_samples": samples,
+    }
+    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    print(f"wrote reference fixture to {out_dir}")
+
+
+def main() -> None:
+    _write_fixture(
+        _OUT,
+        gym.spaces.Tuple(
+            (gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32), gym.spaces.Discrete(3))
+        ),
+        # Raw model head outputs: [cont(2) values | discrete(3) logits].
+        [
+            [0.30, -0.70, 0.1, 0.9, 0.2],   # in-bounds, argmax class 1
+            [1.50, -2.00, 0.5, 0.1, 0.9],   # continuous clipped to [-1, 1], argmax class 2
+            [0.00, 0.00, 0.9, 0.1, 0.1],    # argmax class 0
+        ],
+        _independent_oracle,
+        "hybrid-action-bundle",
+        (
             "REFERENCE/self-test fixture produced by serving "
             "(scripts/make_reference_action_fixture.py). model_action = RAW model "
             "head output (continuous values then categorical LOGITS, head order). "
@@ -117,11 +143,29 @@ def main() -> None:
             "of the runner. The trainer's real fixture (trained model) supersedes "
             "this; same dir, same schema."
         ),
-        "action_space": serialize_space(action_space),
-        "action_samples": samples,
-    }
-    (_OUT / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    print(f"wrote reference hybrid-action fixture to {_OUT}")
+    )
+    _write_fixture(
+        _OUT_MB,
+        gym.spaces.Tuple(
+            (gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32), gym.spaces.MultiBinary(3))
+        ),
+        # Raw model head outputs: [cont(2) values | multibinary(3) logits].
+        [
+            [0.30, -0.70, 0.5, -0.1, 2.0],   # in-bounds, flags 1,0,1
+            [1.50, -2.00, -0.5, 0.2, -3.0],  # continuous clipped, flags 0,1,0
+            [0.00, 0.00, -1.0, -1.0, -1.0],  # all flags 0
+        ],
+        _multibinary_oracle,
+        "hybrid-action-multibinary",
+        (
+            "REFERENCE/self-test fixture produced by serving "
+            "(scripts/make_reference_action_fixture.py). model_action = RAW model "
+            "head output (continuous values then MultiBinary LOGITS, head order). "
+            "expected_container = declared container with continuous clipped to "
+            "bounds and MultiBinary logits thresholded at 0 to {0,1}, computed "
+            "INDEPENDENTLY of the runner."
+        ),
+    )
 
 
 if __name__ == "__main__":

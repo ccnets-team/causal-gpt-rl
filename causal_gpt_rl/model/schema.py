@@ -31,6 +31,7 @@ SPACE_TYPE_ALIASES = {
     "continuous": "continuous",
     "discrete": "discrete",
     "multi_discrete": "multi_discrete",
+    "multi_binary": "multi_binary",
 }
 
 VALID_SPACE_TYPES = set(SPACE_TYPE_ALIASES.values())

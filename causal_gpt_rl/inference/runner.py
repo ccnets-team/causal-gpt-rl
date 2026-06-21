@@ -75,6 +75,8 @@ class PolicyRunner:
             self._homogeneous_mode = "discrete"
         elif bool(types) and all(t == "multi_discrete" for t in types):
             self._homogeneous_mode = "multi_discrete"
+        elif bool(types) and all(t == "multi_binary" for t in types):
+            self._homogeneous_mode = "multi_binary"
         else:
             self._homogeneous_mode = None  # hybrid
 
@@ -426,6 +428,10 @@ class PolicyRunner:
                 if low is not None and high is not None:
                     col = np.clip(col, low, high)
                 parts.append(col.astype(np.float32))
+            elif head_type == "multi_binary":
+                # gym.flatten(MultiBinary) is the {0,1} n-vector itself, so the
+                # head contributes its thresholded logits in place (no one-hot).
+                parts.append((col > 0.0).astype(np.float32))
             else:
                 idx = np.argmax(col, axis=-1).astype(np.int64)
                 parts.append(self._one_hot(idx, size))
@@ -488,6 +494,17 @@ class PolicyRunner:
             env_action = idxs[0] if self.num_envs == 1 else idxs
             return env_action, buffer_action
 
+        if self._homogeneous_mode == "multi_binary":
+            # Independent Bernoulli per element: threshold the raw logits at 0
+            # (== prob 0.5). `gym.spaces.flatten(MultiBinary)` is the {0,1}
+            # n-vector itself (no one-hot), so the thresholded vector is both the
+            # env-facing action (int8) and the AR-feedback buffer (float32).
+            binary = (action.astype(np.float32) > 0.0)
+            buffer_action = binary.astype(np.float32)
+            env_binary = binary.astype(np.int8)
+            env_action = env_binary[0] if self.num_envs == 1 else env_binary
+            return env_action, buffer_action
+
         return self._decode_hybrid(action)
 
     def _decode_hybrid(self, action: np.ndarray):
@@ -514,6 +531,12 @@ class PolicyRunner:
                     env_col = col.astype(np.float32)
                 env_parts.append(env_col)
                 buffer_parts.append(col.astype(np.float32))
+            elif head_type == "multi_binary":
+                # Independent Bernoulli: threshold logits at 0. The {0,1} vector
+                # is both the env value (int8, size n) and the AR feedback.
+                binary = col > 0.0
+                env_parts.append(binary.astype(np.int8))
+                buffer_parts.append(binary.astype(np.float32))
             else:
                 idx = np.argmax(col, axis=-1).astype(np.int64)
                 env_parts.append(idx.reshape(self.num_envs, 1))

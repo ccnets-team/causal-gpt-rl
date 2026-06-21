@@ -54,6 +54,12 @@ class OutputToInputAdapter(torch.nn.Module):
             idx = torch.argmax(output, dim=-1)
             return idx.unsqueeze(-1).long()
 
+        if self._type == "multi_binary":
+            # Independent Bernoulli action head: threshold raw logits at 0
+            # (== prob 0.5). Keeps the n-vector shape so the {0,1} feedback
+            # matches the runner's env decode (`gym.flatten(MultiBinary)`).
+            return (output > 0.0).to(dtype)
+
         if self._type == "binary_classification":
             return (output > 0.5).to(dtype)
 

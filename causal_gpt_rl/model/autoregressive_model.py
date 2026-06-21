@@ -132,6 +132,11 @@ class AutoregressiveModel(nn.Module):
         # derived views (see properties below) kept only for the homogeneous
         # fast paths and back-compat.
         self._mean_is_continuous = [t == "continuous" for t in mean_types]
+        # Per-head action type (continuous / discrete / multi_discrete /
+        # multi_binary), in mean-head order. The source of truth for sampling
+        # dispatch: continuous is squashed+scaled, categorical is argmax/one-hot,
+        # multi_binary is independent Bernoulli — and they must not be confused.
+        self._mean_types = list(mean_types)
         # Positions of continuous heads within the mean-head order. Plain
         # attributes derived from specs — deliberately NOT registered as buffers
         # so they stay out of state_dict (weight compatibility).
@@ -168,8 +173,16 @@ class AutoregressiveModel(nn.Module):
 
     @property
     def _is_discrete(self) -> bool:
-        """True iff every mean-action head is categorical (discrete family)."""
-        return bool(self._mean_is_continuous) and not any(self._mean_is_continuous)
+        """True iff every mean-action head is categorical (discrete / multi_discrete).
+
+        MultiBinary heads are independent Bernoulli, NOT categorical, so a bundle
+        containing one is not "discrete": it routes to the per-head hybrid sampler
+        rather than the argmax/one-hot fast path (which would mis-treat the n
+        independent bits as a single n-way choice).
+        """
+        return bool(self._mean_types) and all(
+            t in ("discrete", "multi_discrete") for t in self._mean_types
+        )
 
     # I/O helpers ---------------------------------------------------------
 
@@ -438,8 +451,8 @@ class AutoregressiveModel(nn.Module):
         head schedule the runner decodes against.
         """
         cont_mean_indices = [
-            i for i, is_cont in zip(self.mean_action_indices, self._mean_is_continuous)
-            if is_cont
+            i for i, t in zip(self.mean_action_indices, self._mean_types)
+            if t == "continuous"
         ]
         cont_actions = None
         if cont_mean_indices:
@@ -454,11 +467,23 @@ class AutoregressiveModel(nn.Module):
 
         parts = []
         offset = 0
-        for i, is_cont in zip(self.mean_action_indices, self._mean_is_continuous):
-            if is_cont:
+        for i, head_type in zip(self.mean_action_indices, self._mean_types):
+            if head_type == "continuous":
                 width = out[i].size(-1)
                 parts.append(cont_actions[..., offset:offset + width])
                 offset += width
+            elif head_type == "multi_binary":
+                # Independent Bernoulli per element: sample {0,1} from the head
+                # logits (no one-hot — the n bits are independent). std_scale == 0
+                # collapses to the deterministic threshold (== prob 0.5), matching
+                # the runner's greedy decode, mirroring how continuous treats 0.
+                logits = out[i]
+                if std_scale == 0.0:
+                    parts.append((logits > 0.0).to(logits.dtype))
+                else:
+                    parts.append(
+                        torch.distributions.Bernoulli(logits=logits).sample().to(logits.dtype)
+                    )
             else:
                 logits = out[i]
                 sampled_idx = torch.distributions.Categorical(logits=logits).sample()
