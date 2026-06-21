@@ -29,6 +29,43 @@ def _get_squash_from_box_space(low: np.ndarray, high: np.ndarray) -> Optional[st
     return "tanh"
 
 
+# Vector spaces this package handles end-to-end (flatten/unflatten + a model
+# head type). Mirrors the branches in `extract_data_specs_from_space` and
+# `serialize_space`.
+_SUPPORTED_SPACE_TYPES = ("Box (1-D)", "Discrete", "MultiDiscrete", "Tuple", "Dict")
+
+# Known gymnasium leaf spaces deliberately out of scope (no model head), each
+# with the reason it has none — surfaced in the error so the boundary explains
+# itself instead of leaving a bare `type(...)` repr. ASCII-only: these strings
+# reach raised errors, which may print on a non-UTF-8 console (e.g. Windows).
+_OUT_OF_SCOPE_SPACE_HINTS = {
+    "MultiBinary": "independent Bernoulli leaves; no model head type yet",
+    "Text": "variable-length token sequences",
+    "Sequence": "variable-length sequences",
+    "Graph": "graph-structured leaves",
+}
+# `image (n-D Box)` is not a distinct gymnasium class, so it cannot be matched by
+# `type(...).__name__`; it is only named in the out-of-scope summary.
+_OUT_OF_SCOPE_SUMMARY = ", ".join(list(_OUT_OF_SCOPE_SPACE_HINTS) + ["image (n-D Box)"])
+
+
+def _unsupported_space_error(space: gym.spaces.Space, *, action: str) -> ValueError:
+    """Build a self-describing error for a space outside the supported set.
+
+    Names the offending type (with why it is out of scope, when known), then the
+    full supported set, so a customer hitting an unsupported space learns what to
+    do instead of seeing a bare type repr.
+    """
+    name = type(space).__name__
+    hint = _OUT_OF_SCOPE_SPACE_HINTS.get(name)
+    reason = f" ({hint})" if hint else ""
+    return ValueError(
+        f"Unsupported space type to {action}: {name}{reason}. "
+        f"Supported: {', '.join(_SUPPORTED_SPACE_TYPES)}. "
+        f"Out of scope: {_OUT_OF_SCOPE_SUMMARY}."
+    )
+
+
 def extract_data_specs_from_space(space: gym.spaces.Space) -> list[SpaceSpec]:
     """
     Recursively extract SpaceSpec objects from a Gym space.
@@ -87,7 +124,7 @@ def extract_data_specs_from_space(space: gym.spaces.Space) -> list[SpaceSpec]:
             specs.extend(extract_data_specs_from_space(space.spaces[key]))
 
     else:
-        raise ValueError(f"Unsupported space type: {type(space)}")
+        raise _unsupported_space_error(space, action="extract specs from")
 
     return specs
 
@@ -169,7 +206,7 @@ def serialize_space(space: gym.spaces.Space) -> dict:
                 [key, serialize_space(sub)] for key, sub in space.spaces.items()
             ],
         }
-    raise ValueError(f"Unsupported space type for serialization: {type(space)}")
+    raise _unsupported_space_error(space, action="serialize")
 
 
 def deserialize_space(payload: dict) -> gym.spaces.Space:

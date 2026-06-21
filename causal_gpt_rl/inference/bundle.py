@@ -93,9 +93,23 @@ _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 # before the model. Advertised since the input adapter shipped (P4): `load_runner`
 # wires `make_state_input_adapter` onto the runner, so this runtime can serve such
 # bundles. Older runtimes that lack the adapter still refuse them loudly.
+#
+# "action_container": the bundle's action_space is a Dict/Tuple, so the emitted
+# action must be unflattened back into that declared container. Advertised since
+# the output adapter shipped (P5): `load_runner` wires `make_action_output_adapter`
+# onto the runner, which restores the container via gym.spaces.unflatten. Older
+# runtimes that only decode per head (flat) still refuse such bundles loudly.
 _SUPPORTED_CAPABILITIES: frozenset[str] = frozenset(
-    {"hybrid_action", "hybrid_state"}
+    {"hybrid_action", "hybrid_state", "action_container"}
 )
+
+# Capabilities this runtime RECOGNIZES but does not yet implement. A bundle
+# requiring one is refused by `load_runner` with the reason below rather than a
+# bare token, so the product boundary self-describes. An entry graduates into
+# `_SUPPORTED_CAPABILITIES` once its adapter ships (as "action_container" did
+# when P5 landed). Currently empty; the next deferred feature (e.g. a MultiBinary
+# action head type) registers its reason here.
+_DEFERRED_CAPABILITY_REASONS: dict[str, str] = {}
 
 _MODEL_FILENAME = "model.safetensors"
 _LEGACY_MODEL_FILENAME = "model.pt"
@@ -238,6 +252,16 @@ def export_bundle(
         serialize_space(action_space) if action_space is not None else None
     )
 
+    # A Dict/Tuple action_space carries declared container structure the runner's
+    # per-head decode does NOT restore — it returns a flat per-head action.
+    # Restoring the container is the P5 output adapter; until it ships, gate such
+    # bundles behind "action_container" so a runtime without the adapter refuses
+    # them loudly rather than silently emitting the wrong shape. Box / Discrete /
+    # MultiDiscrete actions already decode to their declared env form, so they are
+    # never gated. (Mirrors the input side: hybrid_state gates structured obs.)
+    if action_container is not None and action_container["type"] in ("Dict", "Tuple"):
+        capabilities.add("action_container")
+
     config_payload = {
         "bundle_format_version": bundle_format_version,
         "package_version": _PACKAGE_VERSION,
@@ -331,18 +355,26 @@ def load_runner(
     required_caps = config_payload.get("requires_capabilities") or []
     missing_caps = sorted(set(required_caps) - _SUPPORTED_CAPABILITIES)
     if missing_caps:
+        details = [
+            f"  - {cap}: {_DEFERRED_CAPABILITY_REASONS[cap]}"
+            if cap in _DEFERRED_CAPABILITY_REASONS
+            else f"  - {cap}"
+            for cap in missing_caps
+        ]
         raise ValueError(
-            f"Bundle requires capabilities not supported by causal-gpt-rl "
-            f"{_PACKAGE_VERSION}: {missing_caps}. Upgrade the package to load "
-            f"this bundle."
+            f"Bundle requires capabilities this causal-gpt-rl "
+            f"{_PACKAGE_VERSION} build does not support:\n"
+            + "\n".join(details)
+            + "\nUpgrade causal-gpt-rl to a build that advertises them."
         )
 
-    # Forward-compat loader contract for the reserved `action_container` slot:
-    # absent/None → positional per-head output (today's behavior); present →
-    # a future named-container adapter unflattens into the declared Gymnasium
-    # container. Such bundles also carry a `requires_capabilities` entry, so the
-    # gate above rejects them on a runtime that lacks the adapter. The runner
-    # itself stays container-agnostic; structuring lives in the adapter layer.
+    # Loader contract for the `action_container` slot: absent/None → positional
+    # per-head output (e.g. Box/Discrete actions); a Dict/Tuple value means the
+    # action is unflattened into that declared container by the output adapter
+    # (P5), wired onto the runner below from `action_space`. The exporter stamps
+    # "action_container" alongside such a value, gating it so a runtime without
+    # the adapter refuses loudly (handled above). The runner core itself stays
+    # container-agnostic; structuring lives in the adapter layer.
 
     model_config = ModelConfig.from_dict(config_payload["model_config"])
     state_specs = [SpaceSpec.from_dict(d) for d in config_payload["state_specs"]]
@@ -393,7 +425,9 @@ def load_runner(
     # for older bundles that did not carry them (positional, structure-less I/O).
     # `obs_space` drives the input adapter (P4): a structured space makes the
     # runner flatten observations continuous-first; a Box / None keeps the raw
-    # passthrough. `action_space` is the output adapter's (P5) schema slot.
+    # passthrough. `action_space` drives the output adapter (P5): a Dict/Tuple
+    # space makes the runner unflatten the emitted action into that container;
+    # a non-container / None keeps the flat per-head action.
     state_container = config_payload.get("state_container")
     action_container = config_payload.get("action_container")
     obs_space = (

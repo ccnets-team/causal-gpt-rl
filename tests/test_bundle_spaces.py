@@ -85,6 +85,44 @@ def _discrete_state_model(n: int = 4, action_size: int = 2) -> AutoregressiveMod
     )
 
 
+def _hybrid_action_model(state_size: int = 2) -> AutoregressiveModel:
+    """Model whose action schedule mixes a continuous + a discrete head.
+
+    Matches a declared ``Tuple(Box(2), Discrete(3))`` / ``Dict`` action container
+    (the case the runner decodes flat per-head and the P5 adapter must restore).
+    """
+    return AutoregressiveModel(
+        ModelConfig(d_model=32, num_heads=4),
+        state_specs=[
+            SpaceSpec(
+                type="continuous",
+                size=state_size,
+                dtype=torch.float32,
+                low=[-1.0] * state_size,
+                high=[1.0] * state_size,
+            )
+        ],
+        action_specs=[
+            SpaceSpec(
+                type="continuous",
+                size=2,
+                dtype=torch.float32,
+                low=[-1.0, -1.0],
+                high=[1.0, 1.0],
+                squash="tanh",
+            ),
+            SpaceSpec(
+                type="discrete",
+                size=3,
+                dtype=np.int64,
+                low=np.full((3,), -np.inf),
+                high=np.full((3,), np.inf),
+            ),
+        ],
+        device=torch.device("cpu"),
+    )
+
+
 def _read_config(tmpdir: str) -> dict:
     return json.loads((Path(tmpdir) / "config.json").read_text())
 
@@ -255,3 +293,89 @@ def test_load_old_bundle_has_none_spaces():
 
     assert runner.obs_space is None
     assert runner.action_space is None
+
+
+# --- P5: action_container ------------------------------------------------
+#
+# A Dict/Tuple action_space loses its declared structure through the runner's
+# flat per-head decode. Export stamps the `action_container` capability; the P5
+# output adapter restores the container, so this runtime advertises support and
+# load now accepts such bundles (end-to-end coverage lives in
+# tests/test_action_output_adapter.py).
+
+
+def _export_with_action_space(model, action_space, tmp, **kw):
+    return bundle.export_bundle(
+        tmp,
+        model=model,
+        model_config=_CFG,
+        state_specs=model.state_specs,
+        action_specs=model.action_specs,
+        context_length=8,
+        action_space=action_space,
+        state_normalizer=_Norm(2),
+        **kw,
+    )
+
+
+def test_export_stamps_action_container_for_tuple_action():
+    model = _hybrid_action_model(2)
+    action_space = gym.spaces.Tuple(
+        (gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32), gym.spaces.Discrete(3))
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _export_with_action_space(model, action_space, tmp)
+        cfg = _read_config(tmp)
+    assert "action_container" in cfg["requires_capabilities"]
+
+
+def test_export_stamps_action_container_for_dict_action():
+    model = _hybrid_action_model(2)
+    action_space = gym.spaces.Dict(
+        {
+            "move": gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32),
+            "mode": gym.spaces.Discrete(3),
+        }
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _export_with_action_space(model, action_space, tmp)
+        cfg = _read_config(tmp)
+    assert "action_container" in cfg["requires_capabilities"]
+
+
+def test_export_does_not_stamp_action_container_for_box_action():
+    # Box / Discrete / MultiDiscrete actions already decode to their declared env
+    # form, so they are never gated (regression: today's continuous bundles).
+    model = _continuous_model(2, 2)
+    box = gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
+    with tempfile.TemporaryDirectory() as tmp:
+        _export_with_action_space(model, box, tmp)
+        cfg = _read_config(tmp)
+    assert "action_container" not in cfg["requires_capabilities"]
+    # The space is still serialized (the slot the P5 adapter will read).
+    assert cfg["action_container"] is not None
+
+
+def test_load_accepts_and_serves_action_container_bundle():
+    # P5 shipped: a Dict/Tuple-action bundle now loads and the runner carries an
+    # output adapter that restores the declared container instead of refusing.
+    model = _hybrid_action_model(2)
+    action_space = gym.spaces.Tuple(
+        (gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32), gym.spaces.Discrete(3))
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _export_with_action_space(model, action_space, tmp)
+        cfg = _read_config(tmp)
+        assert "action_container" in cfg["requires_capabilities"]
+        runner = bundle.load_runner(tmp)
+
+    assert runner._output_adapter is not None
+    assert isinstance(runner.action_space, gym.spaces.Tuple)
+    # End-to-end: act() emits the declared 2-tuple, not a flat per-head list.
+    runner.reset(np.zeros(2, dtype=np.float32))
+    action = runner.act()
+    assert isinstance(action, tuple) and len(action) == 2
+    box_val = np.asarray(action[0], dtype=np.float32)
+    assert box_val.shape == (2,)
+    assert np.all(box_val >= -1.0) and np.all(box_val <= 1.0)  # clipped to bounds
+    assert 0 <= int(action[1]) < 3

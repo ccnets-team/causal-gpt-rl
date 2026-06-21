@@ -24,7 +24,7 @@ import torch
 from ..model.autoregressive_model import AutoregressiveModel
 from ..model.schema import DataSpec, ensure_tensor_heads
 from ..model.utils.kv_cache import cache_has_history
-from .adapters import make_state_input_adapter
+from .adapters import make_action_output_adapter, make_state_input_adapter
 from .checkpoint import load_inference_checkpoint
 from .context.buffer import ContextBuffer
 from .state_normalizer import StateNormalizer
@@ -52,8 +52,8 @@ class PolicyRunner:
         self.model = model
         # Per-head action schedule: [(type, size, low, high), ...]. Mixed
         # families are allowed; decoding dispatches per head. Restoring the
-        # declared Gymnasium container (Tuple/Dict) is the adapter's job and is
-        # intentionally not done in the runner.
+        # declared Gymnasium container (Tuple/Dict) is the output adapter's job
+        # (P5), wired below from `action_space` and applied in `_decode`.
         self.action_schedule = [
             (
                 str(t),
@@ -92,8 +92,10 @@ class PolicyRunner:
         # Declared Gymnasium spaces (deserialized by the loader). The input
         # adapter (P4) converts a structured env observation into the model's
         # canonical flat state; it is None for a plain Box / no space, leaving
-        # the legacy raw-passthrough path byte-identical. `action_space` is the
-        # output adapter's (P5) reserved schema slot.
+        # the legacy raw-passthrough path byte-identical. The output adapter (P5)
+        # restores the declared Dict/Tuple container on the emitted action; it is
+        # None for a non-container action space, leaving the flat per-head path
+        # byte-identical.
         self.obs_space = obs_space
         self.action_space = action_space
         self._input_adapter = make_state_input_adapter(obs_space)
@@ -107,6 +109,16 @@ class PolicyRunner:
                 f"disagree."
             )
         self.action_size = int(sum(self.action_head_sizes))
+        self._output_adapter = make_action_output_adapter(action_space)
+        if (
+            self._output_adapter is not None
+            and self._output_adapter.flatdim != self.action_size
+        ):
+            raise ValueError(
+                f"action_space flatdim {self._output_adapter.flatdim} != "
+                f"action_size {self.action_size}; the bundle's declared space and "
+                f"action specs disagree."
+            )
         self.context_length = int(context_length)
         self.num_envs = int(num_envs)
         self.use_windowed = bool(use_windowed)
@@ -347,12 +359,61 @@ class PolicyRunner:
         return states.to(dtype=torch.float32)
 
     def _decode(self, action: np.ndarray):
+        """Return (env_action, buffer_action) for the model's last-step output.
+
+        ``_decode_flat`` decodes per head into the flat env representation and the
+        AR-feedback buffer action. When the bundle declared a Dict/Tuple
+        ``action_space``, the output adapter (P5) then restores that container on
+        the env-facing side. The buffer action (model feedback) always stays flat
+        and is never touched by the adapter — output == the next input (L2 §2).
+        """
+        env_action, buffer_action = self._decode_flat(action)
+        if self._output_adapter is not None:
+            env_action = self._restructure_env_action(action)
+        return env_action, buffer_action
+
+    def _restructure_env_action(self, action: np.ndarray):
+        """Flat per-head model output -> the declared Dict/Tuple action container.
+
+        Builds the env-ready ``gym.spaces.flatten``-convention vector (continuous
+        heads clipped to bounds, categorical heads one-hot, declared/head order)
+        and unflattens it per env through the output adapter. No continuous-first
+        permutation — actions are declared order (L2 §2).
+        """
+        env_flat = self._gym_flatten_action(action)
+        out = [self._output_adapter(env_flat[i]) for i in range(self.num_envs)]
+        return out[0] if self.num_envs == 1 else out
+
+    def _gym_flatten_action(self, action: np.ndarray) -> np.ndarray:
+        """Per-head model output -> ``(num_envs, action_size)`` gym-flat, env-ready.
+
+        Mirrors ``gym.spaces.flatten`` so the output adapter's unflatten inverts
+        it exactly: continuous heads clipped to their bounds, categorical heads
+        argmax'd to a one-hot, concatenated in declared (head) order. This is the
+        clipped sibling of the AR ``buffer_action`` (which stays raw for feedback).
+        """
+        action = action.astype(np.float32)
+        parts: list = []
+        offset = 0
+        for head_type, size, low, high in self.action_schedule:
+            col = action[:, offset:offset + size]
+            offset += size
+            if head_type == "continuous":
+                if low is not None and high is not None:
+                    col = np.clip(col, low, high)
+                parts.append(col.astype(np.float32))
+            else:
+                idx = np.argmax(col, axis=-1).astype(np.int64)
+                parts.append(self._one_hot(idx, size))
+        return np.concatenate(parts, axis=1).astype(np.float32)
+
+    def _decode_flat(self, action: np.ndarray):
         """Return (env_action, buffer_action) from the model's last-step output.
 
         Homogeneous single-family schedules use the legacy fast paths, kept
         byte-for-byte identical. Mixed (hybrid) schedules decode per head and
         return a flat per-head env representation; wrapping it into the declared
-        Gymnasium container is the adapter's responsibility, not the runner's.
+        Gymnasium container is the output adapter's job (see ``_decode``).
         """
         if self._homogeneous_mode == "continuous":
             raw = action.astype(np.float32)

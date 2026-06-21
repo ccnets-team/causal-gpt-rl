@@ -12,12 +12,19 @@ the two without leaking structure into the model core.
                  in the runner; the embedded stats are themselves canonical with
                  the one-hot tail baked to identity, so block *order* is all this
                  layer must get right (flatten -> normalize, decision 6).
-  * output (P5): model action -> declared container.  [ships with P5]
+  * output (P5): flat per-head model action -> the declared ``Dict`` / ``Tuple``
+                 container, via ``gym.spaces.unflatten``. Actions are NOT
+                 reordered continuous-first: the action heads stay in declared
+                 order (output == the next input, AR self-feedback; L2 §2), so a
+                 plain unflatten of the declared-order flat is exactly right.
 
 A plain Box obs space needs no structuring — ``gym.flatten`` of a 1-D Box is a
 raveling concat and the continuous-first permutation is identity — so
 :func:`make_state_input_adapter` returns ``None`` for it and the runner keeps its
-byte-identical raw-passthrough path.
+byte-identical raw-passthrough path. Symmetrically, a non-container action space
+(Box / Discrete / MultiDiscrete) needs no restructuring — its flat per-head env
+form already *is* the declared action — so :func:`make_action_output_adapter`
+returns ``None`` and only ``Dict`` / ``Tuple`` actions get an output adapter.
 
 Author:
     PARK, Jun-Ho, junho@ccnets.org
@@ -74,4 +81,57 @@ def make_state_input_adapter(
     return StateInputAdapter(obs_space)
 
 
-__all__ = ["StateInputAdapter", "make_state_input_adapter"]
+class ActionOutputAdapter:
+    """Flat per-head model action -> the declared Gymnasium container.
+
+    Holds the declared (``Dict`` / ``Tuple``) ``action_space``. Each call takes a
+    single env's action in ``gym.spaces.flatten`` convention — continuous leaves
+    as (clipped) raw values, categorical leaves one-hot, concatenated in declared
+    (head) order — and returns the structured sample via ``gym.spaces.unflatten``.
+
+    No continuous-first permutation: action heads stay in declared order (output
+    == the next input, AR self-feedback; L2 contract §2), so a plain unflatten of
+    the declared-order flat is exactly right. ``gym.spaces.unflatten`` also applies
+    each leaf's semantics for free — Discrete ``start`` offsets, MultiDiscrete
+    splits, leaf shapes/dtypes — which a hand-rolled per-head mapping would have
+    to re-derive.
+    """
+
+    def __init__(self, action_space: gym.spaces.Space):
+        self.action_space = action_space
+        # == sum of per-head sizes the model emits (Box dims + one-hot widths).
+        self.flatdim = int(gym.spaces.flatdim(action_space))
+
+    def __call__(self, env_flat):
+        """One env's gym-flat action vector -> the declared container sample."""
+        flat = np.asarray(env_flat, dtype=np.float32).reshape(-1)
+        if flat.shape[0] != self.flatdim:
+            raise ValueError(
+                f"action flat width {flat.shape[0]} != action_space flatdim "
+                f"{self.flatdim}; the bundle's declared space and action specs "
+                f"disagree."
+            )
+        return gym.spaces.unflatten(self.action_space, flat)
+
+
+def make_action_output_adapter(
+    action_space: Optional[gym.spaces.Space],
+) -> Optional[ActionOutputAdapter]:
+    """Build the output adapter, or ``None`` when the flat action is the output.
+
+    Returns ``None`` for a missing space or any non-container leaf
+    (Box / Discrete / MultiDiscrete): the flat per-head env action already *is*
+    the declared action, so the runner emits it unchanged (byte-identical legacy
+    path). Only ``Dict`` / ``Tuple`` carry structure to restore.
+    """
+    if isinstance(action_space, (gym.spaces.Dict, gym.spaces.Tuple)):
+        return ActionOutputAdapter(action_space)
+    return None
+
+
+__all__ = [
+    "StateInputAdapter",
+    "make_state_input_adapter",
+    "ActionOutputAdapter",
+    "make_action_output_adapter",
+]

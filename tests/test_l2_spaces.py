@@ -129,6 +129,23 @@ def test_flatten_unflatten_model_roundtrip():
         assert np.allclose(a, b), f"model-boundary round-trip failed: {space}"
 
 
+def test_unsupported_space_error_is_self_describing():
+    # An out-of-scope leaf (MultiBinary) raises an error that names the type, why
+    # it is unsupported, and the supported set — on both the extract and the
+    # serialize entry points.
+    space = gym.spaces.MultiBinary(4)
+    for fn in (extract_data_specs_from_space, serialize_space):
+        try:
+            fn(space)
+        except ValueError as exc:
+            msg = str(exc)
+            assert "MultiBinary" in msg
+            assert "Supported" in msg
+            assert "Box (1-D)" in msg and "Dict" in msg
+        else:
+            raise AssertionError(f"{fn.__name__} should reject MultiBinary")
+
+
 def test_flatten_to_model_rejects_mismatched_cf():
     space = gym.spaces.Box(-1.0, 1.0, shape=(4,), dtype=np.float32)
     other = gym.spaces.Box(-1.0, 1.0, shape=(6,), dtype=np.float32)
