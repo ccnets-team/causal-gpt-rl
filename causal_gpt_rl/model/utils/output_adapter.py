@@ -19,15 +19,19 @@ class OutputToInputAdapter(torch.nn.Module):
         assert squash is not None or (low is None and high is None), \
             "If squash is None, low and high must be None"
         self.squash = squash
-        # Register low/high as buffers so they follow device/dtype
+        # Register low/high as buffers so they follow device/dtype. `.clone()` so
+        # each buffer owns its storage: torch.as_tensor on a float32 numpy bound
+        # returns a VIEW sharing that array, and the same spec also feeds the
+        # input-feedback adapter — without the clone the two low/high buffers
+        # alias and safetensors refuses to save the bundle (shared storage).
         if low is not None:
-            low_t = torch.as_tensor(low, dtype=torch.float32).view(1, 1, -1)
+            low_t = torch.as_tensor(low, dtype=torch.float32).view(1, 1, -1).clone()
             self.register_buffer("low", low_t)
         else:
             self.register_buffer("low", None)
 
         if high is not None:
-            high_t = torch.as_tensor(high, dtype=torch.float32).view(1, 1, -1)
+            high_t = torch.as_tensor(high, dtype=torch.float32).view(1, 1, -1).clone()
             self.register_buffer("high", high_t)
         else:
             self.register_buffer("high", None)

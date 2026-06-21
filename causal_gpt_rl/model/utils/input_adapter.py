@@ -32,8 +32,13 @@ class InputHeadAdapter(nn.Module):
         )
 
         if is_bounded_continuous_action:
-            low_t = torch.as_tensor(low, dtype=torch.float32).view(1, 1, -1)
-            high_t = torch.as_tensor(high, dtype=torch.float32).view(1, 1, -1)
+            # `.clone()` so the buffer owns its storage. torch.as_tensor on a
+            # float32 numpy `low`/`high` returns a VIEW sharing that array; the
+            # same spec feeds both this input-feedback adapter and the action
+            # output adapter, so without the clone their low/high buffers alias
+            # and safetensors refuses to save the bundle (shared storage).
+            low_t = torch.as_tensor(low, dtype=torch.float32).view(1, 1, -1).clone()
+            high_t = torch.as_tensor(high, dtype=torch.float32).view(1, 1, -1).clone()
             self.use_atanh = bool(
                 torch.isfinite(low_t).all()
                 and torch.isfinite(high_t).all()
