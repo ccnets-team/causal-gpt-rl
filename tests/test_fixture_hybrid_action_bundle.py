@@ -1,36 +1,38 @@
-"""Byte-oracle check against a hybrid-ACTION bundle fixture (P5 output side).
+"""Byte-oracle check against hybrid-ACTION bundle fixtures (P5 output side).
 
 Mirror of ``test_fixture_hybrid_bundle.py`` on the action side. The trainer ships
 a real exported CONTAINER-action bundle plus a ``meta.json`` oracle under
-``.local/fixtures/hybrid-action-bundle/`` (gitignored, hand-delivered). This test
-cross-checks the serving P5 output adapter: the runner decodes a raw model action
-into the declared Dict/Tuple container, and it must match the oracle.
+``.local/fixtures/<name>/`` (gitignored, hand-delivered). This test discovers any
+such fixture and cross-checks the serving P5 output adapter: the runner decodes a
+per-head flat model action into the declared Dict/Tuple container, and it must
+match the oracle.
 
-``meta.json`` schema (the contract the trainer's fixture must satisfy — serving
-seeds a reference via ``scripts/make_reference_action_fixture.py``):
+Fixtures are discovered by glob (not a hardcoded name) so a trainer-delivered
+bundle (e.g. ``hybrid-bundle-dict-action-box2-disc3``) and serving's own
+reference (``hybrid-action-bundle`` from ``scripts/make_reference_action_fixture.py``)
+are both validated.
+
+``meta.json`` schema (the contract the trainer's fixture satisfies):
 
     {
       "action_space": <serialized gym space: Dict or Tuple>,
       "action_samples": [
         {
-          "model_action": [<action_size floats>],   # RAW model head output, head
-                                                     # order: continuous values then
-                                                     # categorical LOGITS
+          "model_action": [<action_size floats>],   # per-head flat the model emits,
+                                                     # declared/gym.flatten order
           "expected_container": <declared container> # Box -> [floats], Discrete -> int,
                                                      # MultiDiscrete -> [ints],
-                                                     # Tuple -> [...], Dict -> {key: ...};
-                                                     # continuous clipped to bounds,
-                                                     # categorical argmax + Discrete start
+                                                     # Tuple -> [...], Dict -> {key: ...}
         }
       ]
     }
 
-Validates:
-  * the bundle loads with an output adapter and the action_container capability,
-  * runner._decode(model_action) == expected_container (structure + values),
-  * load_runner + reset/act runs end-to-end and returns the declared container.
+Validation is ``runner._decode(model_action) == expected_container`` — the real
+serving path. For in-bounds (tanh-squashed) continuous outputs this equals the
+trainer's stated ``gym.spaces.unflatten(action_space, model_action)`` contract;
+the runner additionally clips continuous heads to their bounds.
 
-Skips cleanly when the fixture is absent (CI, fresh clone) — it lives outside git.
+Skips cleanly when no fixture is present (CI, fresh clone).
 """
 import json
 from pathlib import Path
@@ -41,19 +43,31 @@ import pytest
 
 from causal_gpt_rl.inference import bundle
 
-_FIXTURE_DIR = (
-    Path(__file__).resolve().parents[1]
-    / ".local"
-    / "fixtures"
-    / "hybrid-action-bundle"
+_FIXTURES_BASE = Path(__file__).resolve().parents[1] / ".local" / "fixtures"
+
+
+def _discover_action_fixtures() -> list[Path]:
+    """Fixture dirs whose meta.json carries a Dict/Tuple action oracle."""
+    found: list[Path] = []
+    if not _FIXTURES_BASE.is_dir():
+        return found
+    for meta_path in sorted(_FIXTURES_BASE.glob("*/meta.json")):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        action_space = meta.get("action_space") or {}
+        if "action_samples" in meta and action_space.get("type") in ("Dict", "Tuple"):
+            found.append(meta_path.parent)
+    return found
+
+
+_ACTION_FIXTURES = _discover_action_fixtures()
+
+pytestmark = pytest.mark.skipif(
+    not _ACTION_FIXTURES,
+    reason=f"no container-action fixture present under {_FIXTURES_BASE}",
 )
-
-
-def _load_meta() -> dict:
-    meta_path = _FIXTURE_DIR / "meta.json"
-    if not meta_path.is_file():
-        pytest.skip(f"hybrid action bundle fixture not present at {_FIXTURE_DIR}")
-    return json.loads(meta_path.read_text(encoding="utf-8"))
 
 
 def _coerce_to_space(space, value):
@@ -82,28 +96,34 @@ def _assert_container_equal(space, got, expected_json):
     np.testing.assert_allclose(a, b, atol=1e-6)
 
 
-def test_fixture_loads_with_output_adapter():
-    _load_meta()  # skip if absent
-    runner = bundle.load_runner(_FIXTURE_DIR)
+def _meta(fixture_dir: Path) -> dict:
+    return json.loads((fixture_dir / "meta.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("fixture_dir", _ACTION_FIXTURES, ids=lambda p: p.name)
+def test_fixture_loads_with_output_adapter(fixture_dir):
+    runner = bundle.load_runner(fixture_dir)
     assert runner._output_adapter is not None
     assert isinstance(runner.action_space, (gym.spaces.Dict, gym.spaces.Tuple))
 
 
-def test_runner_decode_matches_container_oracle():
-    meta = _load_meta()
-    runner = bundle.load_runner(_FIXTURE_DIR)
-    action_space = runner.action_space
+@pytest.mark.parametrize("fixture_dir", _ACTION_FIXTURES, ids=lambda p: p.name)
+def test_runner_decode_matches_container_oracle(fixture_dir):
+    meta = _meta(fixture_dir)
+    runner = bundle.load_runner(fixture_dir)
     for sample in meta["action_samples"]:
         model_action = np.asarray(
             sample["model_action"], dtype=np.float32
         ).reshape(1, -1)
         container, _ = runner._decode(model_action)
-        _assert_container_equal(action_space, container, sample["expected_container"])
+        _assert_container_equal(
+            runner.action_space, container, sample["expected_container"]
+        )
 
 
-def test_load_and_run_end_to_end_returns_container():
-    _load_meta()
-    runner = bundle.load_runner(_FIXTURE_DIR)
+@pytest.mark.parametrize("fixture_dir", _ACTION_FIXTURES, ids=lambda p: p.name)
+def test_load_and_run_end_to_end_returns_container(fixture_dir):
+    runner = bundle.load_runner(fixture_dir)
     runner.reset(np.zeros(runner.state_size, dtype=np.float32))
     action = runner.act()
     space = runner.action_space
