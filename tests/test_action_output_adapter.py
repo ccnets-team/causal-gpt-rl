@@ -168,6 +168,61 @@ def test_runner_refuses_action_space_disagreeing_with_specs():
     raise AssertionError("expected ValueError on action flatdim/action_size mismatch")
 
 
+# --------------------------------------------------------------------------- #
+# Bare Discrete `start` offset — the env-facing decode must add the declared
+# start (gym.flatten subtracts it; the model learns 0-based classes). Container
+# Discrete already gets it via gym.unflatten, so this closes the bare/container
+# inconsistency. start is read from the declared space, so old bundles (no
+# action_space) and start==0 stay byte-identical.
+# --------------------------------------------------------------------------- #
+
+def _discrete_action_runner(action_space, num_envs: int = 1) -> PolicyRunner:
+    model = AutoregressiveModel(
+        _CFG,
+        state_specs=[SpaceSpec(type="continuous", size=2, dtype=torch.float32,
+                               low=[-1.0, -1.0], high=[1.0, 1.0])],
+        action_specs=[SpaceSpec(type="discrete", size=3, dtype=np.int64,
+                                low=np.full((3,), -np.inf), high=np.full((3,), np.inf))],
+        device=torch.device("cpu"),
+    )
+    return PolicyRunner(
+        model=model, action_schedule=[("discrete", 3, None, None)],
+        state_size=2, context_length=8, action_space=action_space, num_envs=num_envs,
+    )
+
+
+# logits whose argmax is class index 2.
+_LOGITS_CLASS2 = np.array([[0.1, 0.2, 0.9]], dtype=np.float32)
+
+
+def test_bare_discrete_decode_applies_start():
+    r1 = _discrete_action_runner(gym.spaces.Discrete(3, start=1))
+    assert r1._output_adapter is None
+    env_action, _ = r1._decode(_LOGITS_CLASS2)
+    assert env_action == 3  # start(1) + class(2)
+
+
+def test_bare_discrete_start_zero_is_unchanged():
+    r0 = _discrete_action_runner(gym.spaces.Discrete(3))  # start=0
+    env_action, _ = r0._decode(_LOGITS_CLASS2)
+    assert env_action == 2  # byte-identical to legacy behavior
+
+
+def test_bare_and_container_discrete_start_agree():
+    bare = _discrete_action_runner(gym.spaces.Discrete(3, start=1))
+    tup = _discrete_action_runner(gym.spaces.Tuple((gym.spaces.Discrete(3, start=1),)))
+    b, _ = bare._decode(_LOGITS_CLASS2)
+    t, _ = tup._decode(_LOGITS_CLASS2)
+    assert b == 3 and int(t[0]) == 3  # same start applied bare and wrapped
+
+
+def test_bare_discrete_start_multi_env():
+    logits = np.array([[0.1, 0.2, 0.9], [0.9, 0.1, 0.1]], dtype=np.float32)  # classes 2, 0
+    r = _discrete_action_runner(gym.spaces.Discrete(3, start=1), num_envs=2)
+    env_action, _ = r._decode(logits)
+    assert np.asarray(env_action).tolist() == [3, 1]  # [2, 0] + start 1
+
+
 def test_bounded_box_action_exports_from_extracted_specs():
     # Regression for the input/output adapter buffer-aliasing fix: a bounded-tanh
     # continuous action with float32 numpy bounds (straight from a gym Box, the

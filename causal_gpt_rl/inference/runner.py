@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Optional
 
+import gymnasium as gym
 import numpy as np
 import torch
 
@@ -119,6 +120,18 @@ class PolicyRunner:
                 f"action_size {self.action_size}; the bundle's declared space and "
                 f"action specs disagree."
             )
+        # A Discrete action carries a `start` offset, and gym.flatten subtracts it
+        # (the model is trained on 0-based class indices), so the env-facing decode
+        # must add it back. Read it from the declared space, NOT the model specs
+        # (SpaceSpec drops start) — this keeps the fix serving-only, no schema or
+        # trainer change. 0 when the space is absent (old bundles) or start == 0,
+        # leaving those byte-identical. Container actions get start via the output
+        # adapter's gym.unflatten, so only the bare-Discrete decode reads this.
+        self._discrete_start = (
+            int(action_space.start)
+            if isinstance(action_space, gym.spaces.Discrete)
+            else 0
+        )
         self.context_length = int(context_length)
         self.num_envs = int(num_envs)
         self.use_windowed = bool(use_windowed)
@@ -434,8 +447,11 @@ class PolicyRunner:
             else:
                 idx = np.rint(action[..., 0]).astype(np.int64)
                 idx = np.clip(idx, 0, n - 1)
+            # one_hot stays over the 0-based class index (start-independent, AR
+            # feedback); only the env-facing value carries the Discrete start.
             buffer_action = self._one_hot(idx, n)
-            env_action = int(idx[0]) if self.num_envs == 1 else idx
+            env_idx = idx + self._discrete_start
+            env_action = int(env_idx[0]) if self.num_envs == 1 else env_idx
             return env_action, buffer_action
 
         if self._homogeneous_mode == "multi_discrete":
