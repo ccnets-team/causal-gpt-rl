@@ -21,7 +21,11 @@ from causal_gpt_rl.inference.adapters import (
     make_action_output_adapter,
 )
 from causal_gpt_rl.inference.runner import PolicyRunner
-from causal_gpt_rl.inference.spaces import extract_data_specs_from_space
+from causal_gpt_rl.inference.spaces import (
+    deserialize_space,
+    extract_data_specs_from_space,
+    serialize_space,
+)
 from causal_gpt_rl.model.autoregressive_model import AutoregressiveModel
 from causal_gpt_rl.model.schema import ModelConfig, SpaceSpec
 
@@ -221,6 +225,51 @@ def test_bare_discrete_start_multi_env():
     r = _discrete_action_runner(gym.spaces.Discrete(3, start=1), num_envs=2)
     env_action, _ = r._decode(logits)
     assert np.asarray(env_action).tolist() == [3, 1]  # [2, 0] + start 1
+
+
+def _multidiscrete_action_runner(action_space, num_envs: int = 1) -> PolicyRunner:
+    model = AutoregressiveModel(
+        _CFG,
+        state_specs=[SpaceSpec(type="continuous", size=2, dtype=torch.float32,
+                               low=[-1.0, -1.0], high=[1.0, 1.0])],
+        action_specs=[
+            SpaceSpec(type="multi_discrete", size=3, dtype=np.int64,
+                      low=np.full((3,), -np.inf), high=np.full((3,), np.inf)),
+            SpaceSpec(type="multi_discrete", size=4, dtype=np.int64,
+                      low=np.full((4,), -np.inf), high=np.full((4,), np.inf)),
+        ],
+        device=torch.device("cpu"),
+    )
+    return PolicyRunner(
+        model=model,
+        action_schedule=[("multi_discrete", 3, None, None), ("multi_discrete", 4, None, None)],
+        state_size=2, context_length=8, action_space=action_space, num_envs=num_envs,
+    )
+
+
+# per-head logits whose argmaxes are classes [2, 3].
+_MD_LOGITS = np.array([[0.1, 0.2, 0.9, 0.0, 0.0, 0.0, 0.9]], dtype=np.float32)
+
+
+def test_bare_multidiscrete_decode_applies_start():
+    r = _multidiscrete_action_runner(gym.spaces.MultiDiscrete([3, 4], start=[1, 2]))
+    assert r._output_adapter is None
+    env_action, _ = r._decode(_MD_LOGITS)
+    assert np.asarray(env_action).tolist() == [3, 5]  # [2, 3] + start [1, 2]
+
+
+def test_bare_multidiscrete_start_zero_is_unchanged():
+    r = _multidiscrete_action_runner(gym.spaces.MultiDiscrete([3, 4]))  # start = 0
+    env_action, _ = r._decode(_MD_LOGITS)
+    assert np.asarray(env_action).tolist() == [2, 3]  # unchanged
+
+
+def test_multidiscrete_start_survives_serialization_into_decode():
+    # End-to-end: start survives serialize -> deserialize and is applied on decode.
+    md = deserialize_space(serialize_space(gym.spaces.MultiDiscrete([3, 4], start=[1, 2])))
+    r = _multidiscrete_action_runner(md)
+    env_action, _ = r._decode(_MD_LOGITS)
+    assert np.asarray(env_action).tolist() == [3, 5]
 
 
 def test_bounded_box_action_exports_from_extracted_specs():

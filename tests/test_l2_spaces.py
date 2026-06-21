@@ -129,6 +129,22 @@ def test_flatten_unflatten_model_roundtrip():
         assert np.allclose(a, b), f"model-boundary round-trip failed: {space}"
 
 
+def test_multidiscrete_start_serialize_roundtrip():
+    # MultiDiscrete carries per-dimension start offsets; serialize must preserve
+    # them (Discrete already did). All-zero start stays implicit so existing
+    # configs are byte-identical and old loaders round-trip unchanged.
+    md = gym.spaces.MultiDiscrete([3, 4], start=[1, 2])
+    payload = serialize_space(md)
+    assert payload["start"] == [1, 2]
+    restored = deserialize_space(payload)
+    assert list(np.asarray(restored.start).ravel()) == [1, 2]
+
+    md0 = gym.spaces.MultiDiscrete([3, 4])  # start == 0
+    assert "start" not in serialize_space(md0)
+    restored0 = deserialize_space(serialize_space(md0))
+    assert list(np.asarray(restored0.start).ravel()) == [0, 0]
+
+
 def test_unsupported_space_error_is_self_describing():
     # An out-of-scope leaf (MultiBinary) raises an error that names the type, why
     # it is unsupported, and the supported set — on both the extract and the

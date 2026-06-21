@@ -192,11 +192,20 @@ def serialize_space(space: gym.spaces.Space) -> dict:
     if isinstance(space, gym.spaces.Discrete):
         return {"type": "Discrete", "n": int(space.n), "start": int(space.start)}
     if isinstance(space, gym.spaces.MultiDiscrete):
-        return {
+        payload = {
             "type": "MultiDiscrete",
             "nvec": [int(n) for n in np.asarray(space.nvec).ravel().tolist()],
             "dtype": str(space.dtype),
         }
+        # Per-dimension `start` offsets, like Discrete's. Emit only when any is
+        # non-zero so existing all-zero MultiDiscrete configs stay byte-identical
+        # and old loaders (which ignore the key) round-trip unchanged.
+        start = getattr(space, "start", None)
+        if start is not None:
+            start = [int(s) for s in np.asarray(start).ravel().tolist()]
+            if any(start):
+                payload["start"] = start
+        return payload
     if isinstance(space, gym.spaces.Tuple):
         return {"type": "Tuple", "spaces": [serialize_space(s) for s in space.spaces]}
     if isinstance(space, gym.spaces.Dict):
@@ -225,10 +234,14 @@ def deserialize_space(payload: dict) -> gym.spaces.Space:
             n=int(payload["n"]), start=int(payload.get("start", 0))
         )
     if kind == "MultiDiscrete":
-        return gym.spaces.MultiDiscrete(
-            np.asarray(payload["nvec"], dtype=np.int64),
-            dtype=np.dtype(payload.get("dtype", "int64")),
-        )
+        nvec = np.asarray(payload["nvec"], dtype=np.int64)
+        dtype = np.dtype(payload.get("dtype", "int64"))
+        start = payload.get("start")  # absent on pre-start bundles -> default 0
+        if start is not None:
+            return gym.spaces.MultiDiscrete(
+                nvec, dtype=dtype, start=np.asarray(start, dtype=np.int64)
+            )
+        return gym.spaces.MultiDiscrete(nvec, dtype=dtype)
     if kind == "Tuple":
         return gym.spaces.Tuple([deserialize_space(s) for s in payload["spaces"]])
     if kind == "Dict":

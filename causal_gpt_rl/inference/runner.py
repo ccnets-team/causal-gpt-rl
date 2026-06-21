@@ -132,6 +132,17 @@ class PolicyRunner:
             if isinstance(action_space, gym.spaces.Discrete)
             else 0
         )
+        # Same for a bare MultiDiscrete: a per-dimension start offset. None when
+        # the space is absent / not MultiDiscrete / all-zero start, leaving the
+        # decode untouched (byte-identical). Container leaves get start via the
+        # output adapter's gym.unflatten, so only the bare path reads this.
+        self._multi_discrete_start = None
+        if isinstance(action_space, gym.spaces.MultiDiscrete):
+            md_start = np.asarray(
+                getattr(action_space, "start", 0), dtype=np.int64
+            ).reshape(-1)
+            if md_start.size and np.any(md_start):
+                self._multi_discrete_start = md_start
         self.context_length = int(context_length)
         self.num_envs = int(num_envs)
         self.use_windowed = bool(use_windowed)
@@ -470,6 +481,10 @@ class PolicyRunner:
                 for head_idx, n in enumerate(self.action_head_sizes)
             ]
             buffer_action = np.concatenate(parts, axis=1).astype(np.float32)
+            # one_hot above used the 0-based class indices (AR feedback); only the
+            # env-facing values carry the per-dimension MultiDiscrete start.
+            if self._multi_discrete_start is not None:
+                idxs = idxs + self._multi_discrete_start
             env_action = idxs[0] if self.num_envs == 1 else idxs
             return env_action, buffer_action
 
