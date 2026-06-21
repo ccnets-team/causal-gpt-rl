@@ -16,18 +16,14 @@ outside git on purpose.
 import json
 from pathlib import Path
 
+import gymnasium as gym
 import numpy as np
 import pytest
 import torch
 
 from causal_gpt_rl.inference import bundle
 from causal_gpt_rl.inference.adapters import StateInputAdapter
-from causal_gpt_rl.inference.spaces import (
-    derive_continuous_first,
-    deserialize_space,
-    extract_data_specs_from_space,
-    unflatten_from_model,
-)
+from causal_gpt_rl.inference.spaces import deserialize_space
 
 _FIXTURE_DIR = (
     Path(__file__).resolve().parents[1]
@@ -101,15 +97,17 @@ def test_load_and_run_end_to_end():
 
 
 def test_unflatten_matches_expected_unflat():
-    # P5 output primitive against the oracle (action space is a plain Box here,
-    # so unflatten is identity; the real per-head structuring lands with P5).
+    # P5 output primitive against the oracle. Per the corrected L2 contract §2,
+    # action output is DECLARED order (output == next input, AR self-feedback) —
+    # restore the container with plain gym.spaces.unflatten, NO continuous-first
+    # permutation. (Here action is a plain Box, so it's identity anyway; the real
+    # per-head container structuring lands with P5.)
     meta = _load_meta()
     action_space = deserialize_space(meta["action_space"])
-    cf = derive_continuous_first(extract_data_specs_from_space(action_space))
 
     for sample in meta["action_samples"]:
-        restored = unflatten_from_model(
-            action_space, np.asarray(sample["model_action"], dtype=np.float32), cf
+        restored = gym.spaces.unflatten(
+            action_space, np.asarray(sample["model_action"], dtype=np.float32)
         )
         np.testing.assert_allclose(
             np.asarray(restored, dtype=np.float32),
