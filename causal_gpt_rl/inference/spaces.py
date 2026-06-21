@@ -291,10 +291,17 @@ def flatten_to_model(
 def unflatten_from_model(
     space: gym.spaces.Space, flat: np.ndarray, cf: ContinuousFirst
 ):
-    """Model's flat output (canonical order) -> customer's declared container.
+    """Canonical flat (continuous-first) -> customer's declared container.
 
-    `cf.inv_flat_perm` (canonical -> declared) then `gym.spaces.unflatten`.
-    Returns the customer's declared structure (Box / Discrete / Tuple / Dict).
+    The pure inverse of `flatten_to_model`: `cf.inv_flat_perm` (canonical ->
+    declared) then `gym.spaces.unflatten`. Use it to undo a continuous-first
+    encoding (state, or anything the model emits in canonical order).
+
+    NOT the action-output path. The model's action heads stay in *declared*
+    order (output == the next input, AR self-feedback — see l2-api-contract.md
+    §2), so a declared per-head action is restored with plain
+    `gym.spaces.unflatten(space, x)`, no permutation. A non-identity `cf` here
+    would mis-permute it.
     """
     canonical = np.asarray(flat)
     if canonical.shape[-1] != len(cf.inv_flat_perm):
