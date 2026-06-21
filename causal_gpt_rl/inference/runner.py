@@ -24,6 +24,7 @@ import torch
 from ..model.autoregressive_model import AutoregressiveModel
 from ..model.schema import DataSpec, ensure_tensor_heads
 from ..model.utils.kv_cache import cache_has_history
+from .adapters import make_state_input_adapter
 from .checkpoint import load_inference_checkpoint
 from .context.buffer import ContextBuffer
 from .state_normalizer import StateNormalizer
@@ -45,6 +46,8 @@ class PolicyRunner:
         num_envs: int = 1,
         kv_cache_max_len: Optional[int] = None,
         use_windowed: bool = False,
+        obs_space=None,
+        action_space=None,
     ):
         self.model = model
         # Per-head action schedule: [(type, size, low, high), ...]. Mixed
@@ -86,6 +89,23 @@ class PolicyRunner:
                 self.action_high = np.concatenate([h.reshape(-1) for h in highs])
 
         self.state_size = int(state_size)
+        # Declared Gymnasium spaces (deserialized by the loader). The input
+        # adapter (P4) converts a structured env observation into the model's
+        # canonical flat state; it is None for a plain Box / no space, leaving
+        # the legacy raw-passthrough path byte-identical. `action_space` is the
+        # output adapter's (P5) reserved schema slot.
+        self.obs_space = obs_space
+        self.action_space = action_space
+        self._input_adapter = make_state_input_adapter(obs_space)
+        if (
+            self._input_adapter is not None
+            and self._input_adapter.flatdim != self.state_size
+        ):
+            raise ValueError(
+                f"obs_space flatdim {self._input_adapter.flatdim} != state_size "
+                f"{self.state_size}; the bundle's declared space and state specs "
+                f"disagree."
+            )
         self.action_size = int(sum(self.action_head_sizes))
         self.context_length = int(context_length)
         self.num_envs = int(num_envs)
@@ -282,15 +302,42 @@ class PolicyRunner:
         )
 
     def _format_state(self, state) -> np.ndarray:
-        arr = np.asarray(state, dtype=np.float32)
-        if arr.ndim == 1:
-            arr = arr.reshape(1, -1)
+        if self._input_adapter is not None:
+            arr = self._adapt_structured_state(state)
+        else:
+            arr = np.asarray(state, dtype=np.float32)
+            if arr.ndim == 1:
+                arr = arr.reshape(1, -1)
         if arr.shape != (self.num_envs, self.state_size):
             raise ValueError(
                 f"Expected state of shape ({self.num_envs}, {self.state_size}), "
                 f"got {arr.shape}"
             )
         return arr
+
+    def _adapt_structured_state(self, state) -> np.ndarray:
+        """Structured env observation(s) -> ``(num_envs, state_size)`` canonical.
+
+        For ``num_envs == 1``, `state` is a single structured observation. For
+        ``num_envs > 1``, `state` must be an iterable of ``num_envs`` per-env
+        observations (each flattened independently). Flatten happens here, before
+        the buffer; normalization stays downstream in ``_step`` so the order is
+        flatten -> normalize (canonical, one-hot tail identity).
+        """
+        if self.num_envs == 1:
+            flat = np.asarray(self._input_adapter(state), dtype=np.float32)
+            return flat.reshape(1, -1)
+        observations = list(state)
+        if len(observations) != self.num_envs:
+            raise ValueError(
+                f"Expected {self.num_envs} per-env observations, "
+                f"got {len(observations)}"
+            )
+        rows = [
+            np.asarray(self._input_adapter(obs), dtype=np.float32).reshape(-1)
+            for obs in observations
+        ]
+        return np.stack(rows, axis=0)
 
     def _normalize_states_for_inference(self, states: torch.Tensor) -> torch.Tensor:
         if self.state_normalizer is not None:

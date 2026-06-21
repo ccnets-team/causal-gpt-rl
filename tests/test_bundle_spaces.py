@@ -157,9 +157,40 @@ def test_export_stamps_hybrid_state_for_discrete_state():
     assert "hybrid_state" in cfg["requires_capabilities"]
 
 
-def test_load_refuses_hybrid_state_until_adapter_ships():
-    # Forced capability stamp on a continuous model -> load must reject loudly
-    # because the runtime does not yet advertise hybrid_state.
+def test_load_accepts_hybrid_state_bundle():
+    # The input adapter shipped (P4), so hybrid_state is now advertised: a
+    # discrete-state bundle loads and the runner carries a structured input
+    # adapter (gym.flatten + continuous-first) instead of being refused.
+    model = _discrete_state_model(4, 2)
+    with tempfile.TemporaryDirectory() as tmp:
+        bundle.export_bundle(
+            tmp,
+            model=model,
+            model_config=_CFG,
+            state_specs=model.state_specs,
+            action_specs=model.action_specs,
+            context_length=8,
+            obs_space=gym.spaces.Discrete(4),
+            action_space=gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32),
+            state_normalizer=_Norm(4),
+        )
+        cfg = _read_config(tmp)
+        assert "hybrid_state" in cfg["requires_capabilities"]
+
+        runner = bundle.load_runner(tmp)
+
+    assert runner._input_adapter is not None
+    assert isinstance(runner.obs_space, gym.spaces.Discrete)
+    # End-to-end: a structured (scalar discrete) observation flows through the
+    # adapter and yields a continuous env action.
+    runner.reset(2)
+    action = runner.act()
+    assert np.asarray(action).shape == (2,)
+
+
+def test_load_still_refuses_unknown_capability():
+    # The forward-compat gate still rejects bundles needing a capability this
+    # runtime does not implement (regression guard for the gate itself).
     model = _continuous_model(2, 2)
     with tempfile.TemporaryDirectory() as tmp:
         bundle.export_bundle(
@@ -170,14 +201,14 @@ def test_load_refuses_hybrid_state_until_adapter_ships():
             action_specs=model.action_specs,
             context_length=8,
             state_normalizer=_Norm(2),
-            requires_capabilities=["hybrid_state"],
+            requires_capabilities=["future_unknown_cap"],
         )
         try:
             bundle.load_runner(tmp)
         except ValueError as exc:
-            assert "hybrid_state" in str(exc)
+            assert "future_unknown_cap" in str(exc)
             return
-    raise AssertionError("expected ValueError refusing the hybrid_state bundle")
+    raise AssertionError("expected ValueError refusing the unknown-capability bundle")
 
 
 def test_load_attaches_deserialized_spaces():

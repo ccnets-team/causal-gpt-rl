@@ -88,11 +88,14 @@ _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 # (e.g. continuous + discrete). A runtime older than per-head decoding assumes a
 # single uniform family and cannot decode it.
 #
-# "hybrid_state" is stamped by `export_bundle` for discrete/structured state but
-# is intentionally NOT advertised here yet: until the input adapter (gym.flatten
-# + continuous-first permutation) ships, this runtime cannot serve such bundles,
-# so it must keep refusing them loudly. Add it here together with that adapter.
-_SUPPORTED_CAPABILITIES: frozenset[str] = frozenset({"hybrid_action"})
+# "hybrid_state": the bundle's state mixes discrete/structured leaves, so its
+# observations must be flattened (gym.flatten) and reordered continuous-first
+# before the model. Advertised since the input adapter shipped (P4): `load_runner`
+# wires `make_state_input_adapter` onto the runner, so this runtime can serve such
+# bundles. Older runtimes that lack the adapter still refuse them loudly.
+_SUPPORTED_CAPABILITIES: frozenset[str] = frozenset(
+    {"hybrid_action", "hybrid_state"}
+)
 
 _MODEL_FILENAME = "model.safetensors"
 _LEGACY_MODEL_FILENAME = "model.pt"
@@ -386,6 +389,20 @@ def load_runner(
     action_schedule = PolicyRunner._resolve_action_specs(action_specs)
     state_size = int(sum(s.size for s in state_specs))
 
+    # Declared Gymnasium spaces, deserialized from their lossless schema. None
+    # for older bundles that did not carry them (positional, structure-less I/O).
+    # `obs_space` drives the input adapter (P4): a structured space makes the
+    # runner flatten observations continuous-first; a Box / None keeps the raw
+    # passthrough. `action_space` is the output adapter's (P5) schema slot.
+    state_container = config_payload.get("state_container")
+    action_container = config_payload.get("action_container")
+    obs_space = (
+        deserialize_space(state_container) if state_container is not None else None
+    )
+    action_space = (
+        deserialize_space(action_container) if action_container is not None else None
+    )
+
     runner = PolicyRunner(
         model=model,
         action_schedule=action_schedule,
@@ -395,18 +412,8 @@ def load_runner(
         num_envs=num_envs,
         kv_cache_max_len=kv_cache_max_len,
         use_windowed=use_windowed,
-    )
-
-    # Forward-compat hooks for the input/output adapters: the declared Gymnasium
-    # spaces, deserialized from their lossless schema. None for older bundles
-    # that did not carry them (positional, structure-less I/O).
-    state_container = config_payload.get("state_container")
-    action_container = config_payload.get("action_container")
-    runner.obs_space = (
-        deserialize_space(state_container) if state_container is not None else None
-    )
-    runner.action_space = (
-        deserialize_space(action_container) if action_container is not None else None
+        obs_space=obs_space,
+        action_space=action_space,
     )
 
     return runner
