@@ -96,6 +96,18 @@ print(stats["return_mean"], stats["return_std"])
 
 Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team/causal-gpt-rl/blob/main/examples/hub_quickstart.ipynb)
 
+## Observation & Action Spaces
+
+A policy bundle carries its declared Gymnasium `observation_space` and
+`action_space`; you interact with the runtime in those native spaces and it
+adapts the rest. Supported: `Box` (1-D), `Discrete`, `MultiDiscrete`,
+`MultiBinary`, and arbitrary `Dict` / `Tuple` nesting of them. Pass observations
+exactly as your env produces them; the action you get back is always a valid
+sample of the declared `action_space`.
+
+See **[docs/spaces.md](docs/spaces.md)** for the full table, the rollout loop,
+and a structured-space (`Dict` / `Tuple`) example.
+
 ## Supported Environments
 
 | Env | Bundle | Ctx | Return | Norm. | Medium Ref. |
