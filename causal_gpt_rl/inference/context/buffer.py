@@ -97,21 +97,31 @@ class ContextBuffer:
         self,
         dec_next_states: np.ndarray,
         dec_actions: np.ndarray,
-        is_bos: float = 0.0,
+        is_bos=0.0,
     ) -> None:
         """
         Shift the rolling context and append the newest state/action pair.
 
         `is_bos` marks whether the action just placed in the buffer is a
-        BOS/episode-start placeholder (1.0) or a real emitted action (0.0).
+        BOS/episode-start placeholder (1.0) or a real emitted action (0.0). It
+        may be a scalar applied to every agent, or a per-agent ``(num_agents,)``
+        vector so a subset of rows can start a fresh episode while the rest keep
+        rolling (see `reset_context_rows` / `PolicyRunner.reset_rows`). A scalar
+        call stays byte-identical to the pre-vector behavior.
         """
+        bos = np.broadcast_to(
+            np.asarray(is_bos, dtype=np.float32), (self.num_agents,)
+        )
+        bos_rows = bos != 0.0
 
         # Shift the sequence by one step to the left
         self.states = np.roll(self.states, shift=-1, axis=1)
         # Place the new observations at the last position
         self.states[:, -1] = dec_next_states
-        if is_bos != 0.0:
-            self.states[:, -2] = dec_next_states
+        # BOS rows seed the fresh observation into the visible slot (-2) too, so
+        # a freshly-restarted episode starts from its own first observation.
+        if bos_rows.any():
+            self.states[bos_rows, -2] = np.asarray(dec_next_states)[bos_rows]
 
         # Shift the sequence by one step to the left
         self.actions = np.roll(self.actions, shift=-1, axis=1)
@@ -121,7 +131,7 @@ class ContextBuffer:
         # Mirror action layout for is_bos so the indicator stays aligned
         # with the action it describes (slot -2 in the rolling window).
         self.is_bos = np.roll(self.is_bos, shift=-1, axis=1)
-        self.is_bos[:, -2] = float(is_bos)
+        self.is_bos[:, -2, 0] = bos
 
         # Update the mask similarly
         self.masks = np.roll(self.masks, shift=-1, axis=1)

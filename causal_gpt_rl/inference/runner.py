@@ -175,6 +175,9 @@ class PolicyRunner:
         self._last_buffer_action: Optional[np.ndarray] = None
         self._is_reset = False
         self._reset_kv_after_next_act = False
+        # Rows flagged by `reset_rows` to be seeded as a fresh episode on the
+        # next observe; empty (all-False) in the common all-envs-in-lockstep case.
+        self._pending_bos_mask = np.zeros(self.num_envs, dtype=bool)
 
         self.model.eval()
         if self.state_normalizer is not None:
@@ -205,6 +208,47 @@ class PolicyRunner:
         self.buffer.update_data(state, zeros, is_bos=1.0)
         self._last_buffer_action = None
         self._is_reset = True
+        self._reset_kv_after_next_act = True
+        self._pending_bos_mask[:] = False
+
+    def reset_rows(self, done_mask) -> None:
+        """Restart the episodes of a subset of envs; leave the rest untouched.
+
+        In batched inference (``num_envs > 1``) envs terminate at different
+        steps. `done_mask` is a boolean / 0-1 array of shape ``(num_envs,)``:
+        True rows have their rolling context wiped and are seeded as a fresh
+        episode on the next `observe`/`act`, while False rows keep their history
+        and continue uninterrupted. The typical call order mirrors a vectorized
+        env's auto-reset::
+
+            action = runner.act(state)
+            next_state, done = env.step(action)
+            runner.reset_rows(done)   # next_state[done] is the new episode's obs
+            runner.observe(next_state)
+
+        The shared KV cache is invalidated and recomputed from the buffer on the
+        next step, so surviving rows pay one warm-start recompute but never lose
+        context. Call after at least one `act()`; use `reset()` to restart the
+        whole batch.
+        """
+        if not self._is_reset:
+            raise RuntimeError("Call reset(initial_state) before reset_rows().")
+        mask = np.asarray(done_mask).reshape(-1).astype(bool)
+        if mask.shape[0] != self.num_envs:
+            raise ValueError(
+                f"Expected done_mask for {self.num_envs} envs, got {mask.shape[0]}"
+            )
+        if not mask.any():
+            return
+        # Wipe the flagged rows' buffered trajectory and drop the shared cache.
+        self.buffer.reset_context_rows(mask)
+        # Seed those rows as BOS on the next observe, and clear any stale action
+        # so the fresh episode does not inherit the previous step's action.
+        self._pending_bos_mask |= mask
+        if self._last_buffer_action is not None:
+            self._last_buffer_action[mask] = 0.0
+        # Cache was just invalidated; recompute cleanly after the next act, the
+        # same way a full reset does.
         self._reset_kv_after_next_act = True
 
     @torch.inference_mode()
@@ -301,7 +345,15 @@ class PolicyRunner:
             self.reset(state_arr)
             return
         if self._last_buffer_action is not None:
-            self.buffer.update_data(state_arr, self._last_buffer_action, is_bos=0.0)
+            is_bos = (
+                self._pending_bos_mask.astype(np.float32)
+                if self._pending_bos_mask.any()
+                else 0.0
+            )
+            self.buffer.update_data(
+                state_arr, self._last_buffer_action, is_bos=is_bos
+            )
+            self._pending_bos_mask[:] = False
         # Otherwise the state was already placed via reset().
 
     @classmethod
