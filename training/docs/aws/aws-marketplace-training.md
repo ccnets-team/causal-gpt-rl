@@ -118,8 +118,9 @@ The final `model.tar.gz` contains a canonical `bundle/` for normal inference. It
 
 ## More Details
 
-- Input datasets: `training/docs/sagemaker-input-datasets.md`
-- Hyperparameters: `training/docs/sagemaker-hyperparameters.md`
-- Output artifact: `training/docs/sagemaker-output-artifacts.md`
-- Checkpoints: `training/docs/sagemaker-checkpoints.md`
-- Retraining: `training/docs/sagemaker-retraining.md`
+- Input datasets: `training/docs/aws/sagemaker-input-datasets.md`
+- Hyperparameters: `training/docs/aws/sagemaker-hyperparameters.md`
+- Output artifact: `training/docs/aws/sagemaker-output-artifacts.md`
+- Checkpoints: `training/docs/aws/sagemaker-checkpoints.md`
+- Retraining: `training/docs/aws/sagemaker-retraining.md`
+    

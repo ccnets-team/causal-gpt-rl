@@ -24,14 +24,14 @@ training_hyperparameters = hp.to_dict()
 
 ## AWS/SageMaker Docs
 
-AWS Marketplace/SageMaker training notes live under `training/docs/`:
+AWS Marketplace/SageMaker training notes live under `training/docs/aws/`:
 
-- `training/docs/aws-marketplace-training.md`
-- `training/docs/sagemaker-input-datasets.md`
-- `training/docs/sagemaker-hyperparameters.md`
-- `training/docs/sagemaker-output-artifacts.md`
-- `training/docs/sagemaker-checkpoints.md`
-- `training/docs/sagemaker-retraining.md`
+- `training/docs/aws/aws-marketplace-training.md`
+- `training/docs/aws/sagemaker-input-datasets.md`
+- `training/docs/aws/sagemaker-hyperparameters.md`
+- `training/docs/aws/sagemaker-output-artifacts.md`
+- `training/docs/aws/sagemaker-checkpoints.md`
+- `training/docs/aws/sagemaker-retraining.md`
 
 ## Hosted Training Status
 
