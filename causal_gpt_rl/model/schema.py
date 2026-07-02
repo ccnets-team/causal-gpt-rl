@@ -318,6 +318,10 @@ class ModelConfig:
     num_heads: int = 8
     dropout: float = 0.05
     use_eos: bool = False
+    # Capability: gate the (absent) previous-action channel at episode start.
+    # See .local/docs/dev/model-output/bos-gate-to-zero.md. default-off; when off
+    # the input path is byte-identical to legacy bundles.
+    use_bos_action_gate: bool = False
     rope_theta: float = 1e3
     intermediate_size: Optional[int] = None
     max_position_embeddings: Optional[int] = None
@@ -326,6 +330,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         self.rope_theta = float(self.rope_theta)
         self.use_eos = bool(self.use_eos)
+        self.use_bos_action_gate = bool(self.use_bos_action_gate)
 
         if self.context_length is None:
             self.context_length = 32

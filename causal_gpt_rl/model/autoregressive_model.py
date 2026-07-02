@@ -70,6 +70,10 @@ class AutoregressiveModel(nn.Module):
         super().__init__()
         self.network_name = model_config.network_name
         self.use_eos = bool(getattr(model_config, "use_eos", False))
+        # BOS action gate: neutralize the (absent) previous-action channel at
+        # episode start. Serving capability (persisted); default-off is
+        # byte-identical. See .local/docs/dev/model-output/bos-gate-to-zero.md.
+        self.use_bos_action_gate = bool(getattr(model_config, "use_bos_action_gate", False))
         self.state_specs = list(state_specs)
         self.action_specs = list(action_specs)
         input_specs, output_specs = build_model_specs(
@@ -162,6 +166,42 @@ class AutoregressiveModel(nn.Module):
             self.register_buffer("_action_scale", (highs - lows) / 2.0)
             self.register_buffer("_action_bias", (highs + lows) / 2.0)
 
+        # BOS action-gate parameters (opt-in). One learned vector per mean-action
+        # input head, zeros-init. Left at zero (frozen) this reproduces
+        # gate-to-zero — action-col → 0 at bos, marker supplied for free by the
+        # is_bos column's own projection. Trained (use_bos_action_prior) it
+        # promotes to a learned "null action" prior. Registered before
+        # `to(device)` so the params move with the module.
+        if self.use_bos_action_gate:
+            # Input specs carry only sub_role=="mean" action heads (log_std is
+            # output-only), so `role == "action"` selects exactly the columns to
+            # gate. This filter is INPUT-only — do not reuse on output specs.
+            self._input_action_positions = [
+                i for i, spec in enumerate(self.flat_input_specs)
+                if spec.role == "action"
+            ]
+            self._input_bos_index = next(
+                (i for i, spec in enumerate(self.flat_input_specs)
+                 if spec.role == "bos_indicator"),  # NOTE: "bos_indicator", not "bos"
+                None,
+            )
+            if self._input_bos_index is None:
+                raise ValueError(
+                    "use_bos_action_gate requires a bos_indicator input head"
+                )
+            self.bos_action_gate_emb = nn.ParameterDict({
+                str(i): nn.Parameter(
+                    torch.zeros(1, 1, self.flat_input_specs[i].size)
+                )
+                for i in self._input_action_positions
+            })
+            # gate-to-zero is the default: keep the emb at zero. Promotion to a
+            # learned prior is a trainer-only toggle (not a persisted capability;
+            # inference reproduces behavior from the loaded emb values alone).
+            if not bool(getattr(model_config, "use_bos_action_prior", False)):
+                for p in self.bos_action_gate_emb.parameters():
+                    p.requires_grad_(False)
+
         self.to(device)
 
     # Derived action-type views (homogeneous fast paths / back-compat) -----
@@ -209,6 +249,23 @@ class AutoregressiveModel(nn.Module):
             adapter(head)
             for adapter, head in zip(self.input_adapter, input_heads)
         ]
+
+        if self.use_bos_action_gate:
+            # At bos=1 replace each mean-action column with its gate emb (zero for
+            # gate-to-zero); at bos=0 keep the real action. Done in feature space
+            # (pre-`input_proj`) so the single joint Linear is untouched. Both
+            # input branches (tensor / nested) converge here, so gating lives in
+            # one place. `input_heads` is aligned with flat_input_specs in both.
+            bos = input_heads[self._input_bos_index].to(
+                dtype=adapted_heads[0].dtype
+            ).clamp(0.0, 1.0)
+            for i in self._input_action_positions:
+                act = adapted_heads[i]
+                gate_emb = self.bos_action_gate_emb[str(i)].to(
+                    device=act.device, dtype=act.dtype
+                )
+                adapted_heads[i] = (1.0 - bos) * act + bos * gate_emb.expand_as(act)
+
         x = torch.cat(adapted_heads, dim=-1)
         return self.input_proj(x)
 

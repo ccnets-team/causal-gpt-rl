@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0
+
+- Added the opt-in `use_bos_action_gate` capability. At an episode boundary
+  (`is_bos == 1`) there is no genuine previous action, so the model neutralizes
+  the previous-action input channel instead of consuming the placeholder value:
+  the action columns are replaced by a per-head gate embedding before the input
+  projection, while non-boundary steps (`is_bos == 0`) keep the real action
+  feedback unchanged. The gate embedding ships in the bundle — zero by default
+  (the action channel is simply emptied at the boundary), or a nonzero "null
+  action" vector when the bundle provides one. Default-off and zeros-init, so
+  bundles without the capability are byte-identical to before; older runtimes
+  load newer bundles via `strict=False` (the extra weights are ignored).
+
 ## 0.9.0
 
 - Added `PolicyRunner.reset_rows(done_mask)` for per-env episode restarts in
