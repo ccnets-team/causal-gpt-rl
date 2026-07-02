@@ -5,6 +5,14 @@ Marketplace/SageMaker training paths.
 
 The local trainer implementation is not part of this repository.
 
+## How it fits together
+
+Your dataset's observation and action spaces define the model's I/O schema: the
+same spaces are turned into a `DataSpec` schema at build-time, which fixes the
+autoregressive token layout the model consumes and produces at inference.
+
+![Causal GPT-RL — your dataset spaces define the model](docs/assets/dataset-spaces-define-the-model.svg)
+
 ## Hyperparameters
 
 `hyperparameters.py` contains the training job payload schema. Hosted-training
