@@ -49,6 +49,7 @@ class PolicyRunner:
         use_windowed: bool = False,
         obs_space=None,
         action_space=None,
+        bos_cache_mode: Optional[str] = None,
     ):
         self.model = model
         # Per-head action schedule: [(type, size, low, high), ...]. Mixed
@@ -148,6 +149,20 @@ class PolicyRunner:
         self.context_length = int(context_length)
         self.num_envs = int(num_envs)
         self.use_windowed = bool(use_windowed)
+        # BOS KV-cache retention (serving convention — NOT a weight/architecture
+        # property). "discard" (default) reproduces legacy behavior: the
+        # episode-start bos token's KV is dropped after the first act, so the
+        # persisted cache carries only bos=0 tokens. "retain" keeps the bos
+        # token's KV so it coexists with bos=0 (matches full-window / training
+        # exposure and fixes the 1-step position offset). None -> "discard".
+        # Cached path only; no effect when use_windowed=True (no KV cache).
+        mode = "discard" if bos_cache_mode is None else str(bos_cache_mode)
+        if mode not in ("discard", "retain"):
+            raise ValueError(
+                f"bos_cache_mode must be 'discard' or 'retain', got "
+                f"{bos_cache_mode!r}"
+            )
+        self.bos_cache_mode = mode
         if self.context_length <= 0:
             raise ValueError(f"context_length must be > 0, got {context_length}")
         if self.num_envs <= 0:
@@ -208,7 +223,9 @@ class PolicyRunner:
         self.buffer.update_data(state, zeros, is_bos=1.0)
         self._last_buffer_action = None
         self._is_reset = True
-        self._reset_kv_after_next_act = True
+        # discard: drop the bos token's KV after the first act (legacy).
+        # retain: keep it so the bos token persists in the cache alongside bos=0.
+        self._reset_kv_after_next_act = self.bos_cache_mode == "discard"
         self._pending_bos_mask[:] = False
 
     def reset_rows(self, done_mask) -> None:
@@ -248,7 +265,9 @@ class PolicyRunner:
         if self._last_buffer_action is not None:
             self._last_buffer_action[mask] = 0.0
         # Cache was just invalidated; recompute cleanly after the next act, the
-        # same way a full reset does.
+        # same way a full reset does. This stays unconditional: `bos_cache_mode`
+        # == "retain" is honored for full reset() only in this version — the
+        # shared-cache partial-restart path keeps legacy discard semantics.
         self._reset_kv_after_next_act = True
 
     @torch.inference_mode()
@@ -630,5 +649,6 @@ class PolicyRunner:
             f"context_length={self.context_length}, "
             f"kv_cache_max_len={self.kv_cache_max_len}, "
             f"use_windowed={self.use_windowed}, "
+            f"bos_cache_mode={self.bos_cache_mode}, "
             f"num_envs={self.num_envs})"
         )

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0
+
+- Added the `bos_cache_mode` serving convention (`PolicyRunner` /
+  `load_runner` / `load_runner_from_hub`), controlling whether the
+  episode-start bos token's KV survives in the cached-inference KV cache.
+  `"discard"` (default) reproduces the legacy behavior: the bos token's KV is
+  dropped after the first `act()`, so the persisted cache carries only
+  non-boundary (`is_bos == 0`) tokens. `"retain"` keeps the bos token's KV so
+  it coexists with later tokens (matching full-window exposure). It is a
+  runtime convention — no weights, architecture, or I/O schema change —
+  resolved as: explicit argument > bundle `serving.bos_cache_mode` > `"discard"`.
+  Bundles carry it under a new weight-independent `serving` namespace in
+  `config.json`; absent (all existing bundles) resolves to `"discard"`, so
+  behavior is byte-identical. Applies to the cached path only
+  (`use_windowed=False`) and, in this version, to full `reset()` — the batched
+  `reset_rows` partial-restart path keeps legacy discard semantics.
+- `export_bundle` accepts an optional `bos_cache_mode` to bake that choice into
+  the bundle's `serving` block at build time; omitting it writes no `serving`
+  block, so existing bundles and older loaders are unaffected.
+
 ## 0.10.0
 
 - Added the opt-in `use_bos_action_gate` capability. At an episode boundary

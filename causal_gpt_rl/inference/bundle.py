@@ -31,6 +31,10 @@ Format versions:
         "embedded":      <bool>,        # stats live in model.safetensors
         "legacy_sidecar": <bool>        # state_normalizer.safetensors written
       },
+      "serving": {                      # runtime serving conventions, weight-
+                                        # independent; absent -> legacy defaults
+        "bos_cache_mode": "discard" | "retain"  # bos token KV retention
+      },
       "env_id":          "<gymnasium env id>"  # optional, added 0.2.0+
     }
 
@@ -205,8 +209,20 @@ def export_bundle(
     env_id: Optional[str] = None,
     requires_capabilities: Optional[Iterable[str]] = None,
     write_state_normalizer_sidecar: bool = True,
+    bos_cache_mode: Optional[str] = None,
 ) -> Path:
-    """Write the bundle to `bundle_dir`. Creates the directory if needed."""
+    """Write the bundle to `bundle_dir`. Creates the directory if needed.
+
+    `bos_cache_mode` ("discard" | "retain") bakes the bos KV-cache retention
+    serving convention into the bundle under `serving.bos_cache_mode`, so the
+    runner picks it up automatically at load. Leave it None to omit the field
+    entirely — loaders then default to "discard" (legacy, byte-identical), and
+    every existing bundle behaves exactly as before.
+    """
+    if bos_cache_mode is not None and bos_cache_mode not in ("discard", "retain"):
+        raise ValueError(
+            f"bos_cache_mode must be 'discard' or 'retain', got {bos_cache_mode!r}"
+        )
     bundle_dir = Path(bundle_dir)
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
@@ -286,6 +302,11 @@ def export_bundle(
     }
     if env_id:
         config_payload["env_id"] = str(env_id)
+    # Serving conventions (runtime behavior, weight-independent). Only written
+    # when explicitly chosen at build time; omitting the block keeps the bundle
+    # byte-identical to legacy and lets loaders apply the "discard" default.
+    if bos_cache_mode is not None:
+        config_payload["serving"] = {"bos_cache_mode": bos_cache_mode}
     (bundle_dir / _CONFIG_FILENAME).write_text(
         json.dumps(config_payload, indent=2, allow_nan=False),
         encoding="utf-8",
@@ -324,11 +345,18 @@ def load_runner(
     num_envs: int = 1,
     kv_cache_max_len: Optional[int] = None,
     use_windowed: bool = False,
+    bos_cache_mode: Optional[str] = None,
 ) -> PolicyRunner:
     """Load a bundle and return a ready-to-run `PolicyRunner`.
 
     When `kv_cache_max_len` is omitted, PolicyRunner uses
     `4 * context_length` from the bundle config as the cached inference cap.
+
+    `bos_cache_mode` selects whether the episode-start bos token's KV is kept
+    in the cache ("retain") or dropped after the first act ("discard"). It is a
+    serving convention, resolved as: explicit argument > bundle
+    `serving.bos_cache_mode` > "discard" (legacy). Passing it here overrides
+    whatever the bundle declares; leave it None to honor the bundle.
     """
     bundle_dir = Path(bundle_dir)
     config_path = bundle_dir / _CONFIG_FILENAME
@@ -438,6 +466,17 @@ def load_runner(
         deserialize_space(action_container) if action_container is not None else None
     )
 
+    # Serving conventions (runtime behavior, weight-independent) live under a
+    # `serving` namespace. New serving-only flags land here; absent -> legacy
+    # defaults, keeping old bundles byte-identical. An explicit argument wins
+    # over the bundle so callers can override for experimentation.
+    serving = config_payload.get("serving") or {}
+    resolved_bos_cache_mode = (
+        bos_cache_mode
+        if bos_cache_mode is not None
+        else serving.get("bos_cache_mode", "discard")
+    )
+
     runner = PolicyRunner(
         model=model,
         action_schedule=action_schedule,
@@ -449,6 +488,7 @@ def load_runner(
         use_windowed=use_windowed,
         obs_space=obs_space,
         action_space=action_space,
+        bos_cache_mode=resolved_bos_cache_mode,
     )
 
     return runner
@@ -471,6 +511,7 @@ def load_runner_from_hub(
     num_envs: int = 1,
     kv_cache_max_len: Optional[int] = None,
     use_windowed: bool = False,
+    bos_cache_mode: Optional[str] = None,
 ) -> PolicyRunner:
     """Download an inference bundle from Hugging Face Hub and load a runner.
 
@@ -504,6 +545,7 @@ def load_runner_from_hub(
         num_envs=num_envs,
         kv_cache_max_len=kv_cache_max_len,
         use_windowed=use_windowed,
+        bos_cache_mode=bos_cache_mode,
     )
 
 
