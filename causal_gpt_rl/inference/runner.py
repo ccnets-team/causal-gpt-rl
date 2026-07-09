@@ -270,6 +270,44 @@ class PolicyRunner:
         # shared-cache partial-restart path keeps legacy discard semantics.
         self._reset_kv_after_next_act = True
 
+    def add_rows(self, initial_states) -> None:
+        """Grow the batch: append new agent rows without disturbing existing ones.
+
+        `initial_states` carries the first observation of each new episode — an
+        array of shape ``(k, state_size)`` (or ``k`` structured observations
+        when the bundle declared an observation space). Existing rows keep their
+        full rolling context uninterrupted; the new rows start as fresh
+        episodes. The next `act()` returns actions for all ``num_envs + k`` rows.
+
+        The shared KV cache is invalidated and recomputed from the buffer on the
+        next step (cheap for short contexts), the same warm-start as
+        `reset_rows`. Because the batch size is fixed at construction elsewhere,
+        this is the only way to raise it on a live runner; use `reset()` to
+        restart the whole batch instead. Call after `reset()`.
+        """
+        if not self._is_reset:
+            raise RuntimeError("Call reset(initial_state) before add_rows().")
+        new_states = self._format_states_for_rows(initial_states)
+        k = int(new_states.shape[0])
+        self.buffer.add_rows(new_states)
+        self.num_envs += k
+        # New rows are already seeded with their BOS observation, so they are not
+        # pending; existing rows keep their pending flags.
+        self._pending_bos_mask = np.concatenate(
+            [self._pending_bos_mask, np.zeros(k, dtype=bool)]
+        )
+        if self._last_buffer_action is not None:
+            self._last_buffer_action = np.concatenate(
+                [
+                    self._last_buffer_action,
+                    np.zeros((k, self.action_size), dtype=np.float32),
+                ],
+                axis=0,
+            )
+        # Shared cache was dropped by the buffer; recompute on the next act,
+        # matching reset_rows' warm-start discipline.
+        self._reset_kv_after_next_act = True
+
     @torch.inference_mode()
     def act(self, state=None) -> np.ndarray:
         """Predict the next env-ready action for the current state."""
@@ -447,6 +485,37 @@ class PolicyRunner:
             for obs in observations
         ]
         return np.stack(rows, axis=0)
+
+    def _format_states_for_rows(self, states) -> np.ndarray:
+        """New-episode observation(s) -> ``(k, state_size)`` canonical (add_rows).
+
+        Unlike `_format_state`, the row count is unconstrained (it defines how
+        many rows are appended), so this does not check against `num_envs`.
+        Structured observations are flattened per row via the input adapter; a
+        plain array is passed through with a 1-D single row promoted to ``(1, D)``.
+        """
+        if self._input_adapter is not None:
+            observations = list(states)
+            rows = [
+                np.asarray(self._input_adapter(obs), dtype=np.float32).reshape(-1)
+                for obs in observations
+            ]
+            arr = (
+                np.stack(rows, axis=0)
+                if rows
+                else np.zeros((0, self.state_size), dtype=np.float32)
+            )
+        else:
+            arr = np.asarray(states, dtype=np.float32)
+            if arr.ndim == 1:
+                arr = arr.reshape(1, -1)
+        if arr.ndim != 2 or arr.shape[1] != self.state_size:
+            raise ValueError(
+                f"Expected new states of shape (k, {self.state_size}), got {arr.shape}"
+            )
+        if arr.shape[0] < 1:
+            raise ValueError("add_rows requires at least one new observation.")
+        return arr
 
     def _normalize_states_for_inference(self, states: torch.Tensor) -> torch.Tensor:
         if self.state_normalizer is not None:

@@ -93,6 +93,50 @@ class ContextBuffer:
         # a fresh episode with stale keys/values from a previous one.
         self.cache.reset()
 
+    def add_rows(self, initial_states: np.ndarray) -> None:
+        """Append new agent rows, each seeded as a fresh BOS episode.
+
+        `initial_states` has shape ``(k, state_size)``: the first observation of
+        each of the ``k`` new episodes. New rows are built to match a freshly
+        reset-and-seeded row (see `reset_context` + `update_data` with
+        ``is_bos=1``): the observation occupies the visible slot (-2) and the
+        trailing staged slot (-1), the previous action is zero, and ``is_bos``
+        marks an episode start. Existing rows are left byte-untouched; the
+        shared KV cache is invalidated so it is recomputed at the new batch
+        size on the next step (same discipline as `reset_context_rows`).
+        """
+        states = np.asarray(initial_states, dtype=self.state_type)
+        if states.ndim != 2 or states.shape[1] != self.state_size:
+            raise ValueError(
+                f"initial_states must be (k, {self.state_size}); got {states.shape}"
+            )
+        k = int(states.shape[0])
+        if k <= 0:
+            raise ValueError(f"add_rows needs at least one row; got k={k}")
+
+        new_states = np.zeros(
+            (k, self._internal_len, self.state_size), dtype=self.state_type
+        )
+        # Seed the visible token (-2) and the staged trailing slot (-1), mirroring
+        # the BOS branch of update_data so a new row starts from its own first obs.
+        new_states[:, -1] = states
+        new_states[:, -2] = states
+        new_actions = np.zeros(
+            (k, self._internal_len, self.action_size), dtype=self.action_type
+        )
+        new_is_bos = np.ones((k, self._internal_len, 1), dtype=np.float32)
+        new_masks = np.zeros((k, self._internal_len), dtype=np.float32)
+        new_masks[:, -2] = 1.0
+
+        self.states = np.concatenate([self.states, new_states], axis=0)
+        self.actions = np.concatenate([self.actions, new_actions], axis=0)
+        self.is_bos = np.concatenate([self.is_bos, new_is_bos], axis=0)
+        self.masks = np.concatenate([self.masks, new_masks], axis=0)
+        self.num_agents += k
+        # Shared cache spans all rows and can't be grown in place; drop it so the
+        # next step recomputes cleanly at the new batch size.
+        self.cache.reset()
+
     def update_data(
         self,
         dec_next_states: np.ndarray,
