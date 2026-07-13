@@ -116,7 +116,7 @@ and a structured-space (`Dict` / `Tuple`) example.
 | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6865.15±2657.69 | 43.17±16.11 | 74.83 |
 | `Hopper-v5` | `hopper-v5` | 32 | 2836.28±987.67 | 73.40±25.72 | 72.91 |
 | `Walker2d-v5` | `walker2d-v5` | 32 | 3883.30±684.09 | 56.69±9.99 | 83.26 |
-| `Humanoid-v5` | `humanoid-v5` | 32 | 6511.87±2855.54 | 75.38±33.62 | 81.30 |
+| `Humanoid-v5` | `humanoid-v5` | 32 | 6456.56±2650.82 | 74.73±31.21 | 81.30 |
 
 Training data is expert-free: bundles are trained using Minari simple and medium datasets only; expert trajectories are not used for training.
 
@@ -140,21 +140,42 @@ mujoco 3.8.1
 minari 0.5.3
 ```
 
+Latest Humanoid-v5 refresh runtime:
+
+```text
+causal-gpt-rl 0.11.0
+torch 2.11.0+cu126
+gymnasium 1.1.0
+mujoco 3.8.1
+```
+
 ## Bundle Format
 
-All public bundles include:
+Public bundles use `bundle_format_version=2`:
 
 ```text
 bundle/
   model.safetensors
   config.json
-  state_normalizer.safetensors
 ```
 
-- `model.safetensors` — model state dict for inference.
+- `model.safetensors` — model state dict for inference, with state
+  normalization statistics embedded in the weights.
 - `config.json` — model config, observation specs, action specs, context length,
-  and optional `env_id`.
-- `state_normalizer.safetensors` — state normalization statistics used by the policy.
+  a `state_normalization` block, and optional `env_id`.
+
+Older bundles (`bundle_format_version=1`) shipped a separate
+`state_normalizer.safetensors` sidecar. They still load with current releases.
+If you are pinned to `causal-gpt-rl <= 0.2.x`, use the sidecar bundles preserved
+at the `bundles-v1` tag:
+
+```python
+runner = load_runner_from_hub(
+    repo_id="ccnets/causal-gpt-rl",
+    subfolder="ant-v5",
+    revision="bundles-v1",
+)
+```
 
 ## Hugging Face Layout
 
@@ -165,7 +186,6 @@ ccnets/causal-gpt-rl/
   ant-v5/
     model.safetensors
     config.json
-    state_normalizer.safetensors
     README.md
 ```
 
