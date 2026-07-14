@@ -190,6 +190,11 @@ class PolicyRunner:
         self._last_buffer_action: Optional[np.ndarray] = None
         self._is_reset = False
         self._reset_kv_after_next_act = False
+        # Set by a structural cache invalidation (`reset_rows` / `add_rows`) to
+        # make the next act re-prime the cache from the full masked window
+        # instead of collapsing every row to its newest token (which would wipe
+        # surviving rows' history). Consumed on that act. See `_step`.
+        self._needs_full_warmstart = False
         # Rows flagged by `reset_rows` to be seeded as a fresh episode on the
         # next observe; empty (all-False) in the common all-envs-in-lockstep case.
         self._pending_bos_mask = np.zeros(self.num_envs, dtype=bool)
@@ -226,6 +231,9 @@ class PolicyRunner:
         # discard: drop the bos token's KV after the first act (legacy).
         # retain: keep it so the bos token persists in the cache alongside bos=0.
         self._reset_kv_after_next_act = self.bos_cache_mode == "discard"
+        # A fresh reset seeds only the lone bos token, so act#0's slice-to-last
+        # is already a full warm-start; no structural recompute is pending.
+        self._needs_full_warmstart = False
         self._pending_bos_mask[:] = False
 
     def reset_rows(self, done_mask) -> None:
@@ -264,11 +272,15 @@ class PolicyRunner:
         self._pending_bos_mask |= mask
         if self._last_buffer_action is not None:
             self._last_buffer_action[mask] = 0.0
-        # Cache was just invalidated; recompute cleanly after the next act, the
-        # same way a full reset does. This stays unconditional: `bos_cache_mode`
-        # == "retain" is honored for full reset() only in this version — the
-        # shared-cache partial-restart path keeps legacy discard semantics.
-        self._reset_kv_after_next_act = True
+        # The shared cache was dropped, but the buffer still holds the surviving
+        # rows' full history. Flag the next act to warm-start from the full
+        # masked window (a real recompute) rather than collapsing every row to
+        # its newest token — otherwise survivors silently lose their context.
+        # Keep that recompute (no post-act drop): the freshly-restarted rows ride
+        # its retain-flavored cache. Per-row bos discard on a shared batched
+        # cache is out of scope; the survivor-context fix is the first-order win.
+        self._needs_full_warmstart = True
+        self._reset_kv_after_next_act = False
 
     def add_rows(self, initial_states) -> None:
         """Grow the batch: append new agent rows without disturbing existing ones.
@@ -304,9 +316,11 @@ class PolicyRunner:
                 ],
                 axis=0,
             )
-        # Shared cache was dropped by the buffer; recompute on the next act,
-        # matching reset_rows' warm-start discipline.
-        self._reset_kv_after_next_act = True
+        # Existing rows keep their full buffered history; the shared cache was
+        # dropped, so warm-start the next act over the full masked window (not
+        # each row's newest token) and keep the recompute. Mirrors reset_rows.
+        self._needs_full_warmstart = True
+        self._reset_kv_after_next_act = False
 
     @torch.inference_mode()
     def act(self, state=None) -> np.ndarray:
@@ -354,10 +368,21 @@ class PolicyRunner:
                 next_action = result
         else:
             if not cache_has_history(past_kv):
-                states_t = states_t[:, -1:]
-                actions_t = actions_t[:, -1:]
-                is_bos_t = is_bos_t[:, -1:]
-                mask_t = mask_t[:, -1:]
+                if self._needs_full_warmstart:
+                    # A structural invalidation (reset_rows / add_rows) dropped
+                    # the shared cache while the buffer still holds real history
+                    # for the surviving / pre-existing rows. Hand the model the
+                    # full masked window so its warm-start re-primes each row
+                    # over its own valid length; slicing to the last token here
+                    # would wipe those rows' context.
+                    self._needs_full_warmstart = False
+                else:
+                    # Fresh reset (act#0 over the lone bos) or the discard drop
+                    # (act#1): only the newest token needs (re)processing.
+                    states_t = states_t[:, -1:]
+                    actions_t = actions_t[:, -1:]
+                    is_bos_t = is_bos_t[:, -1:]
+                    mask_t = mask_t[:, -1:]
             result = self.model.predict_incremental_cached(
                 states=states_t,
                 actions=actions_t,
