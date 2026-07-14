@@ -15,7 +15,7 @@ try:
 except PackageNotFoundError:
     # Keep this fallback in sync with `pyproject.toml`'s `version` field
     # so editable/dev checkouts without `pip install` still report correctly.
-    __version__ = "0.11.0"
+    __version__ = "0.12.0"
 
 from .inference import (
     BUNDLE_FORMAT_VERSION,

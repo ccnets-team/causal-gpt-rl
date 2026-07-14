@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.0
+
+- Added `PolicyRunner.add_rows(initial_states)` to grow a live runner's batch:
+  new agent rows are appended (each seeded as a fresh BOS episode) while every
+  existing row keeps its full rolling context uninterrupted. The shared KV cache
+  is invalidated and recomputed at the new batch size on the next step (the same
+  warm-start discipline as `reset_rows`). Because the batch size is otherwise
+  fixed at construction, this is the only way to raise `num_envs` on a live
+  runner; use `reset()` to restart the whole batch instead.
+- Fixed the warm-start on partial batch restarts (`reset_rows` / `add_rows`).
+  These drop the shared KV cache, and the next `act()` previously sliced the
+  warm-start input to each row's newest token — correct for a fresh `reset()`,
+  but after a mid-episode restart it silently wiped the surviving / pre-existing
+  rows' buffered history. Those rows are now re-primed over their full masked
+  window, restoring the "surviving rows never lose context" guarantee. This
+  supersedes the 0.11.0 note that the `reset_rows` path keeps legacy discard
+  semantics: the partial-restart recompute is now a full-window (retain-flavored)
+  pass that is kept. Same-phase restarts (lockstep `reset_rows`, `num_envs == 1`,
+  and the `add_rows` recompute step) reach exact full-window parity; staggered
+  (mixed-phase) restarts are improved but remain bounded by the shared cache's
+  single position counter. The single-episode / full-`reset()` paths are
+  byte-identical to before.
+
 ## 0.11.0
 
 - Added the `bos_cache_mode` serving convention (`PolicyRunner` /
