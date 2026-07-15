@@ -112,11 +112,11 @@ and a structured-space (`Dict` / `Tuple`) example.
 
 | Env | Bundle | Ctx | Return | Norm. | Medium Ref. |
 |---|---|---:|---:|---:|---:|
-| `Ant-v5` | `ant-v5` | 32 | 3339.51±1115.40 | 50.56±16.54 | 86.54 |
-| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6865.15±2657.69 | 43.17±16.11 | 74.83 |
-| `Hopper-v5` | `hopper-v5` | 32 | 2836.28±987.67 | 73.40±25.72 | 72.91 |
-| `Walker2d-v5` | `walker2d-v5` | 32 | 3883.30±684.09 | 56.69±9.99 | 83.26 |
-| `Humanoid-v5` | `humanoid-v5` | 32 | 7842.01±1082.78 | 91.04±12.75 | 81.30 |
+| `Ant-v5` | `ant-v5` | 32 | 2835.61±1447.54 | 43.09±21.47 | 86.54 |
+| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6816.48±3135.53 | 42.87±19.01 | 74.83 |
+| `Hopper-v5` | `hopper-v5` | 32 | 2713.66±1075.57 | 70.21±28.01 | 72.91 |
+| `Walker2d-v5` | `walker2d-v5` | 32 | 3899.88±706.57 | 56.93±10.32 | 83.26 |
+| `Humanoid-v5` | `humanoid-v5` | 32 | 7892.65±1018.11 | 91.63±11.99 | 81.30 |
 
 Training data is expert-free: bundles are trained using Minari simple and medium datasets only; expert trajectories are not used for training.
 
@@ -130,26 +130,20 @@ Normalized scores use random=0 and expert=100:
 
 Medium reference scores are shown for context and are not the normalization baseline.
 
-Evaluation runtime:
-
-```text
-causal-gpt-rl 0.2.1
-torch 2.12.0+cu132
-gymnasium 1.2.2
-mujoco 3.8.1
-minari 0.5.3
-```
-
-Latest Humanoid-v5 refresh runtime:
+Evaluation runtime — every row above is measured on this one:
 
 ```text
 causal-gpt-rl 0.12.0
 torch 2.8.0+cu129
 gymnasium 1.2.3
-mujoco 3.4.0
+mujoco 3.2.3
+minari 0.5.3
 ```
 
-The `Humanoid-v5` row is measured on this runtime; the other rows use the runtime above. MuJoCo version affects `Humanoid-v5` physics, so returns are only comparable within the same runtime.
+`mujoco` is pinned to `3.2.3` because that is the version the Minari datasets
+were recorded with (`requirements: ['mujoco==3.2.3', 'gymnasium>=1.0.0']`). The
+`Norm.` and `Medium Ref.` columns are derived from those recorded trajectories,
+so returns are only comparable to them when measured on the same physics.
 
 ## Bundle Format
 
