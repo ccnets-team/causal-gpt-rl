@@ -116,7 +116,7 @@ and a structured-space (`Dict` / `Tuple`) example.
 | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6865.15±2657.69 | 43.17±16.11 | 74.83 |
 | `Hopper-v5` | `hopper-v5` | 32 | 2836.28±987.67 | 73.40±25.72 | 72.91 |
 | `Walker2d-v5` | `walker2d-v5` | 32 | 3883.30±684.09 | 56.69±9.99 | 83.26 |
-| `Humanoid-v5` | `humanoid-v5` | 32 | 7718.75±1288.33 | 89.58±15.17 | 81.30 |
+| `Humanoid-v5` | `humanoid-v5` | 32 | 7842.01±1082.78 | 91.04±12.75 | 81.30 |
 
 Training data is expert-free: bundles are trained using Minari simple and medium datasets only; expert trajectories are not used for training.
 
