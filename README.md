@@ -112,7 +112,7 @@ and a structured-space (`Dict` / `Tuple`) example.
 
 | Env | Bundle | Ctx | Return | Norm. | Medium Ref. |
 |---|---|---:|---:|---:|---:|
-| `Ant-v5` | `ant-v5` | 32 | 2835.61±1447.54 | 43.09±21.47 | 86.54 |
+| `Ant-v5` | `ant-v5` | 32 | 5262.53±1400.17 | 79.08±20.76 | 86.54 |
 | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6816.48±3135.53 | 42.87±19.01 | 74.83 |
 | `Hopper-v5` | `hopper-v5` | 32 | 2713.66±1075.57 | 70.21±28.01 | 72.91 |
 | `Walker2d-v5` | `walker2d-v5` | 32 | 3899.88±706.57 | 56.93±10.32 | 83.26 |
