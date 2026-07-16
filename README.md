@@ -110,13 +110,13 @@ and a structured-space (`Dict` / `Tuple`) example.
 
 ## Supported Environments
 
-| Env | Bundle | Ctx | Return | Norm. | Medium Ref. |
-|---|---|---:|---:|---:|---:|
-| `Ant-v5` | `ant-v5` | 32 | 5262.53±1400.17 | 79.08±20.76 | 86.54 |
-| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6816.48±3135.53 | 42.87±19.01 | 74.83 |
-| `Hopper-v5` | `hopper-v5` | 32 | 2713.66±1075.57 | 70.21±28.01 | 72.91 |
-| `Walker2d-v5` | `walker2d-v5` | 32 | 3899.88±706.57 | 56.93±10.32 | 83.26 |
-| `Humanoid-v5` | `humanoid-v5` | 32 | 7892.65±1018.11 | 91.63±11.99 | 81.30 |
+| Env | Bundle | Ctx | Return | Norm. | Simple Ref. | Medium Ref. |
+|---|---|---:|---:|---:|---:|---:|
+| `Ant-v5` | `ant-v5` | 32 | 5262.53±1400.17 | 79.08±20.76 | 59.99 ✓ | 86.54 ✗ |
+| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6816.48±3135.53 | 42.87±19.01 | 43.54 ✗ | 74.83 ✗ |
+| `Hopper-v5` | `hopper-v5` | 32 | 2713.66±1075.57 | 70.21±28.01 | 42.65 ✓ | 72.91 ✗ |
+| `Walker2d-v5` | `walker2d-v5` | 32 | 3899.88±706.57 | 56.93±10.32 | 59.51 ✗ | 83.26 ✗ |
+| `Humanoid-v5` | `humanoid-v5` | 32 | 7892.65±1018.11 | 91.63±11.99 | 63.29 ✓ | 81.30 ✓ |
 
 Training data is expert-free: bundles are trained using Minari simple and medium datasets only; expert trajectories are not used for training.
 
@@ -128,7 +128,9 @@ Normalized scores use random=0 and expert=100:
 100 * (return - random_ref) / (expert_ref - random_ref)
 ```
 
-Medium reference scores are shown for context and are not the normalization baseline.
+`Simple Ref.` and `Medium Ref.` are the normalized means of the Minari `simple-v0`
+and `medium-v0` datasets. They are shown for context and are not the normalization
+baseline. `✓` marks a reference the bundle's `Norm.` exceeds, `✗` one it does not.
 
 Evaluation runtime — every row above is measured on this one:
 
