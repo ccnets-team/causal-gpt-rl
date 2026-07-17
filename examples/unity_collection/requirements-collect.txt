@@ -1,0 +1,9 @@
+# Collection env for the Unity ML-Agents recipe (collect.py).
+#
+# mlagents_envs 1.x pins an older numpy/gymnasium than Minari, so keep this
+# separate from the packaging env (build_minari.py needs minari==0.5.3).
+# Python 3.10 recommended.
+mlagents_envs==1.1.0
+numpy==1.23.5
+onnxruntime>=1.23
+gymnasium==0.29.1
