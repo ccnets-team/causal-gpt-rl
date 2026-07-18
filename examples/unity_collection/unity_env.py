@@ -101,7 +101,13 @@ class UnityEnv(Env):
         self.specs = []
         self.agent_per_envs = []
         self.from_local_to_global = []
-        self.decision_agents = []
+        # Unity numbers agent_ids globally across behaviors, so a single behavior's
+        # ids are not 0..n-1 (e.g. SoccerTwos: 32 ids split across two team
+        # behaviors). Map each behavior's agent_ids to stable 0-based slots.
+        self.agent_id_to_slot = []
+        # agent_ids that requested a decision at the last poll, in Unity's order,
+        # so set_actions rows line up with the agents Unity is asking about.
+        self.decision_ids = []
         self.num_agents = 0
         self._initialize_env_info()
         self._define_observation_space()
@@ -128,15 +134,16 @@ class UnityEnv(Env):
             behavior_name = list(env.behavior_specs.keys())[0]
             self.behavior_names.append(behavior_name)
             self.specs.append(env.behavior_specs[behavior_name])
-            # Get initial agent IDs and count
-            # decision_steps, _ = env.get_steps(behavior_name)
-            n_agents = len(env._env_state[behavior_name][0])
+            # Initial agent IDs: Unity assigns them globally, so sort for a stable,
+            # deterministic slot order rather than assuming they are 0..n-1.
+            agent_ids = sorted(int(a) for a in env._env_state[behavior_name][0].agent_id)
+            n_agents = len(agent_ids)
             self.agent_per_envs.append(n_agents)
-            # env.reset()  # Reset the environment again before starting the episode
 
-            self.decision_agents.append(np.zeros(n_agents, dtype=np.bool_))
+            self.agent_id_to_slot.append({aid: slot for slot, aid in enumerate(agent_ids)})
+            self.decision_ids.append([])
 
-            # Create mapping from local to global indices
+            # Create mapping from local (slot) to global indices
             local_to_global = []
             for local_idx in range(n_agents):
                 global_idx = total_agents + local_idx
@@ -179,7 +186,7 @@ class UnityEnv(Env):
         )
         self.observation_shapes = observation_shapes
 
-    def _define_action_space(self, start=1):
+    def _define_action_space(self, start=0):
         # Ensure consistency of action specifications across all specs
         reference_action_spec = self.specs[0].action_spec
         for spec in self.specs[1:]:
@@ -207,8 +214,12 @@ class UnityEnv(Env):
                     action_spec.discrete_branches[0] - start, start=start
                 )
             else:
-                # Multiple discrete action branches
-                self.action_space = spaces.MultiDiscrete(action_spec.discrete_branches - start, start=start)
+                # Multiple discrete action branches. discrete_branches is a plain
+                # tuple in mlagents_envs 1.1.0, so coerce to an array; the branches
+                # are the 0-based nvec directly (SoccerTwos = first env here).
+                # gymnasium's MultiDiscrete rejects a scalar start, so leave it
+                # 0-based (matches the onnx's 0-based indices and the dataset).
+                self.action_space = spaces.MultiDiscrete(np.asarray(action_spec.discrete_branches))
         elif action_spec.continuous_size > 0 and action_spec.discrete_size > 0:
             # Mixed actions: Combine continuous and discrete spaces using Tuple
             continuous_space = spaces.Box(
@@ -222,7 +233,7 @@ class UnityEnv(Env):
                     action_spec.discrete_branches[0] - start, start=start
                 )
             else:
-                discrete_space = spaces.MultiDiscrete(action_spec.discrete_branches - start, start=start)
+                discrete_space = spaces.MultiDiscrete(np.asarray(action_spec.discrete_branches))
             self.action_space = spaces.Tuple((continuous_space, discrete_space))
         else:
             raise NotImplementedError("Action space configuration not supported.")
@@ -285,15 +296,15 @@ class UnityEnv(Env):
             env.reset()
             behavior_name = self.behavior_names[env_idx]
             decision_steps, _ = env.get_steps(behavior_name)
+            id_to_slot = self.agent_id_to_slot[env_idx]
 
-            self.decision_agents[env_idx] = np.zeros_like(self.decision_agents[env_idx])
+            self.decision_ids[env_idx] = [int(a) for a in decision_steps.agent_id]
             if len(decision_steps.agent_id) == 0:
                 # No agents to act upon
                 continue
-            self.decision_agents[env_idx][decision_steps.agent_id] = True
             obs = decision_steps.obs
             for idx, agent_id in enumerate(decision_steps.agent_id):
-                global_idx = self.from_local_to_global[env_idx][agent_id]
+                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
                 # Aggregate all observation components
                 for i in range(obs_len):
                     observations[i][global_idx] = obs[i][idx]
@@ -314,12 +325,18 @@ class UnityEnv(Env):
             env_actions = actions[action_offset:action_offset + num_agents_in_env]
             action_offset += num_agents_in_env
 
-            decision_check = self.decision_agents[env_idx]
-            dec_actions = env_actions[decision_check]
-            if len(dec_actions) > 0:
+            # Build action rows in Unity's decision order (decision_ids), each
+            # pulled from its agent's global slot, so set_actions lines rows up with
+            # the agents Unity is asking about regardless of the id layout.
+            dec_ids = self.decision_ids[env_idx]
+            id_to_slot = self.agent_id_to_slot[env_idx]
+            if len(dec_ids) > 0:
+                dec_actions = np.stack(
+                    [env_actions[id_to_slot[aid]] for aid in dec_ids], axis=0
+                )
                 action_tuple = self._create_action_tuple(dec_actions, env_idx)
                 env.set_actions(self.behavior_names[env_idx], action_tuple)
-            self.decision_agents[env_idx].fill(False)
+            self.decision_ids[env_idx] = []
             env.step()
 
         obs_len = len(self.observation_shapes)
@@ -327,7 +344,10 @@ class UnityEnv(Env):
         # Collect results from all environments
         for env_idx, env in enumerate(self.envs):
             decision_steps, terminal_steps = env.get_steps(self.behavior_names[env_idx])
-            self.decision_agents[env_idx] = np.zeros_like(self.decision_agents[env_idx])
+            id_to_slot = self.agent_id_to_slot[env_idx]
+            # Record who requested a decision (Unity order) for the next step's
+            # set_actions, before the empty-step early-out below.
+            self.decision_ids[env_idx] = [int(a) for a in decision_steps.agent_id]
             if len(decision_steps.agent_id) == 0 and len(terminal_steps.agent_id) == 0:
                 # Nothing this step: between-decision (action-repeat) gap with no
                 # terminations. Only skip when BOTH are empty.
@@ -338,7 +358,6 @@ class UnityEnv(Env):
             # termination -> missed episode boundary -> merged/over-long episodes.
             # With an empty decision set, common/decision_only below collapse to
             # empty and terminal_only captures every terminal agent, so fall through.
-            self.decision_agents[env_idx][decision_steps.agent_id] = True
 
             # Get agent IDs and mapping from agent_id to local index
             decision_agent_id_to_local = {agent_id: idx for idx, agent_id in enumerate(decision_steps.agent_id)}
@@ -359,7 +378,7 @@ class UnityEnv(Env):
             for agent_id in common_agent_ids:
                 dec_local_idx = decision_agent_id_to_local[agent_id]
                 term_local_idx = terminal_agent_id_to_local[agent_id]
-                global_idx = self.from_local_to_global[env_idx][agent_id]
+                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
                 # Aggregate observations
                 for i in range(obs_len):
                     final_observations[i][global_idx] = term_obs[i][term_local_idx]
@@ -376,7 +395,7 @@ class UnityEnv(Env):
             # Handle agents only in decision steps
             for agent_id in decision_only_agent_ids:
                 dec_local_idx = decision_agent_id_to_local[agent_id]
-                global_idx = self.from_local_to_global[env_idx][agent_id]
+                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
                 for i in range(obs_len):
                     observations[i][global_idx] = dec_obs[i][dec_local_idx]
                 rewards[global_idx] = float(decision_steps.reward[dec_local_idx])
@@ -386,7 +405,7 @@ class UnityEnv(Env):
             # Handle agents only in terminal steps
             for agent_id in terminal_only_agent_ids:
                 term_local_idx = terminal_agent_id_to_local[agent_id]
-                global_idx = self.from_local_to_global[env_idx][agent_id]
+                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
                 for i in range(obs_len):
                     observations[i][global_idx] = term_obs[i][term_local_idx]
                 rewards[global_idx] = float(terminal_steps.reward[term_local_idx])
