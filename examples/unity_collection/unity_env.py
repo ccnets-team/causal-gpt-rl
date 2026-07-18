@@ -244,15 +244,16 @@ class UnityEnv(Env):
             actions = np.asarray(actions, dtype=np.int32).reshape(num_agents, -1)
             action_tuple.add_discrete(actions)
         elif isinstance(self.action_space, spaces.Tuple):
-            # Mixed actions: actions are tuples (continuous_action, discrete_action)
-            continuous_actions = []
-            discrete_actions = []
-            continuous_action, discrete_action = actions
-            continuous_action = np.asarray(continuous_action, dtype=np.float32).reshape(num_agents, -1)
-            discrete_action = np.asarray(discrete_action, dtype=np.int32).reshape(num_agents, -1)
-
-            action_tuple.add_continuous(continuous_actions)
-            action_tuple.add_discrete(discrete_actions)
+            # Hybrid: `actions` is a [num_agents, continuous_size + num_branches]
+            # row — continuous values first, then one 0-based index column per
+            # discrete branch (the layout OnnxPolicy.act() emits for kind="hybrid").
+            # Split by continuous_size and feed both halves of the ActionTuple.
+            cont_size = self.spec.action_spec.continuous_size
+            actions = np.asarray(actions, dtype=np.float32).reshape(num_agents, -1)
+            continuous_action = actions[:, :cont_size].astype(np.float32)
+            discrete_action = actions[:, cont_size:].astype(np.int32)
+            action_tuple.add_continuous(continuous_action)
+            action_tuple.add_discrete(discrete_action)
         else:
             raise NotImplementedError("Action type not supported.")
 

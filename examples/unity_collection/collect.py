@@ -23,6 +23,7 @@ import numpy as np
 
 from unity_env import UnityEnv
 from onnx_policy import OnnxPolicy
+from noisy_policy import NoisyPolicy
 
 
 def _concat_obs(observations, g, n_ch):
@@ -54,6 +55,14 @@ def main():
         default=0,
         help="If >0, stop after this many finished episodes and print alignment diagnostics.",
     )
+    # Noise dials to synthesize a lower-quality tier from the stock policy. Both
+    # zero (default) records the expert tier. See noisy_policy.py; pick values
+    # for a target return with calibrate_noise.py.
+    ap.add_argument("--noise-std", type=float, default=0.0,
+                    help="Gaussian action noise std (continuous). >0 degrades the policy.")
+    ap.add_argument("--epsilon", type=float, default=0.0,
+                    help="Per-agent probability of a uniform-random action. 1.0 = random policy.")
+    ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
     args = ap.parse_args()
 
     out_dir = Path(args.out)
@@ -79,16 +88,38 @@ def main():
     policy = OnnxPolicy(
         args.onnx, num_agents=n, obs_shapes=env.observation_shapes, action_spec=action_spec
     )
+    noised = args.noise_std > 0.0 or args.epsilon > 0.0
+    if noised:
+        policy = NoisyPolicy(
+            policy, noise_std=args.noise_std, epsilon=args.epsilon,
+            rng=np.random.default_rng(args.noise_seed),
+        )
+        print(f"[noise] noise_std={args.noise_std} epsilon={args.epsilon} seed={args.noise_seed}")
 
-    # Record the action/obs spec so build_minari.py can build the right Minari
-    # action space (Box for continuous, Discrete/MultiDiscrete for discrete).
-    spec_meta = {"obs_dim": int(sum(obs_dims)), "action_kind": policy.kind}
+    # Record the obs/action spec so build_minari.py can build the right Minari
+    # spaces: a per-sensor Tuple observation (`obs_channels`; a single channel
+    # stays a bare Box) and the action space (Box for continuous,
+    # Discrete/MultiDiscrete for discrete, Tuple(Box, Discrete) for hybrid). Raw
+    # obs/actions stay flat here — build_minari splits them by these dims into the
+    # leaf arrays Minari stores. `obs_dim` is kept for backward-compatible readers.
+    spec_meta = {
+        "obs_dim": int(sum(obs_dims)),
+        "obs_channels": [int(d) for d in obs_dims],
+        "action_kind": policy.kind,
+    }
+    if noised:
+        spec_meta["noise"] = {
+            "noise_std": args.noise_std, "epsilon": args.epsilon, "noise_seed": args.noise_seed,
+        }
     if policy.kind == "continuous":
         spec_meta["act_dim"] = int(policy.act_dim)
-    else:
+    elif policy.kind == "discrete":
+        spec_meta["branches"] = [int(b) for b in policy.branches]
+    else:  # hybrid: continuous head(s) + discrete branch(es), read from the spec
+        spec_meta["continuous_size"] = int(action_spec.continuous_size)
         spec_meta["branches"] = [int(b) for b in policy.branches]
     (out_dir / "spec.json").write_text(json.dumps(spec_meta, indent=2), encoding="utf-8")
-    print(f"[env] action_kind={policy.kind} spec={spec_meta}")
+    print(f"[env] action_kind={policy.kind} obs_channels={obs_dims} spec={spec_meta}")
 
     # Per-agent working buffers. Invariant while active[g]: buf_obs[g] holds
     # obs_0..obs_k and buf_act/buf_rew hold the k actions/rewards taken so far,

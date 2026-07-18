@@ -1,14 +1,16 @@
 """Run a baked ML-Agents `.onnx` policy in onnxruntime, batched across agents.
 
-Handles both continuous and discrete behaviors, and both ONNX observation
-layouts:
+Handles continuous, discrete, and hybrid (continuous + discrete) behaviors, and
+both ONNX observation layouts:
 
   - per-sensor inputs (`obs_0`, `obs_1`, …), fed channel by channel, and
   - a single concatenated `vector_observation`, fed the concatenated channels.
 
 The rule is uniform: concatenate the build's obs channels in spec order into one
 flat vector, then split that vector across the ONNX obs inputs by their declared
-dims. (Crawler: 126+32 -> two inputs; PushBlock: 105+105 -> one 210 input.)
+dims. (Crawler: 126+32 -> two inputs; PushBlockWithInput: 105+105 -> one 210
+input.) This concatenation is only how the *driver policy* is fed — it is
+independent of how the dataset declares its observation space (per-sensor).
 
 Discrete `discrete_actions` comes in two encoding flavors, detected by width vs the
 build's branch sizes:
@@ -20,9 +22,14 @@ build's branch sizes:
 `action_masks` inputs are fed all-ones (no masking). Recurrent policies
 (`recurrent_in`) are not supported and fail loud.
 
-`act()` returns a `[num_agents, act_dim]` array — continuous values, or 0-based
-discrete indices `[num_agents, num_branches]`. Agents absent this step get a
-zero row (the UnityEnv wrapper masks them out).
+`act()` returns a `[num_agents, act_dim]` array. Per kind:
+
+  - continuous -> continuous values `[num_agents, cont_size]`
+  - discrete   -> 0-based indices `[num_agents, num_branches]`
+  - hybrid     -> `[continuous | discrete indices]` concatenated,
+                  `[num_agents, cont_size + num_branches]`
+
+Agents absent this step get a zero row (the UnityEnv wrapper masks them out).
 """
 import numpy as np
 import onnxruntime as ort
@@ -88,9 +95,25 @@ class OnnxPolicy:
                     f"discrete_actions width {self._disc_width} matches neither num_branches "
                     f"{len(branches)} nor sum(branches) {sum(branches)}."
                 )
+        elif cont_size > 0 and branches:
+            for req in ("continuous_actions", "discrete_actions"):
+                if req not in out:
+                    raise ValueError(f"Hybrid behavior but no {req} output ({list(out)}).")
+            self.kind = "hybrid"
+            self.out_name = None  # hybrid runs both outputs explicitly in act()
+            self.cont_size = cont_size
+            self.branches = branches
+            # act_dim = continuous dims + one 0-based index column per discrete branch
+            self.act_dim = cont_size + len(branches)
+            self._disc_width = int(out["discrete_actions"].shape[-1])
+            if self._disc_width not in (len(branches), sum(branches)):
+                raise ValueError(
+                    f"discrete_actions width {self._disc_width} matches neither num_branches "
+                    f"{len(branches)} nor sum(branches) {sum(branches)}."
+                )
         else:
             raise NotImplementedError(
-                f"Hybrid actions (continuous={cont_size}, discrete={branches}) are not supported."
+                f"Action behavior (continuous={cont_size}, discrete={branches}) not supported."
             )
 
     def _build_feeds(self, present, observations):
@@ -139,11 +162,20 @@ class OnnxPolicy:
         out = np.zeros((n, self.act_dim), dtype=np.float32)
         if not present:
             return out
-        raw = self.session.run([self.out_name], self._build_feeds(present, observations))[0]
-        if self.kind == "continuous":
-            vals = np.asarray(raw, np.float32).reshape(len(present), -1)
+        feeds = self._build_feeds(present, observations)
+        if self.kind == "hybrid":
+            # Two action outputs: continuous_actions (already sampled, in-range) and
+            # discrete_actions (per-branch log-probs). Concat [continuous | indices].
+            cont, disc = self.session.run(["continuous_actions", "discrete_actions"], feeds)
+            cont = np.asarray(cont, np.float32).reshape(len(present), -1)
+            idx = self._decode_discrete(disc).astype(np.float32)
+            vals = np.concatenate([cont, idx], axis=1)
         else:
-            vals = self._decode_discrete(raw).astype(np.float32)
+            raw = self.session.run([self.out_name], feeds)[0]
+            if self.kind == "continuous":
+                vals = np.asarray(raw, np.float32).reshape(len(present), -1)
+            else:
+                vals = self._decode_discrete(raw).astype(np.float32)
         for j, g in enumerate(present):
             out[g] = vals[j]
         return out
