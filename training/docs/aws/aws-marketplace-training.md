@@ -1,5 +1,7 @@
 # AWS Marketplace Training
 
+Product version: `0.0.8`
+
 This document describes the minimum steps needed to run a Causal GPT-RL SageMaker training job after subscribing through AWS Marketplace.
 
 ## Purpose
@@ -19,7 +21,7 @@ A Causal GPT-RL training job takes user-provided offline trajectory datasets and
 1. Upload the training data to S3.
 2. Set `dataset_ids` to the dataset ids you want to train on.
 3. Create a training job with the SageMaker Algorithm ARN.
-4. Monitor training progress in CloudWatch Logs, including offline training metrics and optional Forecast metrics.
+4. Monitor training progress in CloudWatch Logs, including the startup validation summary, eval metrics such as Action NLL, and optional Forecast metrics.
 5. After training finishes, download `model.tar.gz` from the S3 output path.
 6. Extract the archive and load the canonical `bundle/` with the `causal_gpt_rl.inference` runtime.
 
@@ -52,6 +54,61 @@ estimator.fit({
 ## Monitoring Training Logs
 
 During training, users can monitor progress through Amazon CloudWatch Logs connected to the SageMaker training job.
+
+### Startup Validation Summary
+
+At the start of a training job, the log prints a validation summary so users can immediately confirm that the training data was read with the intended observation and action schema.
+
+```text
+Dataset validation: PASSED
+Dataset IDs: unity/soccer-twos/expert-selfplay-v0
+Dataset variants: expert-selfplay-v0
+Datasets: 1
+Episodes: 1,024
+Transitions: 245,760
+Minimum required episode length: 64
+Observation space: Box(-inf, inf, (336,), float32)
+Action space: MultiDiscrete([3 3 3])
+Flattened observation shape: (336,)
+Flattened action shape: (9,)
+State specs: [continuous(size=336)]
+Action specs: [multi_discrete(size=3), multi_discrete(size=3), multi_discrete(size=3)]
+Evaluation mode: offline
+Checkpoint metric: eval/action_nll
+Metric direction: min
+```
+
+Key items to confirm:
+
+- Original observation/action space read from the dataset.
+- Flattened observation/action shape the model actually consumes.
+- Type, size, and order of the flattened state/action heads.
+- Dataset, episode, and transition counts.
+- Dataset validation result and the minimum required episode length.
+- Evaluation mode and the checkpoint-selection metric.
+
+The original environment action and the model's flattened action shape are shown together so that action-encoding mistakes are easy to spot. For example, a `MultiDiscrete([3, 3, 3])` action is three environment indices, but the model's flattened action shape is `(9,)` — the sum of the one-hot blocks. Seeing both values makes an incorrect encoding obvious.
+
+### Eval Metrics
+
+The training job evaluates the policy on a held-out portion of the dataset and reports Action NLL, the negative log likelihood the model assigns to the dataset's ground-truth actions. Lower Action NLL means the model predicts the dataset actions better. Unlike the Forecast metrics below, these are measured directly from held-out data rather than estimated by the model.
+
+The default evaluation reports an overall value and per-context-length values:
+
+| Metric | Description |
+| --- | --- |
+| `Eval/ActionNll` | Representative Action NLL across all eval scoring positions. |
+| `Eval/ShortContextActionNll` | Positions in the `0`–`0.5x` range of the training context length. |
+| `Eval/SteadyActionNll` | Positions in the `0.5`–`1.0x` range. |
+| `Eval/LongContextActionNll` | Positions beyond the training context length, `1.0x` and above. |
+
+To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required. When dataset episodes are short or padded, only valid positions are averaged.
+
+`Eval/ActionNll` is also the checkpoint-selection metric shown in the startup summary (`Checkpoint metric: eval/action_nll`, `Metric direction: min`): lower values rank as better checkpoints.
+
+### Forecast Metrics
+
+Forecast metrics are not available in the current version yet; they will be enabled soon.
 
 In addition to standard offline training metrics, the training job may emit Forecast metrics that provide an approximate view of how the current policy may behave without directly running the target simulator, game engine, or environment inside the training container.
 

@@ -35,6 +35,17 @@ These `.pt` files contain training state for resume/retraining, including model 
 
 At most 10 checkpoint slots are kept. After `model_checkpoint_slot_009.pt`, training rotates back to `model_checkpoint_slot_000.pt` and overwrites older slots.
 
+## Checkpoint Selection Metric
+
+The training job tracks an evaluation metric and direction so checkpoints can be ranked by quality. The startup log reports both:
+
+```text
+Checkpoint metric: eval/action_nll
+Metric direction: min
+```
+
+`eval/action_nll` is the held-out Action NLL (lower is better). Each `snapshots/slot_NNN/metrics.json` records this metric for its slot. See the eval metrics in `training/docs/aws/aws-marketplace-training.md` for details.
+
 ## Bundle and Snapshots
 
 The final SageMaker output artifact is separate from the checkpoint prefix. After training finishes, `model.tar.gz` contains:

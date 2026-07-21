@@ -45,5 +45,9 @@ s3://my-bucket/cgrl/datasets/minari/farama/mujoco/humanoid/medium-v0/
 - `training` channel: S3 root that contains the Minari dataset directories.
 - `dataset_ids`: Dataset paths relative to that root.
 
+## Validation Summary at Startup
+
+When the job starts, it prints a validation summary to CloudWatch Logs confirming how each dataset was resolved and the observation/action schema the model will use, including the flattened observation/action shapes and the state/action specs. Use it to verify the data was read as intended before the run continues. See `training/docs/aws/aws-marketplace-training.md` for the full list of fields shown.
+
 
 
