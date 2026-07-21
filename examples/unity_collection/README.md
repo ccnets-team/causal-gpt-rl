@@ -2,17 +2,19 @@
 
 Reproduce the Causal GPT-RL Unity artifacts end to end, from public materials.
 
-- **Measure** the policy's closed-loop return in a Unity build — see
-  [`../deploy/mlagents.py`](../deploy/mlagents.py).
+- **Measure** a downloaded policy's closed-loop return in a Unity build — use
+  [`../unity/evaluate_onnx.py`](../unity/evaluate_onnx.py) for continuous, discrete,
+  hybrid, and cooperative multi-agent policies. The older
+  [`../deploy/mlagents.py`](../deploy/mlagents.py) is the Crawler-specific example.
 - **Collect** trajectories and package them as a Minari dataset — this folder.
 
 All inputs are public Hugging Face repos:
 
 | Repo | Contents |
 |---|---|
-| [ccnets/causal-gpt-rl-unity](https://huggingface.co/ccnets/causal-gpt-rl-unity) | policy `crawler.onnx` |
-| [ccnets/causal-gpt-rl-unity-envs](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs) | model-removed Crawler build + stock `Crawler.onnx` |
-| [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets) | recorded trajectories `unity/crawler/expert-v0` |
+| [ccnets/causal-gpt-rl-unity](https://huggingface.co/ccnets/causal-gpt-rl-unity) | trained ONNX policies |
+| [ccnets/causal-gpt-rl-unity-envs](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs) | model-removed Unity builds + stock policies where redistributable |
+| [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets) | recorded Minari trajectories |
 
 ## Environments
 
@@ -22,7 +24,7 @@ All inputs are public Hugging Face repos:
   [`requirements-collect.txt`](requirements-collect.txt).
 - **Packaging** ([`collection/build_minari.py`](../../collection/build_minari.py)): `minari==0.5.3`.
 
-The measurement runner (`../deploy/mlagents.py`) uses the same collection env
+The measurement runner (`../unity/evaluate_onnx.py`) uses the same collection env
 (`onnxruntime` + `mlagents_envs`, no PyTorch).
 
 ## Collect → Minari
@@ -142,12 +144,22 @@ above. For a discrete behavior, Gaussian noise is meaningless; use `--epsilon`
 
 ## Measure return
 
-[`../deploy/mlagents.py`](../deploy/mlagents.py) drives the `crawler.onnx` policy
-(from the model repo) in the build and reports closed-loop return per agent:
+Download the ONNX policy from its Hugging Face model repository and the matching
+model-removed build from the companion environment repository. Then run:
 
 ```bash
-python ../deploy/mlagents.py --build path/to/Crawler.exe --onnx path/to/crawler.onnx
+python ../unity/evaluate_onnx.py \
+    --build path/to/UnityEnvironment.exe \
+    --onnx path/to/policy.onnx
 ```
+
+The script reads the ONNX context, observation, action, and batch dimensions;
+validates them against the live ML-Agents behavior spec; maintains a separate
+autoregressive window per scene agent; and reports both agent return and, when
+ML-Agents group IDs are present, cooperative group return and success rate.
+
+An ONNX exported with batch size equal to the number of agents uses one runtime
+call per decision tick. A batch-1 model also works, but is invoked once per agent.
 
 ## Files
 
