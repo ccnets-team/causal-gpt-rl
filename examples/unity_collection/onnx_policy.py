@@ -8,7 +8,7 @@ both ONNX observation layouts:
 
 The rule is uniform: concatenate the build's obs channels in spec order into one
 flat vector, then split that vector across the ONNX obs inputs by their declared
-dims. (Crawler: 126+32 -> two inputs; PushBlockWithInput: 105+105 -> one 210
+dims. (Crawler: 126+32 -> two inputs; PushBlock: 105+105 -> one 210
 input.) This concatenation is only how the *driver policy* is fed — it is
 independent of how the dataset declares its observation space (per-sensor).
 

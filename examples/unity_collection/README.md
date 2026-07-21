@@ -54,19 +54,19 @@ observation and action spaces mirror the build's sensors and action spec (see
 spaces follow the same convention as the Gymnasium / MuJoCo Minari datasets.
 
 The same two commands collect **any** build — point `--build`/`--onnx` at it and
-pick a `--dataset-id`. For example the hybrid **PushBlockWithInput** build (a
-continuous move vector + a discrete jump):
+pick a `--dataset-id`. For example the discrete **PushBlock** build (a single
+`Discrete(7)` move/turn action):
 
 ```bash
 python collect.py \
-    --build path/to/PushBlockWithInput.exe \
+    --build path/to/PushBlock.exe \
     --onnx  path/to/PushBlock.onnx \
-    --out   raw_pbwi/ \
+    --out   raw_pushblock/ \
     --target 1000000
 python ../../collection/build_minari.py \
-    --raw raw_pbwi/ \
-    --dataset-id unity/pushblock-with-input/expert-v0 \
-    --description "ML-Agents PushBlockWithInput, stock hybrid ONNX policy (model-removed build)."
+    --raw raw_pushblock/ \
+    --dataset-id unity/pushblock/expert-v0 \
+    --description "ML-Agents PushBlock, stock discrete ONNX policy (model-removed build)."
 ```
 
 ## Observation & action spaces
@@ -88,7 +88,7 @@ Two worked builds:
 | Build | Observation | Action |
 |---|---|---|
 | Crawler | `Tuple(Box(126), Box(32))` | `Box(20, [-1, 1])` |
-| PushBlockWithInput | `Tuple(Box(105), Box(105))` | `Tuple(Box(2, [-1, 1]), Discrete(2))` |
+| PushBlock | `Tuple(Box(105), Box(105))` | `Discrete(7)` |
 
 `collect.py` records the raw obs channels and actions flat plus a `spec.json`
 (obs channel dims + action kind); `build_minari.py` reads it and rebuilds the
