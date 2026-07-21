@@ -64,6 +64,7 @@ class UnityEnv(Env):
 
         use_graphics = kwargs.get("use_graphics", False)
         time_scale = kwargs.get("time_scale", 4)
+        requested_worker_id = kwargs.get("worker_id")
         if UnityEnv.env_dir is None:
             raise ValueError("Unity environment not registered. Use UnityEnv.register() to register the environment.")
         else:
@@ -79,35 +80,48 @@ class UnityEnv(Env):
         self.channel.set_configuration_parameters(width=1280, height=720, time_scale=time_scale)
 
         if is_vectorized:
+            first_worker_id = self.seed if requested_worker_id is None else int(requested_worker_id)
             # Create multiple environments without graphics for performance
             self.envs = [
                 self.create_unity_env(
                     channel=self.channel,
                     no_graphics=True,
                     seed=self.seed + i,
-                    worker_id=self.seed + i
+                    worker_id=first_worker_id + i
                 ) for i in range(num_envs)
             ]
         else:
+            worker_id = self.seed + 100 if requested_worker_id is None else int(requested_worker_id)
             self.env = self.create_unity_env(
                 channel=self.channel,
                 no_graphics=self.no_graphics,
                 seed=self.seed + 100,
-                worker_id=self.seed + 100
+                worker_id=worker_id
             )
             self.envs = [self.env]  # For consistency, make self.envs a list
 
-        self.behavior_names = []
-        self.specs = []
-        self.agent_per_envs = []
-        self.from_local_to_global = []
-        # Unity numbers agent_ids globally across behaviors, so a single behavior's
-        # ids are not 0..n-1 (e.g. SoccerTwos: 32 ids split across two team
-        # behaviors). Map each behavior's agent_ids to stable 0-based slots.
-        self.agent_id_to_slot = []
+        # A "group" = one (env instance, behavior) pair. Single-agent envs have
+        # one group per env; a multi-behavior env like SoccerTwos has several (one
+        # per team, e.g. SoccerTwos?team=0 / ?team=1). Agents are numbered globally
+        # across all groups in `group_keys` order, and every map below is keyed by
+        # the (env_idx, behavior_name) group key.
+        self.specs = []            # per-group behavior spec (consistency-checked)
+        self.behaviors_by_env = [] # env_idx -> [behavior_name, ...]
+        self.group_keys = []       # ordered [(env_idx, behavior_name), ...]
+        self.slot_maps = {}        # group -> {unity_agent_id: 0-based slot}
+        self.offsets = {}          # group -> first global agent index
+        self.counts = {}           # group -> agent count
         # agent_ids that requested a decision at the last poll, in Unity's order,
         # so set_actions rows line up with the agents Unity is asking about.
-        self.decision_ids = []
+        self.decision_ids = {}     # group -> [unity_agent_id, ...]
+        # Stable identity/context for every global agent slot. Group IDs are
+        # supplied by ML-Agents and let collectors retain multi-agent match
+        # structure instead of treating linked trajectories as unrelated.
+        self.agent_context = []
+        # Per cooperative group, latch newly issued IDs belonging to the current
+        # reset. DungeonEscape can surface the three new decision IDs on
+        # different ticks; only the first one marks a new scene boundary.
+        self._reissued_ids = {}
         self.num_agents = 0
         self._initialize_env_info()
         self._define_observation_space()
@@ -128,29 +142,41 @@ class UnityEnv(Env):
 
     def _initialize_env_info(self):
         total_agents = 0
-        # Collect behavior names, specs, and agent counts for each environment
-        for env in self.envs:
+        # Enumerate every (env, behavior) group. Unity numbers agent_ids globally
+        # across behaviors, so sort each group's ids for a stable 0-based slot order
+        # rather than assuming they are 0..n-1. All behaviors are driven and
+        # recorded; multi-behavior envs (e.g. SoccerTwos' two teams) simply become
+        # multiple groups sharing one Unity instance and one env.step().
+        for env_idx, env in enumerate(self.envs):
             env.reset()
-            behavior_name = list(env.behavior_specs.keys())[0]
-            self.behavior_names.append(behavior_name)
-            self.specs.append(env.behavior_specs[behavior_name])
-            # Initial agent IDs: Unity assigns them globally, so sort for a stable,
-            # deterministic slot order rather than assuming they are 0..n-1.
-            agent_ids = sorted(int(a) for a in env._env_state[behavior_name][0].agent_id)
-            n_agents = len(agent_ids)
-            self.agent_per_envs.append(n_agents)
-
-            self.agent_id_to_slot.append({aid: slot for slot, aid in enumerate(agent_ids)})
-            self.decision_ids.append([])
-
-            # Create mapping from local (slot) to global indices
-            local_to_global = []
-            for local_idx in range(n_agents):
-                global_idx = total_agents + local_idx
-                local_to_global.append(global_idx)
-            self.from_local_to_global.append(local_to_global)
-
-            total_agents += n_agents
+            bnames = sorted(env.behavior_specs.keys())
+            self.behaviors_by_env.append(bnames)
+            for bname in bnames:
+                self.specs.append(env.behavior_specs[bname])
+                decision_steps, _ = env.get_steps(bname)
+                agent_ids = sorted(int(a) for a in decision_steps.agent_id)
+                group_by_agent = {
+                    int(a): int(g)
+                    for a, g in zip(decision_steps.agent_id, decision_steps.group_id)
+                }
+                key = (env_idx, bname)
+                self.group_keys.append(key)
+                self.slot_maps[key] = {aid: slot for slot, aid in enumerate(agent_ids)}
+                self.offsets[key] = total_agents
+                self.counts[key] = len(agent_ids)
+                self.decision_ids[key] = []
+                team_id = int(bname.rsplit("?team=", 1)[1]) if "?team=" in bname else 0
+                for agent_id in agent_ids:
+                    self.agent_context.append(
+                        {
+                            "env_index": env_idx,
+                            "behavior_name": bname,
+                            "team_id": team_id,
+                            "agent_id": agent_id,
+                            "group_id": group_by_agent[agent_id],
+                        }
+                    )
+                total_agents += len(agent_ids)
 
         self.num_agents = total_agents
 
@@ -284,6 +310,92 @@ class UnityEnv(Env):
 
         return observations, rewards, terminated, truncated, final_observations
 
+    def _resolve_step_slots(self, key, decision_steps, terminal_steps):
+        """Resolve possibly reissued Unity agent IDs to stable wrapper slots.
+
+        Some cooperative examples (notably DungeonEscape) register the same
+        GameObjects with ``SimpleMultiAgentGroup`` again after every reset. That
+        gives them new ML-Agents agent IDs even though the number of agents and
+        their group membership are unchanged. Keep dataset slots stable by
+        assigning each unseen ID to a free slot belonging to the same group.
+        """
+        slot_map = self.slot_maps[key]
+        offset = self.offsets[key]
+        step_slot_map = {}
+        unseen_decision_groups = {}
+        for agent_id, group_id in zip(decision_steps.agent_id, decision_steps.group_id):
+            if int(agent_id) not in slot_map:
+                group_id = int(group_id)
+                unseen_decision_groups.setdefault(group_id, set()).add(int(agent_id))
+
+        terminal_used = set()
+        for raw_agent_id, raw_group_id in zip(
+            terminal_steps.agent_id, terminal_steps.group_id
+        ):
+            agent_id = int(raw_agent_id)
+            group_id = int(raw_group_id)
+            slot = slot_map.get(agent_id)
+            if slot is None or slot in terminal_used:
+                candidates = [
+                    local_slot
+                    for local_slot in range(self.counts[key])
+                    if self.agent_context[offset + local_slot]["group_id"] == group_id
+                    and local_slot not in terminal_used
+                ]
+                if not candidates:
+                    raise RuntimeError(
+                        f"No free stable slot for agent_id={agent_id}, group_id={group_id}, "
+                        f"behavior={key}; group membership may have changed."
+                    )
+                slot = candidates[0]
+                slot_map[agent_id] = slot
+            step_slot_map[agent_id] = slot
+            terminal_used.add(slot)
+
+        # A reset can expose an old terminal ID and a newly issued decision ID
+        # for the same physical agent on one poll. Decision rows may therefore
+        # intentionally reuse a terminal slot, but must remain unique among
+        # themselves.
+        decision_used = set()
+        for raw_agent_id, raw_group_id in zip(
+            decision_steps.agent_id, decision_steps.group_id
+        ):
+            agent_id = int(raw_agent_id)
+            group_id = int(raw_group_id)
+            slot = slot_map.get(agent_id)
+            if slot is None or slot in decision_used:
+                candidates = [
+                    local_slot
+                    for local_slot in range(self.counts[key])
+                    if self.agent_context[offset + local_slot]["group_id"] == group_id
+                    and local_slot not in decision_used
+                ]
+                if not candidates:
+                    raise RuntimeError(
+                        f"No free stable decision slot for agent_id={agent_id}, "
+                        f"group_id={group_id}, behavior={key}."
+                    )
+                # Prefer recycling a slot whose old ID terminates on this poll.
+                terminal_candidates = [slot for slot in candidates if slot in terminal_used]
+                slot = terminal_candidates[0] if terminal_candidates else candidates[0]
+                slot_map[agent_id] = slot
+            step_slot_map[agent_id] = slot
+            decision_used.add(slot)
+        group_sizes = {}
+        for local_slot in range(self.counts[key]):
+            group_id = self.agent_context[offset + local_slot]["group_id"]
+            group_sizes[group_id] = group_sizes.get(group_id, 0) + 1
+        restarted_group_ids = set()
+        for group_id, new_ids in unseen_decision_groups.items():
+            pending_key = (key, group_id)
+            pending = self._reissued_ids.setdefault(pending_key, set())
+            if not pending:
+                restarted_group_ids.add(group_id)
+            pending.update(new_ids)
+            if len(pending) >= group_sizes.get(group_id, 0):
+                pending.clear()
+        return step_slot_map, restarted_group_ids
+
 
     def reset(self, **kwargs):
         """
@@ -294,20 +406,22 @@ class UnityEnv(Env):
         observations = tuple([[None] * self.num_agents for _ in range(obs_len)])
         for env_idx, env in enumerate(self.envs):
             env.reset()
-            behavior_name = self.behavior_names[env_idx]
-            decision_steps, _ = env.get_steps(behavior_name)
-            id_to_slot = self.agent_id_to_slot[env_idx]
+            for bname in self.behaviors_by_env[env_idx]:
+                key = (env_idx, bname)
+                slot_map = self.slot_maps[key]
+                offset = self.offsets[key]
+                decision_steps, _ = env.get_steps(bname)
 
-            self.decision_ids[env_idx] = [int(a) for a in decision_steps.agent_id]
-            if len(decision_steps.agent_id) == 0:
-                # No agents to act upon
-                continue
-            obs = decision_steps.obs
-            for idx, agent_id in enumerate(decision_steps.agent_id):
-                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
-                # Aggregate all observation components
-                for i in range(obs_len):
-                    observations[i][global_idx] = obs[i][idx]
+                self.decision_ids[key] = [int(a) for a in decision_steps.agent_id]
+                if len(decision_steps.agent_id) == 0:
+                    # No agents to act upon
+                    continue
+                obs = decision_steps.obs
+                for idx, agent_id in enumerate(decision_steps.agent_id):
+                    global_idx = offset + slot_map[int(agent_id)]
+                    # Aggregate all observation components
+                    for i in range(obs_len):
+                        observations[i][global_idx] = obs[i][idx]
 
         return observations, {}
 
@@ -317,107 +431,111 @@ class UnityEnv(Env):
         :param actions: Actions to take for all agents.
         :return: Tuple containing observations, rewards, terminated flags, truncated flags, and info.
         """
-        action_offset = 0
-
-        # Set actions for all environments
+        # Set actions for every behavior in each env, then advance that env once.
+        # env.step() drives the whole Unity instance, so it runs per env, after all
+        # of that instance's behaviors (e.g. both SoccerTwos teams) have their
+        # actions set.
         for env_idx, env in enumerate(self.envs):
-            num_agents_in_env = self.agent_per_envs[env_idx]
-            env_actions = actions[action_offset:action_offset + num_agents_in_env]
-            action_offset += num_agents_in_env
+            for bname in self.behaviors_by_env[env_idx]:
+                key = (env_idx, bname)
+                slot_map = self.slot_maps[key]
+                # This group's slice of the global action array, indexed by slot.
+                env_actions = actions[self.offsets[key]:self.offsets[key] + self.counts[key]]
 
-            # Build action rows in Unity's decision order (decision_ids), each
-            # pulled from its agent's global slot, so set_actions lines rows up with
-            # the agents Unity is asking about regardless of the id layout.
-            dec_ids = self.decision_ids[env_idx]
-            id_to_slot = self.agent_id_to_slot[env_idx]
-            if len(dec_ids) > 0:
-                dec_actions = np.stack(
-                    [env_actions[id_to_slot[aid]] for aid in dec_ids], axis=0
-                )
-                action_tuple = self._create_action_tuple(dec_actions, env_idx)
-                env.set_actions(self.behavior_names[env_idx], action_tuple)
-            self.decision_ids[env_idx] = []
+                # Build action rows in Unity's decision order (decision_ids), each
+                # pulled from its agent's slot, so set_actions lines rows up with the
+                # agents Unity is asking about regardless of the id layout.
+                dec_ids = self.decision_ids[key]
+                if len(dec_ids) > 0:
+                    dec_actions = np.stack(
+                        [env_actions[slot_map[aid]] for aid in dec_ids], axis=0
+                    )
+                    action_tuple = self._create_action_tuple(dec_actions, env_idx)
+                    env.set_actions(bname, action_tuple)
+                self.decision_ids[key] = []
             env.step()
 
         obs_len = len(self.observation_shapes)
         observations, rewards, terminated, truncated, final_observations = self.init_transitions(obs_len)
-        # Collect results from all environments
+        restarted_groups = []
+        # Collect results from every (env, behavior) group.
         for env_idx, env in enumerate(self.envs):
-            decision_steps, terminal_steps = env.get_steps(self.behavior_names[env_idx])
-            id_to_slot = self.agent_id_to_slot[env_idx]
-            # Record who requested a decision (Unity order) for the next step's
-            # set_actions, before the empty-step early-out below.
-            self.decision_ids[env_idx] = [int(a) for a in decision_steps.agent_id]
-            if len(decision_steps.agent_id) == 0 and len(terminal_steps.agent_id) == 0:
-                # Nothing this step: between-decision (action-repeat) gap with no
-                # terminations. Only skip when BOTH are empty.
-                continue
-            # Do NOT skip when only decision_steps is empty: an agent can land in
-            # terminal_steps on a step where no agent has a decision (it terminates
-            # during an action-repeat gap). Skipping here silently drops that
-            # termination -> missed episode boundary -> merged/over-long episodes.
-            # With an empty decision set, common/decision_only below collapse to
-            # empty and terminal_only captures every terminal agent, so fall through.
+            for bname in self.behaviors_by_env[env_idx]:
+                key = (env_idx, bname)
+                slot_map = self.slot_maps[key]
+                offset = self.offsets[key]
+                decision_steps, terminal_steps = env.get_steps(bname)
+                step_slot_map, restarted_group_ids = self._resolve_step_slots(
+                    key, decision_steps, terminal_steps
+                )
+                restarted_groups.extend(
+                    (env_idx, bname, group_id) for group_id in restarted_group_ids
+                )
+                # Record who requested a decision (Unity order) for the next step's
+                # set_actions, before the empty-step early-out below.
+                self.decision_ids[key] = [int(a) for a in decision_steps.agent_id]
+                if len(decision_steps.agent_id) == 0 and len(terminal_steps.agent_id) == 0:
+                    # Nothing this step: between-decision (action-repeat) gap with no
+                    # terminations. Only skip when BOTH are empty.
+                    continue
+                # Do NOT skip when only decision_steps is empty: an agent can land in
+                # terminal_steps on a step where no agent has a decision (it terminates
+                # during an action-repeat gap). Skipping here silently drops that
+                # termination -> missed episode boundary -> merged/over-long episodes.
+                # With an empty decision set, common/decision_only below collapse to
+                # empty and terminal_only captures every terminal agent, so fall through.
 
-            # Get agent IDs and mapping from agent_id to local index
-            decision_agent_id_to_local = {agent_id: idx for idx, agent_id in enumerate(decision_steps.agent_id)}
-            terminal_agent_id_to_local = {agent_id: idx for idx, agent_id in enumerate(terminal_steps.agent_id)}
+                # Merge by stable slot, not raw agent ID. On a DungeonEscape
+                # reset the old terminal ID and new decision ID can differ while
+                # referring to the same physical slot.
+                decision_by_slot = {
+                    step_slot_map[int(agent_id)]: idx
+                    for idx, agent_id in enumerate(decision_steps.agent_id)
+                }
+                terminal_by_slot = {
+                    step_slot_map[int(agent_id)]: idx
+                    for idx, agent_id in enumerate(terminal_steps.agent_id)
+                }
+                dec_obs = decision_steps.obs
+                term_obs = terminal_steps.obs
+                for slot in set(decision_by_slot) | set(terminal_by_slot):
+                    global_idx = offset + slot
+                    dec_local_idx = decision_by_slot.get(slot)
+                    term_local_idx = terminal_by_slot.get(slot)
+                    if dec_local_idx is not None:
+                        for i in range(obs_len):
+                            observations[i][global_idx] = dec_obs[i][dec_local_idx]
+                    if term_local_idx is None:
+                        rewards[global_idx] = float(
+                            decision_steps.reward[dec_local_idx]
+                            + decision_steps.group_reward[dec_local_idx]
+                        )
+                        terminated[global_idx] = False
+                        truncated[global_idx] = False
+                        continue
 
-            # Agents present in both decision and terminal steps
-            common_agent_ids = set(decision_steps.agent_id).intersection(terminal_steps.agent_id)
-
-            # Agents only in decision steps
-            decision_only_agent_ids = set(decision_steps.agent_id) - common_agent_ids
-
-            # Agents only in terminal steps
-            terminal_only_agent_ids = set(terminal_steps.agent_id) - common_agent_ids
-
-            # Handle agents present in both decision and terminal steps
-            dec_obs = decision_steps.obs
-            term_obs = terminal_steps.obs
-            for agent_id in common_agent_ids:
-                dec_local_idx = decision_agent_id_to_local[agent_id]
-                term_local_idx = terminal_agent_id_to_local[agent_id]
-                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
-                # Aggregate observations
-                for i in range(obs_len):
-                    final_observations[i][global_idx] = term_obs[i][term_local_idx]
-                    observations[i][global_idx] = dec_obs[i][dec_local_idx]
-
-                rewards[global_idx] = float(terminal_steps.reward[term_local_idx])
-                if terminal_steps.interrupted[term_local_idx]:
-                    truncated[global_idx] = True  # Adjust if necessary
-                    terminated[global_idx] = False
-                else:
-                    terminated[global_idx] = True
-                    truncated[global_idx] = False
-
-            # Handle agents only in decision steps
-            for agent_id in decision_only_agent_ids:
-                dec_local_idx = decision_agent_id_to_local[agent_id]
-                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
-                for i in range(obs_len):
-                    observations[i][global_idx] = dec_obs[i][dec_local_idx]
-                rewards[global_idx] = float(decision_steps.reward[dec_local_idx])
-                terminated[global_idx] = False
-                truncated[global_idx] = False
-
-            # Handle agents only in terminal steps
-            for agent_id in terminal_only_agent_ids:
-                term_local_idx = terminal_agent_id_to_local[agent_id]
-                global_idx = self.from_local_to_global[env_idx][id_to_slot[int(agent_id)]]
-                for i in range(obs_len):
-                    observations[i][global_idx] = term_obs[i][term_local_idx]
-                rewards[global_idx] = float(terminal_steps.reward[term_local_idx])
-                if terminal_steps.interrupted[term_local_idx]:
-                    truncated[global_idx] = True  # Adjust if necessary
-                    terminated[global_idx] = False
-                else:
-                    terminated[global_idx] = True
-                    truncated[global_idx] = False
+                    if dec_local_idx is not None:
+                        for i in range(obs_len):
+                            final_observations[i][global_idx] = term_obs[i][term_local_idx]
+                    else:
+                        # No next-episode decision observation yet; retain the
+                        # existing terminal-only contract used by the collector.
+                        for i in range(obs_len):
+                            observations[i][global_idx] = term_obs[i][term_local_idx]
+                    rewards[global_idx] = float(
+                        terminal_steps.reward[term_local_idx]
+                        + terminal_steps.group_reward[term_local_idx]
+                    )
+                    if terminal_steps.interrupted[term_local_idx]:
+                        truncated[global_idx] = True  # Adjust if necessary
+                        terminated[global_idx] = False
+                    else:
+                        terminated[global_idx] = True
+                        truncated[global_idx] = False
 
         info = {}
         info['final_observation'] = final_observations
+        info['restarted_groups'] = restarted_groups
 
         return observations, rewards, terminated, truncated, info
 

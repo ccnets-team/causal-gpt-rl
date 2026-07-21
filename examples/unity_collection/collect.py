@@ -40,7 +40,79 @@ def main():
     ap.add_argument("--out", required=True, help="Output dir for raw episode .npz files.")
     ap.add_argument("--env-id", default="crawler")
     ap.add_argument("--target", type=int, default=1_000_000, help="Transitions to collect.")
+    ap.add_argument(
+        "--complete-matches",
+        action="store_true",
+        help=(
+            "After reaching --target, finish each field's in-flight match and "
+            "discard later matches instead of truncating at the transition cutoff."
+        ),
+    )
+
+
+def _assign_field_ids(agent_context):
+    """Return copied agent contexts annotated with stable per-env field IDs.
+
+    Soccer exposes one behavior/group per team, so equal-sized sorted group
+    lists are paired across the two teams. Cooperative/single-team scenes use
+    one field per group. The returned sizes/members let the collector determine
+    when every agent trajectory belonging to a match has finished.
+    """
+    contexts = [dict(item) for item in agent_context]
+    field_by_group = {}
+    contexts_by_env = {}
+    for context in contexts:
+        contexts_by_env.setdefault(context["env_index"], []).append(context)
+
+    for env_index, env_contexts in contexts_by_env.items():
+        teams = sorted({context["team_id"] for context in env_contexts})
+        groups_by_team = {
+            team: sorted(
+                {
+                    context["group_id"]
+                    for context in env_contexts
+                    if context["team_id"] == team
+                }
+            )
+            for team in teams
+        }
+        if (
+            len(teams) == 2
+            and len(groups_by_team[teams[0]]) == len(groups_by_team[teams[1]])
+        ):
+            paired_groups = zip(
+                groups_by_team[teams[0]], groups_by_team[teams[1]]
+            )
+            for field_id, group_pair in enumerate(paired_groups):
+                for group_id in group_pair:
+                    field_by_group[(env_index, group_id)] = field_id
+        else:
+            all_groups = sorted({context["group_id"] for context in env_contexts})
+            for field_id, group_id in enumerate(all_groups):
+                field_by_group[(env_index, group_id)] = field_id
+
+    field_sizes = {}
+    field_members = {}
+    for global_index, context in enumerate(contexts):
+        context["field_id"] = field_by_group[
+            (context["env_index"], context["group_id"])
+        ]
+        key = (context["env_index"], context["field_id"])
+        field_sizes[key] = field_sizes.get(key, 0) + 1
+        field_members.setdefault(key, []).append(global_index)
+    return contexts, field_sizes, field_members
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue from complete episodes already present in --out after an interrupted run.",
+    )
     ap.add_argument("--time-scale", type=float, default=20.0)
+    ap.add_argument(
+        "--worker-id",
+        type=int,
+        default=100,
+        help="ML-Agents worker id; choose another value when its TCP port is in use.",
+    )
     ap.add_argument(
         "--num-envs",
         type=int,
@@ -63,18 +135,33 @@ def main():
     ap.add_argument("--epsilon", type=float, default=0.0,
                     help="Per-agent probability of a uniform-random action. 1.0 = random policy.")
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
+    ap.add_argument("--policy-id", default="stock", help="Identity of the recorded policy for episode metadata.")
+    ap.add_argument("--opponent-policy-id", default="stock", help="Identity of the opponent policy for episode metadata.")
     args = ap.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    existing_episode_files = sorted(out_dir.glob("ep_*.npz"))
+    if existing_episode_files and not args.resume:
+        raise FileExistsError(
+            f"{out_dir} already contains {len(existing_episode_files)} episodes; "
+            "pass --resume or choose a new --out directory"
+        )
 
     UnityEnv.register(args.env_id, None, args.build)
     if args.num_envs > 1:
         # Each instance launches the exe (headless) with its own agents; the
         # wrapper aggregates them into one global agent index range.
-        env = UnityEnv.make_vec(args.env_id, args.num_envs, time_scale=args.time_scale)
+        env = UnityEnv.make_vec(
+            args.env_id, args.num_envs, time_scale=args.time_scale, worker_id=args.worker_id
+        )
     else:
-        env = UnityEnv.make(args.env_id, time_scale=args.time_scale, use_graphics=args.graphics)
+        env = UnityEnv.make(
+            args.env_id,
+            time_scale=args.time_scale,
+            use_graphics=args.graphics,
+            worker_id=args.worker_id,
+        )
     n = env.num_agents
     print(f"[env] instances={args.num_envs}")
     n_ch = len(env.observation_shapes)
@@ -84,6 +171,13 @@ def main():
         f"[env] agents={n} obs_channels={obs_dims} -> obs_dim={sum(obs_dims)} "
         f"cont={action_spec.continuous_size} disc_branches={tuple(action_spec.discrete_branches)}"
     )
+
+    # Build a stable field mapping from the two Soccer team behaviors. Each
+    # ML-Agents SimpleMultiAgentGroup supplies a group_id; Soccer creates one
+    # two-player group per team per field. Pair the sorted team groups to recover
+    # the shared field without relying on raw agent IDs.
+    agent_context, field_sizes, field_members = _assign_field_ids(env.agent_context)
+    print(f"[env] fields={len(field_sizes)} agents_per_field={sorted(set(field_sizes.values()))}")
 
     policy = OnnxPolicy(
         args.onnx, num_agents=n, obs_shapes=env.observation_shapes, action_spec=action_spec
@@ -141,12 +235,36 @@ def main():
     ep_count = 0
     total = 0
     probe_rows = []
+    field_episode_counts = {key: 0 for key in field_sizes}
+    manifest_path = out_dir / "episode_metadata.jsonl"
+    if args.resume:
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"cannot resume without {manifest_path}")
+        previous_rows = [
+            json.loads(line)
+            for line in manifest_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if len(previous_rows) != len(existing_episode_files):
+            raise RuntimeError(
+                "resume refused: episode file/manifest count mismatch "
+                f"({len(existing_episode_files)} files vs {len(previous_rows)} rows)"
+            )
+        if previous_rows:
+            ep_count = max(int(row["episode_index"]) for row in previous_rows) + 1
+            total = sum(int(row["transition_count"]) for row in previous_rows)
+            for row in previous_rows:
+                field_key = (int(row["env_index"]), int(row["field_id"]))
+                field_episode_counts[field_key] += 1
+        print(f"[resume] transitions={total} episodes={ep_count}")
+    else:
+        manifest_path.write_text("", encoding="utf-8")
 
     def flush(g, terminated, truncated):
         nonlocal ep_count
         T = len(buf_act[g])
         if T == 0:
-            return
+            return False
         obs_arr = np.stack(buf_obs[g], axis=0).astype(np.float32)  # [T+1, obs_dim]
         assert obs_arr.shape[0] == T + 1, (obs_arr.shape, T)
         if policy.kind == "discrete":
@@ -166,11 +284,40 @@ def main():
             terminations=term,
             truncations=trunc,
         )
+        context = agent_context[g]
+        field_key = (context["env_index"], context["field_id"])
+        match_index = field_episode_counts[field_key] // field_sizes[field_key]
+        episode_return = float(rew_arr.sum())
+        result = "win" if episode_return > 0 else "loss" if episode_return < 0 else "draw"
+        metadata = {
+            "episode_file": f"ep_{ep_count:06d}.npz",
+            "episode_index": ep_count,
+            "transition_count": T,
+            "return": episode_return,
+            "terminated": bool(terminated),
+            "truncated": bool(truncated),
+            "match_id": (
+                f"env{context['env_index']}-field{context['field_id']}-match{match_index}"
+            ),
+            "field_id": context["field_id"],
+            "env_index": context["env_index"],
+            "behavior_name": context["behavior_name"],
+            "team_id": context["team_id"],
+            "group_id": context["group_id"],
+            "agent_id": context["agent_id"],
+            "policy_id": args.policy_id,
+            "opponent_policy_id": args.opponent_policy_id,
+            "match_result": result,
+        }
+        with manifest_path.open("a", encoding="utf-8") as manifest:
+            manifest.write(json.dumps(metadata, sort_keys=True) + "\n")
         if args.probe:
             probe_rows.append(
                 (ep_count, T, float(rew_arr.sum()), float(rew_arr[-1]), bool(terminated), bool(truncated))
             )
         ep_count += 1
+        field_episode_counts[field_key] += 1
+        return True
 
     observations, _ = env.reset()
     for g in range(n):
@@ -179,12 +326,21 @@ def main():
 
     next_report = 20_000
     t0 = time.time()  # after reset: excludes build launch/handshake overhead
-    while total < args.target:
+    pending_fields = None
+    retired_fields = set()
+    while total < args.target or (pending_fields is not None and pending_fields):
         actions = policy.act(observations)
         next_obs, rewards, terminated, truncated, info = env.step(actions)
         final = info["final_observation"]
 
+        flushed_fields = set()
+
         for g in range(n):
+            context = agent_context[g]
+            field_key = (context["env_index"], context["field_id"])
+            if field_key in retired_fields:
+                reset_agent(g)
+                continue
             if rewards[g] is None:
                 continue  # agent absent this step (mid decision-period / desynced)
 
@@ -214,13 +370,42 @@ def main():
                     # returned obs, and there is no new-episode obs yet.
                     buf_obs[g].append(_concat_obs(next_obs, g, n_ch))
                     new_seed = None
-                flush(g, bool(terminated[g]), bool(truncated[g]))
+                if flush(g, bool(terminated[g]), bool(truncated[g])):
+                    flushed_fields.add(field_key)
                 if new_seed is not None:
                     seed(new_seed, g)
                 else:
                     reset_agent(g)
             else:
                 buf_obs[g].append(_concat_obs(next_obs, g, n_ch))
+
+        ended_fields = {
+            field_key
+            for field_key in flushed_fields
+            if field_episode_counts[field_key] % field_sizes[field_key] == 0
+        }
+
+        if args.complete_matches and total >= args.target:
+            if pending_fields is None:
+                # A field that ended on the cutoff step has only a fresh seed
+                # and no in-flight transition, so it need not play another match.
+                pending_fields = {
+                    (agent_context[g]["env_index"], agent_context[g]["field_id"])
+                    for g in range(n)
+                    if active[g] and len(buf_act[g]) > 0
+                }
+                retired_fields = set(field_sizes) - pending_fields
+                print(
+                    f"[collect] target reached at {total}; finishing "
+                    f"{len(pending_fields)} in-flight fields"
+                )
+            completed_now = pending_fields & ended_fields
+            pending_fields -= completed_now
+            retired_fields |= completed_now
+            for g in range(n):
+                context = agent_context[g]
+                if (context["env_index"], context["field_id"]) in retired_fields:
+                    reset_agent(g)
 
         observations = next_obs
 
@@ -234,7 +419,7 @@ def main():
     # `total` (but not yet at a terminal/truncation boundary) are saved rather
     # than discarded at the target cutoff. Each active buffer holds the standard
     # invariant len(buf_obs) == len(buf_act) + 1, so flush() writes it directly.
-    if not args.probe:
+    if not args.probe and not args.complete_matches:
         for g in range(n):
             if active[g] and len(buf_act[g]) > 0:
                 flush(g, terminated=False, truncated=True)
