@@ -76,6 +76,17 @@ For private bundles, authenticate first:
 hf auth login
 ```
 
+To convert a delivered bundle (`config.json` + `model.safetensors`) into a
+self-contained ONNX policy:
+
+```bash
+pip install "causal-gpt-rl[onnx]"
+causal-gpt-rl-export-onnx --bundle ./bundle --out policy.onnx --batch-size 1
+```
+
+See [Export a delivered bundle to ONNX](docs/export-onnx.md) for fixed-batch
+multi-agent examples and the Python API.
+
 ## Quick Start
 
 ```python
