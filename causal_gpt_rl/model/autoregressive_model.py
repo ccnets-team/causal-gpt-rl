@@ -494,8 +494,24 @@ class AutoregressiveModel(nn.Module):
         if self._is_continuous:
             return self._sample_continuous(out, std_scale=std_scale)
         if self._is_discrete:
-            return self._sample_discrete(out)
+            return self._sample_discrete(out, std_scale=std_scale)
         return self._sample_hybrid(out, std_scale=std_scale)
+
+    @staticmethod
+    def _sample_categorical_onehot(logits: torch.Tensor, std_scale: float) -> torch.Tensor:
+        """Temperature-scaled categorical sample, returned one-hot.
+
+        `std_scale` is the sampling temperature. By the Gumbel-max identity,
+        dividing the logits by `std_scale` is equivalent to scaling the
+        sampling noise by `std_scale` (the discrete counterpart of the
+        continuous head's Gaussian-noise scaling). `std_scale == 0` is the
+        deterministic mode (argmax, no RNG draw).
+        """
+        if std_scale == 0.0:
+            sampled_idx = logits.argmax(dim=-1)
+        else:
+            sampled_idx = torch.distributions.Categorical(logits=logits / std_scale).sample()
+        return F.one_hot(sampled_idx, num_classes=logits.size(-1)).to(logits.dtype)
 
     def _sample_hybrid(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         """Per-head sampling for mixed continuous + categorical policies.
@@ -531,21 +547,19 @@ class AutoregressiveModel(nn.Module):
                 offset += width
             elif head_type == "multi_binary":
                 # Independent Bernoulli per element: sample {0,1} from the head
-                # logits (no one-hot — the n bits are independent). std_scale == 0
-                # collapses to the deterministic threshold (== prob 0.5), matching
-                # the runner's greedy decode, mirroring how continuous treats 0.
+                # logits (no one-hot — the n bits are independent). `std_scale`
+                # is the temperature; dividing the logits by std_scale scales the
+                # per-bit sampling noise, same as the categorical case above.
+                # std_scale == 0 is the deterministic threshold (logit > 0).
                 logits = out[i]
                 if std_scale == 0.0:
                     parts.append((logits > 0.0).to(logits.dtype))
                 else:
                     parts.append(
-                        torch.distributions.Bernoulli(logits=logits).sample().to(logits.dtype)
+                        torch.distributions.Bernoulli(logits=logits / std_scale).sample().to(logits.dtype)
                     )
             else:
-                logits = out[i]
-                sampled_idx = torch.distributions.Categorical(logits=logits).sample()
-                one_hot = F.one_hot(sampled_idx, num_classes=logits.size(-1)).to(logits.dtype)
-                parts.append(one_hot)
+                parts.append(self._sample_categorical_onehot(out[i], std_scale))
         return torch.cat(parts, dim=-1)
 
     def _sample_continuous(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
@@ -558,13 +572,10 @@ class AutoregressiveModel(nn.Module):
         bias = self._action_bias.to(dtype=squashed.dtype)
         return squashed * scale + bias
 
-    def _sample_discrete(self, out: list[torch.Tensor]) -> torch.Tensor:
+    def _sample_discrete(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         sampled_actions = []
         for idx in self.mean_action_indices:
-            logits = out[idx]
-            sampled_idx = torch.distributions.Categorical(logits=logits).sample()
-            one_hot = F.one_hot(sampled_idx, num_classes=logits.size(-1)).to(logits.dtype)
-            sampled_actions.append(one_hot)
+            sampled_actions.append(self._sample_categorical_onehot(out[idx], std_scale))
         return torch.cat(sampled_actions, dim=-1)
 
 
