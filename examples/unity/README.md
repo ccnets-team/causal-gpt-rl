@@ -122,3 +122,37 @@ and compare its agent/group returns with the dataset reference.
 
 Dataset collection and Minari packaging remain in
 [`examples/unity_collection`](../unity_collection/README.md).
+
+## SoccerTwos: decentralized adversarial evaluation
+
+SoccerTwos demonstrates the same shared decentralized policy in a competitive
+setting. One scene contains eight independent 2-vs-2 fields (32 agents total).
+The Causal policy controls both agents on one team, so its fixed ONNX batch is
+`8 fields * 2 controlled agents = 16`; the stock ML-Agents ONNX controls the
+other 16 agents. Both policies are evaluated before their actions are routed
+into the same Unity step.
+
+```bash
+python examples/unity/evaluate_matchup.py \
+    --build hf_unity/envs/SoccerTwos/UnityEnvironment.exe \
+    --causal-onnx hf_unity/model/soccer-twos/soccertwos-b16.onnx \
+    --stock-onnx hf_unity/envs/SoccerTwos.onnx \
+    --causal-team both \
+    --stock-baseline
+```
+
+`--causal-team both` runs Causal-team-0 vs stock-team-1 and then swaps sides.
+The evaluator reports W/D/L, win rate, controlled-agent return, team return, and
+a stock-vs-stock symmetry baseline. Batch rows remain independent temporal
+contexts: batching does not permit cross-agent attention or communication.
+
+The currently published SoccerTwos policy is an **approximately 50%-trained
+intermediate checkpoint** provided to complete and validate the public example.
+Its evaluation numbers are provisional and will be replaced after training.
+
+[`soccer_twos_hf.ipynb`](soccer_twos_hf.ipynb) is the worked download and
+side-swapped matchup tutorial. Its dataset representation is one ego-centric
+episode per agent, with `match_id`, `field_id`, `team_id`, and `group_id` kept in
+the collection manifest for match-level analysis. The shared model is trained
+over those decentralized agent episodes; it does not jointly attend across the
+four agents in a match.

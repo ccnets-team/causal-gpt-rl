@@ -33,23 +33,6 @@ def _concat_obs(observations, g, n_ch):
     )
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--build", required=True, help="Path to the Unity build (exe).")
-    ap.add_argument("--onnx", required=True, help="Path to the baked policy .onnx.")
-    ap.add_argument("--out", required=True, help="Output dir for raw episode .npz files.")
-    ap.add_argument("--env-id", default="crawler")
-    ap.add_argument("--target", type=int, default=1_000_000, help="Transitions to collect.")
-    ap.add_argument(
-        "--complete-matches",
-        action="store_true",
-        help=(
-            "After reaching --target, finish each field's in-flight match and "
-            "discard later matches instead of truncating at the transition cutoff."
-        ),
-    )
-
-
 def _assign_field_ids(agent_context):
     """Return copied agent contexts annotated with stable per-env field IDs.
 
@@ -101,6 +84,23 @@ def _assign_field_ids(agent_context):
         field_sizes[key] = field_sizes.get(key, 0) + 1
         field_members.setdefault(key, []).append(global_index)
     return contexts, field_sizes, field_members
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--build", required=True, help="Path to the Unity build (exe).")
+    ap.add_argument("--onnx", required=True, help="Path to the baked policy .onnx.")
+    ap.add_argument("--out", required=True, help="Output dir for raw episode .npz files.")
+    ap.add_argument("--env-id", default="crawler")
+    ap.add_argument("--target", type=int, default=1_000_000, help="Transitions to collect.")
+    ap.add_argument(
+        "--complete-matches",
+        action="store_true",
+        help=(
+            "After reaching --target, finish each field's in-flight match and "
+            "discard later matches instead of truncating at the transition cutoff."
+        ),
+    )
     ap.add_argument(
         "--resume",
         action="store_true",

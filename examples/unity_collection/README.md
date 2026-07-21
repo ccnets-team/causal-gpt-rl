@@ -71,6 +71,31 @@ python ../../collection/build_minari.py \
     --description "ML-Agents PushBlock, stock discrete ONNX policy (model-removed build)."
 ```
 
+For multi-agent matches, add `--complete-matches` so the transition target does
+not cut through an in-flight field. SoccerTwos has eight 2-vs-2 fields per build
+instance (32 agents):
+
+```bash
+python collect.py \
+    --build path/to/SoccerTwos/UnityEnvironment.exe \
+    --onnx path/to/SoccerTwos.onnx \
+    --out raw_soccer/ \
+    --target 1000000 \
+    --complete-matches \
+    --env-id soccer-twos
+python ../../collection/build_minari.py \
+    --raw raw_soccer/ \
+    --dataset-id unity/soccer-twos/expert-selfplay-v0 \
+    --description "ML-Agents SoccerTwos release-23 stock self-play trajectories."
+```
+
+The collector writes each ego-agent trajectory as one episode and writes match
+relationships (`match_id`, `field_id`, `team_id`, `group_id`) to the adjacent
+`manifest.jsonl`. The current source-agnostic Minari packager consumes the
+episode arrays, not that sidecar metadata; decentralized shared-policy training
+therefore sees independent per-agent episodes. Retain the manifest for W/D/L,
+team-return, provenance, and future group-aware processing.
+
 ## Observation & action spaces
 
 The Minari spaces are derived from the build's ML-Agents behavior spec, so a build
@@ -171,6 +196,7 @@ call per decision tick. A batch-1 model also works, but is invoked once per agen
 | `collect.py` | record per-episode transitions to `.npz` (`--noise-std` for tiers) |
 | `calibrate_noise.py` | measure return vs noise; pick `--noise-std` for a target tier |
 | `requirements-collect.txt` | collection env pins |
+| `../unity/evaluate_matchup.py` | side-swapped Causal-vs-stock team evaluation |
 
 Packaging (`.npz` → Minari) uses the source-agnostic
 [`collection/build_minari.py`](../../collection/build_minari.py).
