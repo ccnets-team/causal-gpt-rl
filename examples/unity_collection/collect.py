@@ -167,6 +167,55 @@ class TeamNoiseSchedule:
         )
 
 
+class GroupNoiseSchedule:
+    """Deterministic per-match epsilon for a single-team cooperative group.
+
+    DungeonEscape has no opposing team: every agent belongs to one cooperative
+    group (one field per group, `_assign_field_ids`' single-team branch), so
+    `TeamNoiseSchedule`'s two-team pairing does not apply. Here one shared pool
+    is sampled once per (env, field) per match, and every agent in that group
+    keeps the sampled strength for the whole group episode. The seed is derived
+    from group identity, so resuming after completed matches reproduces the same
+    schedule without replaying earlier RNG calls.
+    """
+
+    def __init__(self, contexts, values, seed, match_indices=None):
+        self.contexts = contexts
+        self.values = tuple(float(value) for value in values)
+        self.seed = int(seed)
+        self.match_indices = dict(match_indices or {})
+        self.current = {}
+        self._fields = sorted(
+            {(int(row["env_index"]), int(row["field_id"])) for row in contexts}
+        )
+        for field_key in self._fields:
+            self.start_match(field_key, self.match_indices.get(field_key, 0))
+
+    def _sample(self, field_key, match_index):
+        # SeedSequence is stable and independent of field traversal order; the
+        # keying mirrors TeamNoiseSchedule minus the team axis (single team).
+        rng = np.random.default_rng(
+            np.random.SeedSequence(
+                [self.seed, field_key[0], field_key[1], int(match_index)]
+            )
+        )
+        return float(self.values[int(rng.integers(len(self.values)))])
+
+    def start_match(self, field_key, match_index):
+        self.match_indices[field_key] = int(match_index)
+        self.current[field_key] = self._sample(field_key, match_index)
+
+    def epsilon_for_agent(self, global_index):
+        row = self.contexts[global_index]
+        return self.current[(int(row["env_index"]), int(row["field_id"]))]
+
+    def epsilon_vector(self):
+        return np.asarray(
+            [self.epsilon_for_agent(i) for i in range(len(self.contexts))],
+            dtype=np.float64,
+        )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", required=True, help="Path to the Unity build (exe).")
@@ -230,6 +279,15 @@ def main():
         "--team1-epsilon-values",
         help="Optional team-1 epsilon pool override (use with --team-epsilon-values).",
     )
+    ap.add_argument(
+        "--group-epsilon-values",
+        help=(
+            "Comma-separated epsilon pool sampled independently per cooperative "
+            "group and match; the group's agents share the sampled strength for a "
+            "whole group episode. For single-team scenes (DungeonEscape) with no "
+            "opposing team. Mutually exclusive with --team-epsilon-values."
+        ),
+    )
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
     ap.add_argument(
         "--dataset-quality",
@@ -243,11 +301,20 @@ def main():
     shared_team_values = _parse_epsilon_values(args.team_epsilon_values)
     team0_values = _parse_epsilon_values(args.team0_epsilon_values)
     team1_values = _parse_epsilon_values(args.team1_epsilon_values)
+    group_values = _parse_epsilon_values(args.group_epsilon_values)
     if (team0_values is not None or team1_values is not None) and shared_team_values is None:
         raise ValueError("team-specific epsilon overrides require --team-epsilon-values")
     if shared_team_values is not None and (args.epsilon != 0.0 or args.noise_std != 0.0):
         raise ValueError(
             "team epsilon scheduling cannot be combined with scalar --epsilon or --noise-std"
+        )
+    if group_values is not None and shared_team_values is not None:
+        raise ValueError(
+            "--group-epsilon-values and --team-epsilon-values are mutually exclusive"
+        )
+    if group_values is not None and (args.epsilon != 0.0 or args.noise_std != 0.0):
+        raise ValueError(
+            "group epsilon scheduling cannot be combined with scalar --epsilon or --noise-std"
         )
 
     out_dir = Path(args.out)
@@ -294,7 +361,8 @@ def main():
         args.onnx, num_agents=n, obs_shapes=env.observation_shapes, action_spec=action_spec
     )
     team_noise = shared_team_values is not None
-    noised = args.noise_std > 0.0 or args.epsilon > 0.0 or team_noise
+    group_noise = group_values is not None
+    noised = args.noise_std > 0.0 or args.epsilon > 0.0 or team_noise or group_noise
     if noised:
         policy = NoisyPolicy(
             policy, noise_std=args.noise_std, epsilon=args.epsilon,
@@ -305,6 +373,11 @@ def main():
                 "[noise] per-team match schedule "
                 f"shared={shared_team_values} team0={team0_values} "
                 f"team1={team1_values} seed={args.noise_seed}"
+            )
+        elif group_noise:
+            print(
+                "[noise] per-group match schedule "
+                f"group={group_values} seed={args.noise_seed}"
             )
         else:
             print(f"[noise] noise_std={args.noise_std} epsilon={args.epsilon} seed={args.noise_seed}")
@@ -328,6 +401,12 @@ def main():
                 "mode": "per_team_per_match",
                 "team0_epsilon_values": list(team0_values or shared_team_values),
                 "team1_epsilon_values": list(team1_values or shared_team_values),
+                "noise_seed": args.noise_seed,
+            }
+        elif group_noise:
+            spec_meta["noise"] = {
+                "mode": "per_group_per_match",
+                "group_epsilon_values": list(group_values),
                 "noise_seed": args.noise_seed,
             }
         else:
@@ -411,6 +490,23 @@ def main():
         )
         policy.set_epsilon_by_agent(team_noise_schedule.epsilon_vector())
 
+    group_noise_schedule = None
+    if group_noise:
+        group_noise_schedule = GroupNoiseSchedule(
+            agent_context,
+            group_values,
+            args.noise_seed,
+            {
+                field_key: field_episode_counts[field_key] // field_sizes[field_key]
+                for field_key in field_sizes
+            },
+        )
+        policy.set_epsilon_by_agent(group_noise_schedule.epsilon_vector())
+
+    # One of the two schedules (if any) drives per-match epsilon resampling; both
+    # expose start_match()/epsilon_vector().
+    active_schedule = team_noise_schedule or group_noise_schedule
+
     def flush(g, terminated, truncated):
         nonlocal ep_count
         T = len(buf_act[g])
@@ -467,6 +563,13 @@ def main():
                 {
                     "team_epsilon": team_noise_schedule.epsilon_for_agent(g),
                     "opponent_epsilon": team_noise_schedule.opponent_epsilon_for_agent(g),
+                    "noise_seed": args.noise_seed,
+                }
+            )
+        if group_noise_schedule is not None:
+            metadata.update(
+                {
+                    "group_epsilon": group_noise_schedule.epsilon_for_agent(g),
                     "noise_seed": args.noise_seed,
                 }
             )
@@ -546,14 +649,14 @@ def main():
             if field_episode_counts[field_key] % field_sizes[field_key] == 0
         }
 
-        if team_noise_schedule is not None:
+        if active_schedule is not None:
             for field_key in ended_fields:
-                team_noise_schedule.start_match(
+                active_schedule.start_match(
                     field_key,
                     field_episode_counts[field_key] // field_sizes[field_key],
                 )
             if ended_fields:
-                policy.set_epsilon_by_agent(team_noise_schedule.epsilon_vector())
+                policy.set_epsilon_by_agent(active_schedule.epsilon_vector())
 
         if args.complete_matches and total >= args.target:
             if pending_fields is None:
