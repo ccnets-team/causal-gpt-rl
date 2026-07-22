@@ -146,9 +146,11 @@ The evaluator reports W/D/L, win rate, controlled-agent return, team return, and
 a stock-vs-stock symmetry baseline. Batch rows remain independent temporal
 contexts: batching does not permit cross-agent attention or communication.
 
-The currently published SoccerTwos policy is an **approximately 50%-trained
-intermediate checkpoint** provided to complete and validate the public example.
-Its evaluation numbers are provisional and will be replaced after training.
+The published SoccerTwos policy is the completed training-run checkpoint. In a
+five-seed smoke evaluation (80 side-swapped match episodes) it won 15 and lost
+65 against the stock release-23 policy: **18.75% win rate**. This is a small
+closed-loop comparison, not a statistically complete benchmark; use more seeds
+and report the exact opponent and build when comparing replacements.
 
 [`soccer_twos_hf.ipynb`](soccer_twos_hf.ipynb) is the worked download and
 side-swapped matchup tutorial. Its dataset representation is one ego-centric
