@@ -177,6 +177,16 @@ def export_onnx(
         raise ValueError("attention must be 'eager' or 'sdpa'")
     onnx = _require_onnx()
 
+    # torch.onnx's Dynamo exporter prints Unicode strategy markers. Windows
+    # consoles commonly default to cp949/cp1252, where printing those markers
+    # raises UnicodeEncodeError before the exporter can try its fallback
+    # strategies. Make the public Python API as reliable as the CLI.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
     bundle_path = Path(bundle_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
