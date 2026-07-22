@@ -151,26 +151,26 @@ rollout retains) *is* a load-time knob; the main table caps it to `Ctx` (1×).
 Sweeping it to 0.5×, 1×, and 2× the window, with the same protocol (50 episodes,
 seeds `0..49`, `max_steps=1000`):
 
-| Env | `kv=16` (0.5×) | `kv=32` (1×) | `kv=64` (2×) |
-|---|---:|---:|---:|
-| `Ant-v5` | 5163.35±1608.02 | 5262.53±1400.17 | 4516.35±1773.93 |
-| `HalfCheetah-v5` | 6793.17±2939.17 | 6816.48±3135.53 | 6468.21±3234.51 |
-| `Hopper-v5` | 3361.71±103.69 | 2713.66±1075.57 | 992.92±445.63 |
-| `Walker2d-v5` | 3950.09±459.01 | 3899.88±706.57 | 3842.19±718.60 |
-| `Humanoid-v5` | 7431.52±2024.95 | 7892.65±1018.11 | 8040.41±38.02 |
+| Env | `kv=16` (0.5×) | `kv=32` (1×) | `kv=64` (2×) | Trend |
+|---|---:|---:|---:|---|
+| `Ant-v5` | 5163.35±1608.02 | 5262.53±1400.17 | 4516.35±1773.93 | ≈, -14% at 2× |
+| `HalfCheetah-v5` | 6793.17±2939.17 | 6816.48±3135.53 | 6468.21±3234.51 | ≈ flat |
+| `Hopper-v5` | 3361.71±103.69 | 2713.66±1075.57 | 992.92±445.63 | shorter ↑, 2× collapses |
+| `Walker2d-v5` | 3950.09±459.01 | 3899.88±706.57 | 3842.19±718.60 | ≈ flat |
+| `Humanoid-v5` | 7431.52±2024.95 | 7892.65±1018.11 | 8040.41±38.02 | longer ↑, steadiest |
 
 The `kv=32` column matches the main table. At `kv=64` the rollout attends over
 more history than the model's 32-token window — positions outside its native
 range. This stays within the backbone's position capacity (Llama/RoPE,
 `max_position_embeddings=256`), so it is an extrapolation regime, not a hard cap.
 
-Best retention is **environment-dependent**. `Hopper-v5` prefers a shorter window
-(0.5× is +24% with much lower variance; 2× collapses to roughly a third of return,
-episodes ending early), while `Humanoid-v5` is best at 2× (highest return and its
-steadiest — std 38 across all 50 episodes). `Ant-v5` and `HalfCheetah-v5` peak at
-1× and lose ground by 2×; `Walker2d-v5` is nearly flat. The context window (1×) is
-a safe default; retaining well past it can help or hurt depending on the
-environment.
+Best retention is **environment-dependent**, but for most envs the difference
+across 0.5×/1×/2× is within run-to-run noise (`Trend` marks these `≈`). The real
+exceptions: `Hopper-v5` clearly prefers a shorter window (0.5× is +24% with much
+lower variance; 2× collapses to roughly a third of return, episodes ending early),
+while `Humanoid-v5` is best at 2× (highest return and its steadiest — std 38
+across all 50 episodes). The context window (1×) is a safe default; deviating from
+it helps only in specific environments.
 
 Evaluation runtime — every row above is measured on this one:
 
