@@ -93,7 +93,7 @@ return zero before teammates complete the task, so individual zero return is not
 equivalent to group failure. Group success is `any(agent_return > 0)` for the
 three linked episodes.
 
-For the published dataset `unity/dungeon-escape/expert-poca-v0`:
+For the published dataset `unity/dungeon-escape/expert-v0`:
 
 - 35,787 agent episodes and 1,003,523 transitions
 - mean agent return: 0.606589

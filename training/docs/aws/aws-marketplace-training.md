@@ -61,8 +61,8 @@ At the start of a training job, the log prints a validation summary so users can
 
 ```text
 Dataset validation: PASSED
-Dataset IDs: unity/soccer-twos/expert-selfplay-v0
-Dataset variants: expert-selfplay-v0
+Dataset IDs: unity/soccer-twos/expert-v0
+Dataset variants: expert-v0
 Datasets: 1
 Episodes: 1,024
 Transitions: 245,760

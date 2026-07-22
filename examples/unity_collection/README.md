@@ -85,7 +85,7 @@ python collect.py \
     --env-id soccer-twos
 python ../../collection/build_minari.py \
     --raw raw_soccer/ \
-    --dataset-id unity/soccer-twos/expert-selfplay-v0 \
+    --dataset-id unity/soccer-twos/expert-v0 \
     --description "ML-Agents SoccerTwos release-23 stock self-play trajectories."
 ```
 
