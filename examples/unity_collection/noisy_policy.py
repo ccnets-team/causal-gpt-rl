@@ -42,7 +42,33 @@ class NoisyPolicy:
         self._policy = policy
         self.noise_std = float(noise_std)
         self.epsilon = float(epsilon)
+        self._epsilon_by_agent = None
         self._rng = rng if rng is not None else np.random.default_rng()
+
+    def set_epsilon_by_agent(self, values):
+        """Override scalar epsilon with one value per policy batch row.
+
+        This is used by adversarial multi-agent collectors such as SoccerTwos,
+        where each team keeps one sampled skill/noise level for a complete
+        match. Passing ``None`` restores the scalar ``epsilon`` behavior.
+        """
+        if values is None:
+            self._epsilon_by_agent = None
+            return
+        values = np.asarray(values, dtype=np.float64).reshape(-1)
+        if np.any((values < 0.0) | (values > 1.0)):
+            raise ValueError("per-agent epsilon values must be in [0, 1].")
+        self._epsilon_by_agent = values.copy()
+
+    def _epsilon_for(self, agent_index):
+        if self._epsilon_by_agent is None:
+            return self.epsilon
+        if agent_index >= len(self._epsilon_by_agent):
+            raise ValueError(
+                "per-agent epsilon length does not cover policy batch row "
+                f"{agent_index}"
+            )
+        return float(self._epsilon_by_agent[agent_index])
 
     # Passthrough spec so build_minari.py sees the same action space either way.
     @property
@@ -67,8 +93,9 @@ class NoisyPolicy:
         if self.kind == "continuous":
             if self.noise_std > 0.0:
                 a[rows] += self._rng.normal(0.0, self.noise_std, size=a[rows].shape)
-            if self.epsilon > 0.0:
-                swap = rows[self._rng.random(len(rows)) < self.epsilon]
+            eps = np.asarray([self._epsilon_for(g) for g in rows])
+            if np.any(eps > 0.0):
+                swap = rows[self._rng.random(len(rows)) < eps]
                 if swap.size:
                     a[swap] = self._rng.uniform(_LO, _HI, size=(swap.size, a.shape[1]))
             a[rows] = np.clip(a[rows], _LO, _HI)
@@ -80,17 +107,20 @@ class NoisyPolicy:
             cont = self.act_dim - len(self.branches)
             if self.noise_std > 0.0:
                 a[rows, :cont] += self._rng.normal(0.0, self.noise_std, size=(len(rows), cont))
-            if self.epsilon > 0.0:
-                swap = rows[self._rng.random(len(rows)) < self.epsilon]
+            eps = np.asarray([self._epsilon_for(g) for g in rows])
+            if np.any(eps > 0.0):
+                swap = rows[self._rng.random(len(rows)) < eps]
                 if swap.size:
                     a[swap, :cont] = self._rng.uniform(_LO, _HI, size=(swap.size, cont))
                     for j, size in enumerate(self.branches):
                         a[swap, cont + j] = self._rng.integers(size, size=swap.size)
             a[rows, :cont] = np.clip(a[rows, :cont], _LO, _HI)
         else:  # discrete: Gaussian is meaningless; epsilon resamples branches
-            if self.epsilon > 0.0:
-                for g in present:
-                    for b, size in enumerate(self.branches):
-                        if self._rng.random() < self.epsilon:
-                            a[g, b] = self._rng.integers(size)
+            for g in present:
+                epsilon = self._epsilon_for(g)
+                if epsilon <= 0.0:
+                    continue
+                for b, size in enumerate(self.branches):
+                    if self._rng.random() < epsilon:
+                        a[g, b] = self._rng.integers(size)
         return a

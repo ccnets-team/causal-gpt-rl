@@ -110,7 +110,16 @@ def main():
     ap.add_argument("--author", default=None)
     ap.add_argument("--author-email", default=None)
     ap.add_argument("--description", default="Recorded episodes packaged as an env-less Minari dataset.")
+    ap.add_argument(
+        "--batch-episodes",
+        type=int,
+        default=1000,
+        help="Episodes appended per HDF5 write (bounds memory for many short episodes).",
+    )
     args = ap.parse_args()
+
+    if args.batch_episodes < 1:
+        raise SystemExit("--batch-episodes must be at least 1")
 
     files = sorted(Path(args.raw).glob("ep_*.npz"))
     if not files:
@@ -134,7 +143,28 @@ def main():
     action_space = _build_action_space(action_kind, spec, first)
 
     buffers = []
+    ds = None
     total = 0
+
+    def flush():
+        nonlocal buffers, ds
+        if not buffers:
+            return
+        if ds is None:
+            ds = create_dataset_from_buffers(
+                dataset_id=args.dataset_id,
+                buffer=buffers,
+                env=None,
+                observation_space=observation_space,
+                action_space=action_space,
+                author=args.author,
+                author_email=args.author_email,
+                description=args.description,
+            )
+        else:
+            ds.update_dataset_from_buffer(buffers)
+        buffers = []
+
     for i, f in enumerate(files):
         d = np.load(f)
         obs = _split_obs(d["observations"].astype(np.float32), obs_channels)
@@ -156,23 +186,17 @@ def main():
             )
         )
         total += T
+        if len(buffers) >= args.batch_episodes:
+            flush()
 
     print(
-        f"[build] episodes={len(buffers)} transitions={total} "
+        f"[build] episodes={len(files)} transitions={total} "
         f"obs_channels={obs_channels} observation_space={observation_space} "
         f"action_space={action_space}"
     )
 
-    ds = create_dataset_from_buffers(
-        dataset_id=args.dataset_id,
-        buffer=buffers,
-        env=None,
-        observation_space=observation_space,
-        action_space=action_space,
-        author=args.author,
-        author_email=args.author_email,
-        description=args.description,
-    )
+    flush()
+    assert ds is not None
     print(f"[done] created Minari dataset '{args.dataset_id}' ({ds.total_episodes} episodes)")
 
 

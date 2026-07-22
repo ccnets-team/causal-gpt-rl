@@ -71,6 +71,61 @@ def test_soccer_groups_are_paired_into_four_player_fields(monkeypatch):
     assert all("field_id" not in row for row in contexts)  # inputs are not mutated
 
 
+def test_soccer_team_noise_is_shared_by_teammates_and_reproducible(monkeypatch):
+    _install_collection_stubs(monkeypatch)
+    collect = _load_module("unity_collect_noise_test", UNITY_DIR / "collect.py")
+    contexts = [
+        {
+            "env_index": 0,
+            "field_id": 0,
+            "team_id": team,
+            "group_id": team + 1,
+            "agent_id": agent,
+        }
+        for team, agents in ((0, (10, 11)), (1, (20, 21)))
+        for agent in agents
+    ]
+    schedule = collect.TeamNoiseSchedule(
+        contexts, {0: (0.02, 0.05), 1: (0.2, 0.4)}, seed=123
+    )
+
+    first = schedule.epsilon_vector()
+    assert first[0] == first[1]
+    assert first[2] == first[3]
+    assert first[0] in (0.02, 0.05)
+    assert first[2] in (0.2, 0.4)
+    assert schedule.opponent_epsilon_for_agent(0) == first[2]
+
+    schedule.start_match((0, 0), 7)
+    resumed = collect.TeamNoiseSchedule(
+        contexts,
+        {0: (0.02, 0.05), 1: (0.2, 0.4)},
+        seed=123,
+        match_indices={(0, 0): 7},
+    )
+    np.testing.assert_array_equal(schedule.epsilon_vector(), resumed.epsilon_vector())
+
+
+def test_noisy_policy_accepts_per_agent_discrete_epsilon():
+    noisy_policy = _load_module("unity_noisy_policy_test", UNITY_DIR / "noisy_policy.py")
+
+    class BasePolicy:
+        kind = "discrete"
+        branches = (3, 3, 3)
+        act_dim = 3
+
+        def act(self, observations):
+            return np.zeros((2, 3), dtype=np.float32)
+
+    policy = noisy_policy.NoisyPolicy(BasePolicy(), rng=np.random.default_rng(5))
+    policy.set_epsilon_by_agent([0.0, 1.0])
+    observations = [np.ones((2, 1), dtype=np.float32)]
+    actions = policy.act(observations)
+
+    np.testing.assert_array_equal(actions[0], np.zeros(3))
+    assert np.all((actions[1] >= 0) & (actions[1] < 3))
+
+
 class _Steps:
     def __init__(self, agent_ids, group_ids):
         self.agent_id = np.asarray(agent_ids, dtype=np.int64)

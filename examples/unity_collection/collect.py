@@ -86,6 +86,87 @@ def _assign_field_ids(agent_context):
     return contexts, field_sizes, field_members
 
 
+def _parse_epsilon_values(text):
+    if text is None:
+        return None
+    values = tuple(float(item.strip()) for item in text.split(",") if item.strip())
+    if not values:
+        raise ValueError("team epsilon list must contain at least one value")
+    if any(value < 0.0 or value > 1.0 for value in values):
+        raise ValueError("team epsilon values must be in [0, 1]")
+    return values
+
+
+class TeamNoiseSchedule:
+    """Deterministic per-match, per-team epsilon assignment.
+
+    The sampled strength is shared by teammates for a whole match. The seed is
+    derived from match identity, so resuming after completed matches reproduces
+    the same schedule without replaying earlier RNG calls.
+    """
+
+    def __init__(self, contexts, values_by_team, seed, match_indices=None):
+        self.contexts = contexts
+        self.values_by_team = {
+            int(team): tuple(float(value) for value in values)
+            for team, values in values_by_team.items()
+        }
+        self.seed = int(seed)
+        self.match_indices = dict(match_indices or {})
+        self.current = {}
+        self._fields = sorted(
+            {(int(row["env_index"]), int(row["field_id"])) for row in contexts}
+        )
+        for field_key in self._fields:
+            self.start_match(field_key, self.match_indices.get(field_key, 0))
+
+    def _sample(self, field_key, match_index, team_id):
+        values = self.values_by_team[team_id]
+        # SeedSequence is stable and independent of field traversal order.
+        rng = np.random.default_rng(
+            np.random.SeedSequence(
+                [self.seed, field_key[0], field_key[1], int(match_index), int(team_id)]
+            )
+        )
+        return float(values[int(rng.integers(len(values)))])
+
+    def start_match(self, field_key, match_index):
+        self.match_indices[field_key] = int(match_index)
+        teams = {
+            int(row["team_id"])
+            for row in self.contexts
+            if (int(row["env_index"]), int(row["field_id"])) == field_key
+        }
+        for team_id in teams:
+            if team_id not in self.values_by_team:
+                raise ValueError(f"missing epsilon pool for team {team_id}")
+            self.current[(field_key, team_id)] = self._sample(
+                field_key, match_index, team_id
+            )
+
+    def epsilon_for_agent(self, global_index):
+        row = self.contexts[global_index]
+        field_key = (int(row["env_index"]), int(row["field_id"]))
+        return self.current[(field_key, int(row["team_id"]))]
+
+    def opponent_epsilon_for_agent(self, global_index):
+        row = self.contexts[global_index]
+        field_key = (int(row["env_index"]), int(row["field_id"]))
+        team_id = int(row["team_id"])
+        opponents = [
+            value
+            for (candidate_field, candidate_team), value in self.current.items()
+            if candidate_field == field_key and candidate_team != team_id
+        ]
+        return opponents[0] if len(opponents) == 1 else None
+
+    def epsilon_vector(self):
+        return np.asarray(
+            [self.epsilon_for_agent(i) for i in range(len(self.contexts))],
+            dtype=np.float64,
+        )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", required=True, help="Path to the Unity build (exe).")
@@ -134,10 +215,40 @@ def main():
                     help="Gaussian action noise std (continuous). >0 degrades the policy.")
     ap.add_argument("--epsilon", type=float, default=0.0,
                     help="Per-agent probability of a uniform-random action. 1.0 = random policy.")
+    ap.add_argument(
+        "--team-epsilon-values",
+        help=(
+            "Comma-separated epsilon pool sampled independently per team and match. "
+            "SoccerTwos only; teammates share the sampled strength."
+        ),
+    )
+    ap.add_argument(
+        "--team0-epsilon-values",
+        help="Optional team-0 epsilon pool override (use with --team-epsilon-values).",
+    )
+    ap.add_argument(
+        "--team1-epsilon-values",
+        help="Optional team-1 epsilon pool override (use with --team-epsilon-values).",
+    )
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
+    ap.add_argument(
+        "--dataset-quality",
+        choices=("simple", "medium", "expert", "random"),
+        help="Optional generating-policy quality label recorded as provenance.",
+    )
     ap.add_argument("--policy-id", default="stock", help="Identity of the recorded policy for episode metadata.")
     ap.add_argument("--opponent-policy-id", default="stock", help="Identity of the opponent policy for episode metadata.")
     args = ap.parse_args()
+
+    shared_team_values = _parse_epsilon_values(args.team_epsilon_values)
+    team0_values = _parse_epsilon_values(args.team0_epsilon_values)
+    team1_values = _parse_epsilon_values(args.team1_epsilon_values)
+    if (team0_values is not None or team1_values is not None) and shared_team_values is None:
+        raise ValueError("team-specific epsilon overrides require --team-epsilon-values")
+    if shared_team_values is not None and (args.epsilon != 0.0 or args.noise_std != 0.0):
+        raise ValueError(
+            "team epsilon scheduling cannot be combined with scalar --epsilon or --noise-std"
+        )
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -182,13 +293,21 @@ def main():
     policy = OnnxPolicy(
         args.onnx, num_agents=n, obs_shapes=env.observation_shapes, action_spec=action_spec
     )
-    noised = args.noise_std > 0.0 or args.epsilon > 0.0
+    team_noise = shared_team_values is not None
+    noised = args.noise_std > 0.0 or args.epsilon > 0.0 or team_noise
     if noised:
         policy = NoisyPolicy(
             policy, noise_std=args.noise_std, epsilon=args.epsilon,
             rng=np.random.default_rng(args.noise_seed),
         )
-        print(f"[noise] noise_std={args.noise_std} epsilon={args.epsilon} seed={args.noise_seed}")
+        if team_noise:
+            print(
+                "[noise] per-team match schedule "
+                f"shared={shared_team_values} team0={team0_values} "
+                f"team1={team1_values} seed={args.noise_seed}"
+            )
+        else:
+            print(f"[noise] noise_std={args.noise_std} epsilon={args.epsilon} seed={args.noise_seed}")
 
     # Record the obs/action spec so build_minari.py can build the right Minari
     # spaces: a per-sensor Tuple observation (`obs_channels`; a single channel
@@ -201,10 +320,20 @@ def main():
         "obs_channels": [int(d) for d in obs_dims],
         "action_kind": policy.kind,
     }
+    if args.dataset_quality is not None:
+        spec_meta["dataset_quality"] = args.dataset_quality
     if noised:
-        spec_meta["noise"] = {
-            "noise_std": args.noise_std, "epsilon": args.epsilon, "noise_seed": args.noise_seed,
-        }
+        if team_noise:
+            spec_meta["noise"] = {
+                "mode": "per_team_per_match",
+                "team0_epsilon_values": list(team0_values or shared_team_values),
+                "team1_epsilon_values": list(team1_values or shared_team_values),
+                "noise_seed": args.noise_seed,
+            }
+        else:
+            spec_meta["noise"] = {
+                "noise_std": args.noise_std, "epsilon": args.epsilon, "noise_seed": args.noise_seed,
+            }
     if policy.kind == "continuous":
         spec_meta["act_dim"] = int(policy.act_dim)
     elif policy.kind == "discrete":
@@ -260,6 +389,28 @@ def main():
     else:
         manifest_path.write_text("", encoding="utf-8")
 
+    team_noise_schedule = None
+    if team_noise:
+        observed_teams = sorted({int(row["team_id"]) for row in agent_context})
+        if observed_teams != [0, 1]:
+            raise ValueError(
+                "per-team match noise currently requires exactly teams [0, 1], "
+                f"got {observed_teams}"
+            )
+        team_noise_schedule = TeamNoiseSchedule(
+            agent_context,
+            {
+                0: team0_values or shared_team_values,
+                1: team1_values or shared_team_values,
+            },
+            args.noise_seed,
+            {
+                field_key: field_episode_counts[field_key] // field_sizes[field_key]
+                for field_key in field_sizes
+            },
+        )
+        policy.set_epsilon_by_agent(team_noise_schedule.epsilon_vector())
+
     def flush(g, terminated, truncated):
         nonlocal ep_count
         T = len(buf_act[g])
@@ -309,6 +460,16 @@ def main():
             "opponent_policy_id": args.opponent_policy_id,
             "match_result": result,
         }
+        if args.dataset_quality is not None:
+            metadata["dataset_quality"] = args.dataset_quality
+        if team_noise_schedule is not None:
+            metadata.update(
+                {
+                    "team_epsilon": team_noise_schedule.epsilon_for_agent(g),
+                    "opponent_epsilon": team_noise_schedule.opponent_epsilon_for_agent(g),
+                    "noise_seed": args.noise_seed,
+                }
+            )
         with manifest_path.open("a", encoding="utf-8") as manifest:
             manifest.write(json.dumps(metadata, sort_keys=True) + "\n")
         if args.probe:
@@ -384,6 +545,15 @@ def main():
             for field_key in flushed_fields
             if field_episode_counts[field_key] % field_sizes[field_key] == 0
         }
+
+        if team_noise_schedule is not None:
+            for field_key in ended_fields:
+                team_noise_schedule.start_match(
+                    field_key,
+                    field_episode_counts[field_key] // field_sizes[field_key],
+                )
+            if ended_fields:
+                policy.set_epsilon_by_agent(team_noise_schedule.epsilon_vector())
 
         if args.complete_matches and total >= args.target:
             if pending_fields is None:
