@@ -96,3 +96,8 @@ action   [B, action_size]
 consumer selects one index per branch and feeds its one-hot representation back
 into the action context. See the Unity evaluators for complete continuous,
 Discrete, MultiDiscrete, and hybrid decoding examples.
+
+The graph is stateless, so the host also owns the BOS retention convention.
+Bundles default to `serving.bos_cache_mode: "discard"`: use the BOS token for
+the first action, then mask it out of every later window. The Unity evaluators
+do this by default; select `--bos-cache-mode retain` only when required.

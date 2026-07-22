@@ -41,12 +41,22 @@ class _WindowedPolicy(nn.Module):
         super().__init__()
         self.model = runner.model
         self.normalizer = runner.state_normalizer
+        self.embedded_normalizer = bool(
+            getattr(self.model, "has_embedded_state_normalizer", lambda: False)()
+        )
 
     def forward(self, states, actions, is_bos, mask):
         if self.normalizer is not None:
             states = self.normalizer(states)
-        elif hasattr(self.model, "normalize_states_for_inference"):
-            states = self.model.normalize_states_for_inference(states)
+        elif self.embedded_normalizer:
+            # Resolve the enabled flag before tracing. Calling the model helper
+            # here would execute Tensor.item() inside torch.export and create a
+            # data-dependent guard even though the flag is bundle-constant.
+            states = states.to(dtype=torch.float32)
+            feat = states.shape[-1]
+            mean = self.model.state_normalization_mean[-feat:].view(1, 1, -1)
+            std = self.model.state_normalization_std[-feat:].view(1, 1, -1)
+            states = (states - mean) / std
         tokens = torch.cat([states, actions, is_bos], dim=-1)
         embedded = self.model.adapt_input(tokens)
         hidden = self.model.backbone(embedded, padding_mask=mask.to(torch.bool))
@@ -68,8 +78,12 @@ def _patch_transformers_causal_mask(attention: str) -> None:
         return None
 
     def plain_mask(*args, **kwargs):
-        embedded = kwargs.get("input_embeds")
+        # Transformers names this argument ``inputs_embeds``. Keep the old
+        # singular spelling as a compatibility fallback for vendor variants.
+        embedded = kwargs.get("inputs_embeds", kwargs.get("input_embeds"))
         if embedded is None:
+            if len(args) < 2:
+                raise TypeError("create_causal_mask did not provide inputs_embeds")
             embedded = args[1]
         attention_mask = kwargs.get("attention_mask")
         if attention_mask is None and len(args) > 2:
@@ -92,8 +106,13 @@ def _patch_transformers_causal_mask(attention: str) -> None:
     masking_utils._ignore_causal_mask_sdpa = lambda *args, **kwargs: True
     masking_utils.create_causal_mask = builder
     for module_name, module in list(sys.modules.items()):
-        if module_name.startswith("transformers.models.") and hasattr(
-            module, "create_causal_mask"
+        # Some Transformers model packages are lazy modules. ``hasattr`` on
+        # them imports unrelated optional vision/audio dependencies, which can
+        # make a text-only export fail (for example when torchvision is absent).
+        # Patch only attributes that are already materialized in the module.
+        if (
+            module_name.startswith("transformers.models.")
+            and "create_causal_mask" in vars(module)
         ):
             module.create_causal_mask = builder
 

@@ -57,6 +57,10 @@ policy. The artifact and metrics will be updated after training completes.
 against the live ML-Agents behavior spec, maintains one autoregressive context
 per agent, and reports both individual and cooperative-group returns:
 
+It defaults to `--bos-cache-mode discard`, using the episode-start token for
+the first action and masking it out of every subsequent ONNX window to match
+the default cached `PolicyRunner` serving convention.
+
 ```bash
 python examples/unity/evaluate_onnx.py \
     --build hf_unity/envs/DungeonEscape/UnityEnvironment.exe \
@@ -146,11 +150,18 @@ The evaluator reports W/D/L, win rate, controlled-agent return, team return, and
 a stock-vs-stock symmetry baseline. Batch rows remain independent temporal
 contexts: batching does not permit cross-agent attention or communication.
 
-The published SoccerTwos policy is the completed training-run checkpoint. In a
-five-seed smoke evaluation (80 side-swapped match episodes) it won 15 and lost
-65 against the stock release-23 policy: **18.75% win rate**. This is a small
-closed-loop comparison, not a statistically complete benchmark; use more seeds
-and report the exact opponent and build when comparing replacements.
+To validate an exported policy against its original bundle, replace
+`--causal-onnx ...` with `--causal-bundle path/to/bundle`. This loads the
+bundle's `config.json` and `model.safetensors` through the cached
+`PolicyRunner`; keep the same seed, side-swap, and BOS-cache options when
+comparing it with ONNX.
+
+The published SoccerTwos policy is the completed training-run checkpoint. In
+one context-32, BOS-discard side-swapped smoke run it won 4 and lost 12 against
+the stock release-23 policy: **25.00% win rate**. The original safetensors bundle
+produced the same W/D/L through the cached `PolicyRunner`. `--seed 0` controlled
+stock-policy action sampling; the current Unity wrapper used deterministic
+launch seeds 100 and 101, so this is not a multi-environment-seed benchmark.
 
 [`soccer_twos_hf.ipynb`](soccer_twos_hf.ipynb) is the worked download and
 side-swapped matchup tutorial. Its dataset representation is one ego-centric

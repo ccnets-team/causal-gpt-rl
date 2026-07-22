@@ -38,11 +38,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "unity_collectio
 class Window:
     """Numpy implementation of the windowed policy's autoregressive context."""
 
-    def __init__(self, num_agents: int, context_length: int, state_size: int, action_size: int):
+    def __init__(
+        self,
+        num_agents: int,
+        context_length: int,
+        state_size: int,
+        action_size: int,
+        bos_cache_mode: str = "discard",
+    ):
+        if bos_cache_mode not in {"discard", "retain"}:
+            raise ValueError("bos_cache_mode must be 'discard' or 'retain'")
         self.num_agents = num_agents
         self.length = context_length + 1
         self.state_size = state_size
         self.action_size = action_size
+        self.bos_cache_mode = bos_cache_mode
         self.states = np.zeros((num_agents, self.length, state_size), np.float32)
         self.actions = np.zeros((num_agents, self.length, action_size), np.float32)
         self.is_bos = np.ones((num_agents, self.length, 1), np.float32)
@@ -61,6 +71,17 @@ class Window:
         self.is_bos[:, -2, 0] = bos
         self.mask = np.roll(self.mask, -1, axis=1)
         self.mask[:, -2] = 1.0
+
+    def after_act(self) -> None:
+        """Apply the bundle's post-first-action BOS retention convention.
+
+        A cached ``PolicyRunner`` in discard mode drops the episode-start
+        token's KV immediately after using it for act#0.  A stateless windowed
+        ONNX graph has no persisted KV, so reproduce that convention by
+        removing every visible BOS token from subsequent attention masks.
+        """
+        if self.bos_cache_mode == "discard":
+            self.mask[self.is_bos[..., 0] != 0.0] = 0.0
 
     def inputs(self) -> dict[str, np.ndarray]:
         return {
@@ -138,6 +159,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-ticks", type=int, default=20_000)
     parser.add_argument("--worker-id", type=int, default=None)
     parser.add_argument("--graphics", action="store_true")
+    parser.add_argument(
+        "--bos-cache-mode",
+        choices=("discard", "retain"),
+        default="discard",
+        help="Drop or retain the BOS token after the first action (default: discard).",
+    )
     return parser.parse_args()
 
 
@@ -210,7 +237,13 @@ def main() -> None:
         states = np.stack(
             [_pack_observation(observations, i, num_channels) for i in range(num_agents)]
         )
-        window = Window(num_agents, context_length, env_state_size, model_action_size)
+        window = Window(
+            num_agents,
+            context_length,
+            env_state_size,
+            model_action_size,
+            bos_cache_mode=args.bos_cache_mode,
+        )
         feedback_action = np.zeros((num_agents, model_action_size), np.float32)
         window.update(states, feedback_action, is_bos=1.0)
 
@@ -224,6 +257,7 @@ def main() -> None:
             ticks += 1
             if any(observations[0][agent] is not None for agent in range(num_agents)):
                 raw = _run_onnx(session, window.inputs(), int(model_batch))
+                window.after_act()
                 env_action, feedback_action = _decode(raw, continuous_size, branches)
 
             next_observations, rewards, terminated, truncated, _ = env.step(env_action)

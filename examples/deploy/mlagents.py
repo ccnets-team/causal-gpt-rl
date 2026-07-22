@@ -21,6 +21,9 @@ The environment action is `clip(raw, -1, 1)`; the RAW action is fed back into th
 window (autoregressive feedback). Observations go in raw — state normalization is
 inside the graph.
 
+The default `--bos-cache-mode discard` uses the BOS token for act#0 and masks it
+out of later windows, matching the default cached PolicyRunner convention.
+
 First-episode-per-agent: each scene agent is measured for one episode, then frozen.
 
 Run (in an env with onnxruntime + mlagents_envs; no torch needed):
@@ -46,8 +49,11 @@ CTX = 32
 class Window:
     """Plain-numpy replica of the policy's context buffer (32-step window)."""
 
-    def __init__(self, n, ctx, ss, acts):
+    def __init__(self, n, ctx, ss, acts, bos_cache_mode="discard"):
+        if bos_cache_mode not in {"discard", "retain"}:
+            raise ValueError("bos_cache_mode must be 'discard' or 'retain'")
         self.n, self.L, self.ss, self.acts = n, ctx + 1, ss, acts
+        self.bos_cache_mode = bos_cache_mode
         self.reset()
 
     def reset(self):
@@ -70,6 +76,10 @@ class Window:
         self.masks = np.roll(self.masks, -1, axis=1)
         self.masks[:, -2] = 1.0
 
+    def after_act(self):
+        if self.bos_cache_mode == "discard":
+            self.masks[self.is_bos[..., 0] != 0.0] = 0.0
+
     def context(self):
         return (self.states[:, :-1], self.actions[:, :-1],
                 self.is_bos[:, :-1], self.masks[:, :-1])
@@ -90,6 +100,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--time-scale", type=float, default=20.0)
     p.add_argument("--graphics", action="store_true", help="Render the Unity window (default headless).")
     p.add_argument("--max-ticks", type=int, default=20000)
+    p.add_argument("--bos-cache-mode", choices=("discard", "retain"), default="discard")
     return p.parse_args()
 
 
@@ -108,7 +119,7 @@ def main() -> None:
         ss = int(sum(int(np.prod(s)) for s in env.observation_shapes))
         print(f"[env] agents={n} obs_dim={ss} act={acts}", flush=True)
 
-        w = Window(n, CTX, ss, acts)
+        w = Window(n, CTX, ss, acts, bos_cache_mode=args.bos_cache_mode)
         obs, _ = env.reset()
         last_state = np.stack([_pack(obs, g, n_ch) for g in range(n)], axis=0)
         w.reset()
@@ -132,6 +143,7 @@ def main() -> None:
                         {"states": st[g:g + 1], "actions": ac[g:g + 1],
                          "is_bos": ib[g:g + 1], "mask": mk[g:g + 1]},
                     )[0][0]
+                w.after_act()
                 last_buffer_act = raw
                 last_env_act = np.clip(raw, -1.0, 1.0).astype(np.float32)
 

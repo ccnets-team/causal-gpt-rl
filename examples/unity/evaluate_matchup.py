@@ -51,7 +51,13 @@ class SideResult:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--build", required=True, type=Path)
-    parser.add_argument("--causal-onnx", required=True, type=Path)
+    causal = parser.add_mutually_exclusive_group(required=True)
+    causal.add_argument("--causal-onnx", type=Path)
+    causal.add_argument(
+        "--causal-bundle",
+        type=Path,
+        help="Run the original config.json + model.safetensors bundle via PolicyRunner.",
+    )
     parser.add_argument("--stock-onnx", required=True, type=Path)
     parser.add_argument(
         "--causal-team",
@@ -69,6 +75,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--worker-id", type=int, default=300)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--graphics", action="store_true")
+    parser.add_argument(
+        "--bos-cache-mode",
+        choices=("discard", "retain"),
+        default="discard",
+        help="Drop or retain the Causal policy BOS token after act#0 (default: discard).",
+    )
     return parser.parse_args()
 
 
@@ -132,14 +144,36 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
         action_spec = env.spec.action_spec
         continuous_size = int(action_spec.continuous_size)
         branches = [int(size) for size in action_spec.discrete_branches]
-
-        causal_session = ort.InferenceSession(
-            str(args.causal_onnx), providers=["CPUExecutionProvider"]
-        )
-        batch, context_length, model_state_size, model_action_size = _session_contract(
-            causal_session
-        )
         expected_action_size = continuous_size + sum(branches)
+
+        causal_session = None
+        causal_runner = None
+        if args.causal_onnx is not None:
+            causal_session = ort.InferenceSession(
+                str(args.causal_onnx), providers=["CPUExecutionProvider"]
+            )
+            batch, context_length, model_state_size, model_action_size = _session_contract(
+                causal_session
+            )
+        elif causal_team is not None:
+            from causal_gpt_rl.inference import load_runner
+
+            causal_runner = load_runner(
+                args.causal_bundle,
+                device="cpu",
+                num_envs=len(causal_indices),
+                use_windowed=False,
+                bos_cache_mode=args.bos_cache_mode,
+            )
+            batch = causal_runner.num_envs
+            context_length = causal_runner.context_length
+            model_state_size = causal_runner.state_size
+            model_action_size = causal_runner.action_size
+        else:
+            batch = 1
+            context_length = 0
+            model_state_size = state_size
+            model_action_size = expected_action_size
         if model_state_size != state_size or model_action_size != expected_action_size:
             raise ValueError(
                 f"Causal ONNX contract obs/action={model_state_size}/{model_action_size}, "
@@ -166,15 +200,30 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
         observations, _ = env.reset()
         window = None
         feedback = None
+        causal_states = None
         if causal_team is not None:
             states = np.stack(
                 [_pack_observation(observations, i, num_channels) for i in causal_indices]
             )
-            window = Window(
-                len(causal_indices), context_length, state_size, model_action_size
-            )
-            feedback = np.zeros((len(causal_indices), model_action_size), np.float32)
-            window.update(states, feedback, is_bos=1.0)
+            if causal_runner is None:
+                window = Window(
+                    len(causal_indices),
+                    context_length,
+                    state_size,
+                    model_action_size,
+                    bos_cache_mode=args.bos_cache_mode,
+                )
+                feedback = np.zeros((len(causal_indices), model_action_size), np.float32)
+                window.update(states, feedback, is_bos=1.0)
+            else:
+                import gymnasium as gym
+
+                causal_states = states
+                structured = [
+                    gym.spaces.unflatten(causal_runner.obs_space, row)
+                    for row in causal_states
+                ]
+                causal_runner.reset(structured)
 
         returns = np.zeros(num_agents, np.float64)
         finished = np.zeros(num_agents, dtype=bool)
@@ -186,8 +235,23 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
             action[stock_indices] = stock_action[stock_indices]
 
             if causal_team is not None:
-                raw = _run_onnx(causal_session, window.inputs(), batch)
-                causal_action, feedback = _decode(raw, continuous_size, branches)
+                if causal_runner is None:
+                    raw = _run_onnx(causal_session, window.inputs(), batch)
+                    window.after_act()
+                    causal_action, feedback = _decode(raw, continuous_size, branches)
+                else:
+                    structured_action = causal_runner.act()
+                    flat_action = np.stack(
+                        [
+                            gym.spaces.flatten(causal_runner.action_space, item)
+                            for item in structured_action
+                        ]
+                    ).astype(np.float32)
+                    causal_action, feedback = _decode(
+                        flat_action,
+                        continuous_size,
+                        branches,
+                    )
                 action[causal_indices] = causal_action
 
             next_observations, rewards, terminated, truncated, _ = env.step(action)
@@ -205,8 +269,20 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
                             next_observations, agent, num_channels
                         )
                     else:
-                        next_states[row] = window.states[row, -1]
-                window.update(next_states, feedback, is_bos=0.0)
+                        next_states[row] = (
+                            window.states[row, -1]
+                            if causal_runner is None
+                            else causal_states[row]
+                        )
+                if causal_runner is None:
+                    window.update(next_states, feedback, is_bos=0.0)
+                else:
+                    causal_states = next_states
+                    structured = [
+                        gym.spaces.unflatten(causal_runner.obs_space, row)
+                        for row in causal_states
+                    ]
+                    causal_runner.observe(structured)
             observations = next_observations
 
         if not finished.all():
