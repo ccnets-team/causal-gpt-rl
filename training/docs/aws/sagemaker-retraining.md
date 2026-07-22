@@ -16,6 +16,11 @@ For retraining/resume, the job must be connected to the checkpoint S3 prefix tha
 4. The training job loads the latest available checkpoint and continues training.
 5. New checkpoints are written back to the configured checkpoint prefix.
 
+Within that prefix, `<namespace>/archive/*.pt` contains the full training state
+used for resume. `<namespace>/snapshots/` contains live-synced inference bundles
+for inspecting intermediate policies; snapshots are not the source used to
+restore optimizer and scheduler state.
+
 ## Recommended S3 Layout
 
 Use a separate output prefix for each training job. Reuse a checkpoint prefix only when you intentionally want to resume from it.
@@ -37,4 +42,5 @@ checkpoint path:
 
 - The input dataset layout must still match the requested `dataset_ids`.
 - `max_steps` should be set for the total intended training run, not just the additional steps.
-- Checkpoint slots are bounded to 10 files and rotate by overwriting older slots.
+- Checkpoint archive slots are bounded to 10 files and rotate by overwriting older slots.
+- Intermediate snapshot bundles are live-synced beside the archive under the same checkpoint namespace.

@@ -6,8 +6,8 @@ Causal GPT-RL training can save intermediate training state while a SageMaker tr
 
 There are two related outputs:
 
-- Checkpoint S3 prefix: resume/retraining state synced by SageMaker during training.
-- SageMaker output artifact: final `model.tar.gz`, which contains inference bundles.
+- Checkpoint S3 prefix: resume/retraining state and intermediate inference snapshots synced by SageMaker during training.
+- SageMaker output artifact: final `model.tar.gz`, which contains the canonical inference bundle.
 
 ## Checkpoint S3 Prefix
 
@@ -17,19 +17,31 @@ Set a SageMaker checkpoint S3 prefix when creating the training job.
 s3://my-bucket/cgrl/checkpoints/<training-job-name>/
 ```
 
-The checkpoint prefix stores full training checkpoints under an archive directory:
+The checkpoint prefix stores full training checkpoints and intermediate policy
+snapshots under the same namespace:
 
 ```text
 <checkpoint-prefix>/
-  <run-name>/
+  <namespace>/
     archive/
       model_checkpoint_slot_000.pt
       model_checkpoint_slot_001.pt
       ...
       model_checkpoint_slot_009.pt
+    snapshots/
+      manifest.json
+      slot_000/
+        model.safetensors
+        config.json
+        metrics.json
+      ...
+      slot_009/
 ```
 
-These `.pt` files contain training state for resume/retraining, including model state and optimizer/scheduler state.
+The `archive/*.pt` files contain training state for resume/retraining, including
+model state and optimizer/scheduler state. `snapshots/slot_NNN/` contains an
+inference bundle aligned with each checkpoint slot. SageMaker live-syncs both
+directories to the configured checkpoint S3 prefix while training runs.
 
 ## Slot Rotation
 
@@ -46,35 +58,26 @@ Metric direction: min
 
 `eval/action_nll` is the held-out Action NLL (lower is better). Each `snapshots/slot_NNN/metrics.json` records this metric for its slot. See the eval metrics in `training/docs/aws/aws-marketplace-training.md` for details.
 
-## Bundle and Snapshots
+## Canonical Bundle and Live Snapshots
 
-The final SageMaker output artifact is separate from the checkpoint prefix. After training finishes, `model.tar.gz` contains:
+The final SageMaker output artifact is separate from the checkpoint prefix.
+After training finishes, `model.tar.gz` contains the canonical bundle but does
+not duplicate the live snapshots:
 
 ```text
 model.tar.gz
   reports/
     summary.json
-  <run-name>/
+  <namespace>/
     bundle/
       model.safetensors
       config.json
-      state_normalizer.safetensors
-    snapshots/
-      manifest.json
-      slot_000/
-        model.safetensors
-        config.json
-        state_normalizer.safetensors
-        metrics.json
-      ...
-      slot_009/
 ```
 
 - `bundle/` is the canonical inference bundle to load by default.
-- `snapshots/slot_NNN/` are intermediate policy bundles aligned with checkpoint slots. They can be loaded by the public inference runtime without restoring a training checkpoint.
+- `<checkpoint-prefix>/<namespace>/snapshots/slot_NNN/` are intermediate policy bundles aligned with checkpoint slots. They can be loaded by the public inference runtime without restoring a training checkpoint.
 - `archive/*.pt` checkpoints are for resume/retraining, not normal inference.
 
 ## Why Snapshots Exist
 
-Checkpoint `.pt` files contain optimizer and scheduler state and are meant for training resume. Snapshot bundles are exported so intermediate policies can be inspected or loaded with `causal_gpt_rl.inference` without the training stack. To roll out a policy, the caller still needs compatible observations or an evaluation environment, but not the original training job state.
-
+Checkpoint `.pt` files contain optimizer and scheduler state and are meant for training resume. Snapshot bundles are exported and live-synced through the checkpoint path so intermediate policies can be inspected or loaded with `causal_gpt_rl.inference` without the training stack or waiting for the final model artifact. To roll out a policy, the caller still needs compatible observations or an evaluation environment, but not the original training job state.

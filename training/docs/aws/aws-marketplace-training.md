@@ -171,7 +171,10 @@ The current Marketplace training example uses a single training instance type:
 
 ## Output Bundles
 
-The final `model.tar.gz` contains a canonical `bundle/` for normal inference. It may also contain `snapshots/slot_NNN/` directories, which are intermediate policy bundles that can be loaded without restoring training checkpoints.
+The final `model.tar.gz` contains a canonical `<namespace>/bundle/` for normal
+inference. Intermediate `snapshots/slot_NNN/` policy bundles are not duplicated
+in the final artifact; they are live-synced during training under the configured
+checkpoint S3 prefix and can be loaded without restoring a training checkpoint.
 
 ## More Details
 

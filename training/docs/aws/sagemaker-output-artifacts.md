@@ -12,33 +12,29 @@ s3://my-bucket/cgrl/output/<training-job-name>/output/model.tar.gz
 
 ## Artifact Layout
 
-After extracting `model.tar.gz`, find the canonical `bundle/` directory. Intermediate snapshot bundles may also be present under `snapshots/` so saved policies can be loaded without restoring training checkpoints.
+After extracting `model.tar.gz`, find the canonical `bundle/` directory. The
+final artifact does not contain intermediate snapshots; those are live-synced
+separately through the configured SageMaker checkpoint S3 prefix.
 
 ```text
 model.tar.gz
   reports/
     summary.json
-  <run-name>/
+  <namespace>/
     bundle/
       model.safetensors
       config.json
-      state_normalizer.safetensors
-    snapshots/
-      manifest.json
-      slot_000/
-        model.safetensors
-        config.json
-        state_normalizer.safetensors
-        metrics.json
-      ...
 ```
 
 ## Bundle Files
 
 - `model.safetensors`: Policy model weights.
 - `config.json`: Model architecture, observation/action specs, and context settings.
-- `state_normalizer.safetensors`: State normalization statistics required for inference.
-- `metrics.json`: Snapshot metrics, present only inside `snapshots/slot_NNN/`.
+- `state_normalizer.safetensors`: Optional legacy sidecar. Current bundle format
+  v2 embeds state normalization statistics in `model.safetensors`.
+
+Intermediate `snapshots/slot_NNN/` bundles and their `metrics.json` files live
+under the checkpoint prefix. See `training/docs/aws/sagemaker-checkpoints.md`.
 
 ## Load Example
 
