@@ -43,7 +43,35 @@ class NoisyPolicy:
         self.noise_std = float(noise_std)
         self.epsilon = float(epsilon)
         self._epsilon_by_agent = None
+        self._noise_std_by_agent = None
         self._rng = rng if rng is not None else np.random.default_rng()
+
+    def set_noise_std_by_agent(self, values):
+        """Override scalar noise_std with one value per policy batch row.
+
+        Mirrors ``set_epsilon_by_agent`` for the continuous Gaussian dial: an
+        independent per-agent collector (single-agent scenes recording a
+        continuous-skill spread) samples a fresh noise_std per agent per episode
+        and pushes the updated vector here. Passing ``None`` restores scalar
+        ``noise_std``.
+        """
+        if values is None:
+            self._noise_std_by_agent = None
+            return
+        values = np.asarray(values, dtype=np.float64).reshape(-1)
+        if np.any(values < 0.0):
+            raise ValueError("per-agent noise_std values must be >= 0.")
+        self._noise_std_by_agent = values.copy()
+
+    def _noise_std_for(self, agent_index):
+        if self._noise_std_by_agent is None:
+            return self.noise_std
+        if agent_index >= len(self._noise_std_by_agent):
+            raise ValueError(
+                "per-agent noise_std length does not cover policy batch row "
+                f"{agent_index}"
+            )
+        return float(self._noise_std_by_agent[agent_index])
 
     def set_epsilon_by_agent(self, values):
         """Override scalar epsilon with one value per policy batch row.
@@ -91,8 +119,9 @@ class NoisyPolicy:
         rows = np.asarray(present)
 
         if self.kind == "continuous":
-            if self.noise_std > 0.0:
-                a[rows] += self._rng.normal(0.0, self.noise_std, size=a[rows].shape)
+            std = np.asarray([self._noise_std_for(g) for g in rows])
+            if np.any(std > 0.0):
+                a[rows] += self._rng.standard_normal(size=a[rows].shape) * std[:, None]
             eps = np.asarray([self._epsilon_for(g) for g in rows])
             if np.any(eps > 0.0):
                 swap = rows[self._rng.random(len(rows)) < eps]
@@ -105,8 +134,9 @@ class NoisyPolicy:
             # action for a uniform-random one — continuous ~ U[-1, 1] and each
             # branch ~ U{0..size-1} — so epsilon=1 is a random hybrid policy.
             cont = self.act_dim - len(self.branches)
-            if self.noise_std > 0.0:
-                a[rows, :cont] += self._rng.normal(0.0, self.noise_std, size=(len(rows), cont))
+            std = np.asarray([self._noise_std_for(g) for g in rows])
+            if np.any(std > 0.0):
+                a[rows, :cont] += self._rng.standard_normal(size=(len(rows), cont)) * std[:, None]
             eps = np.asarray([self._epsilon_for(g) for g in rows])
             if np.any(eps > 0.0):
                 swap = rows[self._rng.random(len(rows)) < eps]

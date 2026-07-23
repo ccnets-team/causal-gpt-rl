@@ -216,6 +216,69 @@ class GroupNoiseSchedule:
         )
 
 
+class IndependentNoiseSchedule:
+    """Per-agent, per-episode i.i.d. noise level sampled from a continuous range.
+
+    For single-agent scenes (pyramids, crawler, ...) that should record a
+    CONTINUOUS spread of trajectory competence instead of one fixed skill: each
+    agent draws a fresh value uniformly from ``[lo, hi]`` at the start of every
+    episode. Averaged over the run the mean skill lands on the tier target while
+    individual episodes fill the range, so the dataset covers the skill spectrum
+    continuously rather than collapsing to one point. The draw is keyed by
+    ``(seed, agent_index, episode_index)`` so it is reproducible and independent
+    of agent traversal order. ``dial`` picks the NoisyPolicy knob the value drives
+    ("noise_std" for continuous action spaces, "epsilon" for discrete ones).
+    """
+
+    def __init__(self, n, lo, hi, seed, dial):
+        if dial not in ("noise_std", "epsilon"):
+            raise ValueError(f"dial must be 'noise_std' or 'epsilon' (got {dial!r})")
+        if lo < 0.0 or hi < lo:
+            raise ValueError(f"require 0 <= lo <= hi (got lo={lo}, hi={hi})")
+        if dial == "epsilon" and hi > 1.0:
+            raise ValueError("epsilon range must lie in [0, 1]")
+        self.n = int(n)
+        self.lo = float(lo)
+        self.hi = float(hi)
+        self.seed = int(seed)
+        self.dial = dial
+        self.episode_index = [0] * self.n
+        self.current = np.asarray(
+            [self._sample(g, 0) for g in range(self.n)], dtype=np.float64
+        )
+
+    def _sample(self, g, ep):
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, int(g), int(ep)]))
+        return float(rng.uniform(self.lo, self.hi))
+
+    def resample(self, g):
+        """Advance agent ``g`` to its next episode's noise level."""
+        self.episode_index[g] += 1
+        self.current[g] = self._sample(g, self.episode_index[g])
+
+    def value_for(self, g):
+        return float(self.current[g])
+
+    def vector(self):
+        return self.current
+
+    def push(self, policy):
+        if self.dial == "noise_std":
+            policy.set_noise_std_by_agent(self.current)
+        else:
+            policy.set_epsilon_by_agent(self.current)
+
+
+def _parse_range(text):
+    """Parse a ``"lo,hi"`` range string into a (lo, hi) float pair."""
+    if text is None:
+        return None
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if len(parts) != 2:
+        raise ValueError(f"range must be 'lo,hi' (got {text!r})")
+    return float(parts[0]), float(parts[1])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", required=True, help="Path to the Unity build (exe).")
@@ -288,6 +351,21 @@ def main():
             "opposing team. Mutually exclusive with --team-epsilon-values."
         ),
     )
+    ap.add_argument(
+        "--noise-std-range",
+        help=(
+            "'lo,hi' Gaussian-noise_std range sampled i.i.d. per agent per episode "
+            "(continuous action spaces). Records a CONTINUOUS skill spread whose mean "
+            "lands the tier; use instead of scalar --noise-std for single-agent scenes."
+        ),
+    )
+    ap.add_argument(
+        "--epsilon-range",
+        help=(
+            "'lo,hi' epsilon range sampled i.i.d. per agent per episode (discrete "
+            "action spaces). Discrete analogue of --noise-std-range."
+        ),
+    )
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
     ap.add_argument(
         "--dataset-quality",
@@ -316,6 +394,22 @@ def main():
         raise ValueError(
             "group epsilon scheduling cannot be combined with scalar --epsilon or --noise-std"
         )
+
+    noise_std_range = _parse_range(args.noise_std_range)
+    epsilon_range = _parse_range(args.epsilon_range)
+    if noise_std_range is not None and epsilon_range is not None:
+        raise ValueError("--noise-std-range and --epsilon-range are mutually exclusive")
+    independent_range = noise_std_range if noise_std_range is not None else epsilon_range
+    if independent_range is not None:
+        if args.epsilon != 0.0 or args.noise_std != 0.0:
+            raise ValueError(
+                "per-episode noise ranges cannot be combined with scalar --epsilon/--noise-std"
+            )
+        if shared_team_values is not None or group_values is not None:
+            raise ValueError(
+                "per-episode noise ranges are for single-agent scenes; not compatible "
+                "with --team/group-epsilon-values"
+            )
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -362,7 +456,10 @@ def main():
     )
     team_noise = shared_team_values is not None
     group_noise = group_values is not None
-    noised = args.noise_std > 0.0 or args.epsilon > 0.0 or team_noise or group_noise
+    independent_noise = independent_range is not None
+    noised = (args.noise_std > 0.0 or args.epsilon > 0.0
+              or team_noise or group_noise or independent_noise)
+    independent_schedule = None
     if noised:
         policy = NoisyPolicy(
             policy, noise_std=args.noise_std, epsilon=args.epsilon,
@@ -378,6 +475,16 @@ def main():
             print(
                 "[noise] per-group match schedule "
                 f"group={group_values} seed={args.noise_seed}"
+            )
+        elif independent_noise:
+            dial = "noise_std" if noise_std_range is not None else "epsilon"
+            independent_schedule = IndependentNoiseSchedule(
+                n, independent_range[0], independent_range[1], args.noise_seed, dial
+            )
+            independent_schedule.push(policy)
+            print(
+                f"[noise] per-agent per-episode {dial} range={independent_range} "
+                f"seed={args.noise_seed}"
             )
         else:
             print(f"[noise] noise_std={args.noise_std} epsilon={args.epsilon} seed={args.noise_seed}")
@@ -407,6 +514,13 @@ def main():
             spec_meta["noise"] = {
                 "mode": "per_group_per_match",
                 "group_epsilon_values": list(group_values),
+                "noise_seed": args.noise_seed,
+            }
+        elif independent_noise:
+            spec_meta["noise"] = {
+                "mode": "per_agent_per_episode",
+                "dial": independent_schedule.dial,
+                "range": [independent_range[0], independent_range[1]],
                 "noise_seed": args.noise_seed,
             }
         else:
@@ -573,6 +687,13 @@ def main():
                     "noise_seed": args.noise_seed,
                 }
             )
+        if independent_schedule is not None:
+            metadata.update(
+                {
+                    independent_schedule.dial: independent_schedule.value_for(g),
+                    "noise_seed": args.noise_seed,
+                }
+            )
         with manifest_path.open("a", encoding="utf-8") as manifest:
             manifest.write(json.dumps(metadata, sort_keys=True) + "\n")
         if args.probe:
@@ -598,6 +719,7 @@ def main():
         final = info["final_observation"]
 
         flushed_fields = set()
+        flushed_agents = set()
 
         for g in range(n):
             context = agent_context[g]
@@ -636,6 +758,7 @@ def main():
                     new_seed = None
                 if flush(g, bool(terminated[g]), bool(truncated[g])):
                     flushed_fields.add(field_key)
+                    flushed_agents.add(g)
                 if new_seed is not None:
                     seed(new_seed, g)
                 else:
@@ -657,6 +780,11 @@ def main():
                 )
             if ended_fields:
                 policy.set_epsilon_by_agent(active_schedule.epsilon_vector())
+
+        if independent_schedule is not None and flushed_agents:
+            for g in flushed_agents:
+                independent_schedule.resample(g)
+            independent_schedule.push(policy)
 
         if args.complete_matches and total >= args.target:
             if pending_fields is None:
