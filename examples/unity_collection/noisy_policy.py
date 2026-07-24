@@ -98,6 +98,16 @@ class NoisyPolicy:
             )
         return float(self._epsilon_by_agent[agent_index])
 
+    def set_temperature_by_agent(self, values):
+        """Forward per-agent temperature to the wrapped policy.
+
+        Temperature is a discrete degradation dial applied at the logits stage
+        INSIDE the inner OnnxPolicy (softmax(logits / T)), not on the decoded
+        action like epsilon, so it just delegates. Lets a per-episode schedule
+        push temperature through this wrapper uniformly.
+        """
+        self._policy.set_temperature_by_agent(values)
+
     # Passthrough spec so build_minari.py sees the same action space either way.
     @property
     def kind(self):

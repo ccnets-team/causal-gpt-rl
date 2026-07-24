@@ -40,7 +40,7 @@ _RECURRENT_INPUT = "recurrent_in"
 
 class OnnxPolicy:
     def __init__(self, onnx_path, num_agents, obs_shapes, action_spec,
-                 providers=None, rng=None):
+                 providers=None, rng=None, temperature=1.0):
         self.session = ort.InferenceSession(
             onnx_path, providers=providers or ["CPUExecutionProvider"]
         )
@@ -48,6 +48,14 @@ class OnnxPolicy:
         self.obs_dims = [int(np.prod(s)) for s in obs_shapes]
         self.total_obs = sum(self.obs_dims)
         self._rng = rng if rng is not None else np.random.default_rng()
+        # Discrete temperature dial (additive; independent of NoisyPolicy's
+        # noise_std/epsilon). Sampling from softmax(logits / T) needs a `logits`
+        # output, present only in the patched tier_policies onnx. T == 1 with no
+        # per-agent override is an exact passthrough (existing behavior).
+        if temperature <= 0.0:
+            raise ValueError(f"temperature must be > 0 (got {temperature}).")
+        self.temperature = float(temperature)
+        self._temperature_by_agent = None
 
         # Classify inputs: obs inputs (partition the flat obs), action_masks, and
         # the unsupported recurrent input.
@@ -72,6 +80,9 @@ class OnnxPolicy:
             )
 
         out = {o.name: o for o in self.session.get_outputs()}
+        # Patched tier_policies onnx exposes per-branch pre-softmax `logits`,
+        # enabling temperature sampling. Stock onnx lacks it (temperature errors loud).
+        self.has_logits = "logits" in out
         cont_size = int(getattr(action_spec, "continuous_size", 0) or 0)
         branches = tuple(int(b) for b in (getattr(action_spec, "discrete_branches", ()) or ()))
 
@@ -156,6 +167,58 @@ class OnnxPolicy:
                 idx[r, b] = self._rng.choice(size, p=prob[r])
         return idx
 
+    def set_temperature_by_agent(self, values):
+        """Override scalar temperature with one value per policy batch row.
+
+        Mirrors ``NoisyPolicy.set_epsilon_by_agent`` for the discrete temperature
+        dial: a per-agent per-episode collector pushes a fresh temperature vector
+        here so each episode samples ``softmax(logits / T)`` at its own T. Passing
+        ``None`` restores scalar ``temperature``.
+        """
+        if values is None:
+            self._temperature_by_agent = None
+            return
+        values = np.asarray(values, dtype=np.float64).reshape(-1)
+        if np.any(values <= 0.0):
+            raise ValueError("per-agent temperature values must be > 0.")
+        self._temperature_by_agent = values.copy()
+
+    def _temperature_for(self, agent_index):
+        if self._temperature_by_agent is None:
+            return self.temperature
+        if agent_index >= len(self._temperature_by_agent):
+            raise ValueError(
+                "per-agent temperature length does not cover policy batch row "
+                f"{agent_index}"
+            )
+        return float(self._temperature_by_agent[agent_index])
+
+    def _temperature_active(self):
+        return self._temperature_by_agent is not None or self.temperature != 1.0
+
+    def _decode_temperature(self, logits, present):
+        """Sample one index per branch from softmax(logits / T), per-agent T.
+
+        `logits` is the patched onnx `logits` output `[P, sum(branch_sizes)]`,
+        rows aligned with `present`. Replaces the frozen T=1 discrete sample with
+        a temperature-controlled draw (higher T -> lower skill) for tier synthesis.
+        """
+        logits = np.asarray(logits, dtype=np.float32)
+        n_present = logits.shape[0]
+        nb = len(self.branches)
+        idx = np.zeros((n_present, nb), np.int64)
+        for r in range(n_present):
+            temp = self._temperature_for(present[r])
+            off = 0
+            for b, size in enumerate(self.branches):
+                z = logits[r, off:off + size] / temp
+                z = z - z.max()
+                prob = np.exp(z)
+                prob /= prob.sum()
+                idx[r, b] = self._rng.choice(size, p=prob)
+                off += size
+        return idx
+
     def act(self, observations):
         n = self.num_agents
         present = [g for g in range(n) if observations[0][g] is not None]
@@ -170,6 +233,14 @@ class OnnxPolicy:
             cont = np.asarray(cont, np.float32).reshape(len(present), -1)
             idx = self._decode_discrete(disc).astype(np.float32)
             vals = np.concatenate([cont, idx], axis=1)
+        elif self.kind == "discrete" and self._temperature_active():
+            if not self.has_logits:
+                raise ValueError(
+                    "temperature sampling requires a 'logits' output; use the patched "
+                    "tier_policies onnx (stock onnx only emits the sampled index)."
+                )
+            raw = self.session.run(["logits"], feeds)[0]
+            vals = self._decode_temperature(raw, present).astype(np.float32)
         else:
             raw = self.session.run([self.out_name], feeds)[0]
             if self.kind == "continuous":

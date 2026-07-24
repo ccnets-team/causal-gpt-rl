@@ -226,17 +226,24 @@ class IndependentNoiseSchedule:
     individual episodes fill the range, so the dataset covers the skill spectrum
     continuously rather than collapsing to one point. The draw is keyed by
     ``(seed, agent_index, episode_index)`` so it is reproducible and independent
-    of agent traversal order. ``dial`` picks the NoisyPolicy knob the value drives
-    ("noise_std" for continuous action spaces, "epsilon" for discrete ones).
+    of agent traversal order. ``dial`` picks the knob the value drives
+    ("noise_std" for continuous action spaces, "epsilon" or "temperature" for
+    discrete ones; temperature samples softmax(logits / T) on the patched onnx).
     """
 
     def __init__(self, n, lo, hi, seed, dial):
-        if dial not in ("noise_std", "epsilon"):
-            raise ValueError(f"dial must be 'noise_std' or 'epsilon' (got {dial!r})")
-        if lo < 0.0 or hi < lo:
-            raise ValueError(f"require 0 <= lo <= hi (got lo={lo}, hi={hi})")
-        if dial == "epsilon" and hi > 1.0:
-            raise ValueError("epsilon range must lie in [0, 1]")
+        if dial not in ("noise_std", "epsilon", "temperature"):
+            raise ValueError(
+                f"dial must be 'noise_std', 'epsilon' or 'temperature' (got {dial!r})"
+            )
+        if dial == "temperature":
+            if lo <= 0.0 or hi < lo:
+                raise ValueError(f"temperature range requires 0 < lo <= hi (got lo={lo}, hi={hi})")
+        else:
+            if lo < 0.0 or hi < lo:
+                raise ValueError(f"require 0 <= lo <= hi (got lo={lo}, hi={hi})")
+            if dial == "epsilon" and hi > 1.0:
+                raise ValueError("epsilon range must lie in [0, 1]")
         self.n = int(n)
         self.lo = float(lo)
         self.hi = float(hi)
@@ -265,8 +272,10 @@ class IndependentNoiseSchedule:
     def push(self, policy):
         if self.dial == "noise_std":
             policy.set_noise_std_by_agent(self.current)
-        else:
+        elif self.dial == "epsilon":
             policy.set_epsilon_by_agent(self.current)
+        else:
+            policy.set_temperature_by_agent(self.current)
 
 
 def _parse_range(text):
@@ -327,6 +336,10 @@ def main():
                     help="Gaussian action noise std (continuous). >0 degrades the policy.")
     ap.add_argument("--epsilon", type=float, default=0.0,
                     help="Per-agent probability of a uniform-random action. 1.0 = random policy.")
+    ap.add_argument("--temperature", type=float, default=1.0,
+                    help="Discrete softmax temperature on the patched tier_policies onnx "
+                         "(samples softmax(logits/T)). >1 degrades the policy smoothly; "
+                         "1.0 = expert. Needs a 'logits' output.")
     ap.add_argument(
         "--team-epsilon-values",
         help=(
@@ -366,6 +379,14 @@ def main():
             "action spaces). Discrete analogue of --noise-std-range."
         ),
     )
+    ap.add_argument(
+        "--temperature-range",
+        help=(
+            "'lo,hi' softmax-temperature range sampled i.i.d. per agent per episode "
+            "(discrete action spaces, patched tier_policies onnx). Smooth alternative "
+            "to --epsilon-range that samples plausible near-expert actions."
+        ),
+    )
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
     ap.add_argument(
         "--dataset-quality",
@@ -397,19 +418,35 @@ def main():
 
     noise_std_range = _parse_range(args.noise_std_range)
     epsilon_range = _parse_range(args.epsilon_range)
-    if noise_std_range is not None and epsilon_range is not None:
-        raise ValueError("--noise-std-range and --epsilon-range are mutually exclusive")
-    independent_range = noise_std_range if noise_std_range is not None else epsilon_range
+    temperature_range = _parse_range(args.temperature_range)
+    _active_ranges = [
+        (name, rng) for name, rng in (
+            ("noise_std", noise_std_range),
+            ("epsilon", epsilon_range),
+            ("temperature", temperature_range),
+        ) if rng is not None
+    ]
+    if len(_active_ranges) > 1:
+        raise ValueError(
+            "--noise-std-range, --epsilon-range and --temperature-range are mutually exclusive"
+        )
+    independent_dial = _active_ranges[0][0] if _active_ranges else None
+    independent_range = _active_ranges[0][1] if _active_ranges else None
     if independent_range is not None:
-        if args.epsilon != 0.0 or args.noise_std != 0.0:
+        if args.epsilon != 0.0 or args.noise_std != 0.0 or args.temperature != 1.0:
             raise ValueError(
-                "per-episode noise ranges cannot be combined with scalar --epsilon/--noise-std"
+                "per-episode ranges cannot be combined with scalar "
+                "--epsilon/--noise-std/--temperature"
             )
         if shared_team_values is not None or group_values is not None:
             raise ValueError(
-                "per-episode noise ranges are for single-agent scenes; not compatible "
+                "per-episode ranges are for single-agent scenes; not compatible "
                 "with --team/group-epsilon-values"
             )
+    if args.temperature != 1.0 and (shared_team_values is not None or group_values is not None):
+        raise ValueError(
+            "scalar --temperature is not compatible with --team/group-epsilon-values"
+        )
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -452,8 +489,11 @@ def main():
     print(f"[env] fields={len(field_sizes)} agents_per_field={sorted(set(field_sizes.values()))}")
 
     policy = OnnxPolicy(
-        args.onnx, num_agents=n, obs_shapes=env.observation_shapes, action_spec=action_spec
+        args.onnx, num_agents=n, obs_shapes=env.observation_shapes,
+        action_spec=action_spec, temperature=args.temperature,
     )
+    if args.temperature != 1.0:
+        print(f"[temperature] scalar softmax temperature={args.temperature}")
     team_noise = shared_team_values is not None
     group_noise = group_values is not None
     independent_noise = independent_range is not None
@@ -477,13 +517,13 @@ def main():
                 f"group={group_values} seed={args.noise_seed}"
             )
         elif independent_noise:
-            dial = "noise_std" if noise_std_range is not None else "epsilon"
             independent_schedule = IndependentNoiseSchedule(
-                n, independent_range[0], independent_range[1], args.noise_seed, dial
+                n, independent_range[0], independent_range[1], args.noise_seed,
+                independent_dial,
             )
             independent_schedule.push(policy)
             print(
-                f"[noise] per-agent per-episode {dial} range={independent_range} "
+                f"[noise] per-agent per-episode {independent_dial} range={independent_range} "
                 f"seed={args.noise_seed}"
             )
         else:
@@ -502,6 +542,8 @@ def main():
     }
     if args.dataset_quality is not None:
         spec_meta["dataset_quality"] = args.dataset_quality
+    if args.temperature != 1.0:
+        spec_meta["temperature"] = float(args.temperature)
     if noised:
         if team_noise:
             spec_meta["noise"] = {
