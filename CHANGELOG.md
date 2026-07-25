@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.14.0
+
+- `export_bundle` now stamps the `hybrid_state` capability on bundles whose
+  declared observation space is a `Dict` or `Tuple`, not only on those with a
+  non-continuous state spec. A structured container whose leaves are all `Box`
+  produced uniformly continuous specs and so was gated by nothing, even though
+  the caller still passes a container that `gym.flatten` has to collapse. A
+  runtime without the input adapter would ignore `state_container`, expect a
+  flat array, and fail obscurely instead of refusing with the "upgrade
+  causal-gpt-rl" message. This mirrors `action_container` on the output side.
+  Export-side only: already published bundles are unchanged and load exactly as
+  before, and `bundle_format_version` stays at 2. Bundles exported from this
+  release declare the capability, which raises their minimum runtime to one that
+  advertises `hybrid_state`.
+
+## 0.13.0
+
+- Added sampling temperature (`std_scale`) to the discrete and multi-binary
+  action heads, so `sample_action_from_heads` now scales categorical sampling
+  the same way it already scaled continuous Gaussian noise. By the Gumbel-max
+  identity, dividing logits by `std_scale` is equivalent to scaling the sampling
+  noise, which makes the discrete and continuous knobs mean the same thing.
+  `std_scale == 0` is the deterministic mode (argmax, no RNG draw); the default
+  of `1.0` is unchanged behavior.
+
 ## 0.12.0
 
 - Added `PolicyRunner.add_rows(initial_states)` to grow a live runner's batch:
