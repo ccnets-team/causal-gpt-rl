@@ -2,6 +2,20 @@
 
 ## 0.14.0
 
+- Added `causal_gpt_rl.export` with `export_onnx` / `OnnxExportResult` and a
+  `causal-gpt-rl-export-onnx` console script, turning a bundle into a
+  fixed-batch, self-contained ONNX policy for runtimes that cannot host PyTorch
+  (Unity ML-Agents / Barracuda / Sentis being the motivating case). The input is
+  a complete bundle, not a bare safetensors file: `config.json` supplies the
+  architecture, spaces, normalization contract, and context length, so the
+  exported graph carries state normalization and the windowed observation →
+  action path with it. Export verifies the graph against the source model and
+  reports `max_abs_error`.
+- Fixed ONNX export to honor the bundle's `bos_cache_mode` discard convention,
+  which the exported graph previously ignored — the ONNX policy and the PyTorch
+  runner could diverge on the episode-start token.
+- Fixed the ONNX exporter's strategy output to be written as UTF-8 rather than
+  the console default, which raised on non-UTF-8 consoles (cp949).
 - `export_bundle` now stamps the `hybrid_state` capability on bundles whose
   declared observation space is a `Dict` or `Tuple`, not only on those with a
   non-continuous state spec. A structured container whose leaves are all `Box`
