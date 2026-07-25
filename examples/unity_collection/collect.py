@@ -166,6 +166,9 @@ class TeamNoiseSchedule:
             dtype=np.float64,
         )
 
+    def push(self, policy):
+        policy.set_epsilon_by_agent(self.epsilon_vector())
+
 
 class GroupNoiseSchedule:
     """Deterministic per-match epsilon for a single-team cooperative group.
@@ -214,6 +217,172 @@ class GroupNoiseSchedule:
             [self.epsilon_for_agent(i) for i in range(len(self.contexts))],
             dtype=np.float64,
         )
+
+    def push(self, policy):
+        policy.set_epsilon_by_agent(self.epsilon_vector())
+
+
+class GroupRangeSchedule:
+    """Per-GROUP, per-match noise level sampled from a CONTINUOUS range.
+
+    The cooperative analogue of `IndependentNoiseSchedule`: instead of drawing an
+    i.i.d. value per agent, one value is drawn per (env, field) group per match and
+    SHARED by all of that group's agents for the whole group episode. For a
+    cooperative scene (DungeonEscape) with shared group reward and success =
+    any-agent-succeeds, a per-agent draw lets the group ride on its strongest
+    member (best-agent-dominates), biasing the tier strong; a per-group draw keeps
+    the whole team at one coherent skill level, matching "one early-training
+    checkpoint whose weights are shared across the cooperative agents". Keyed by
+    (seed, env, field, match) like `GroupNoiseSchedule`, so resuming reproduces the
+    schedule. ``dial`` picks the knob ("temperature"/"epsilon"/"noise_std").
+    """
+
+    def __init__(self, contexts, dial, lo, hi, seed, match_indices=None):
+        if dial not in ("noise_std", "epsilon", "temperature"):
+            raise ValueError(f"dial must be noise_std/epsilon/temperature (got {dial!r})")
+        if dial == "temperature" and not (0.0 < lo <= hi):
+            raise ValueError(f"temperature range requires 0 < lo <= hi (got lo={lo}, hi={hi})")
+        if dial != "temperature" and not (0.0 <= lo <= hi):
+            raise ValueError(f"require 0 <= lo <= hi (got lo={lo}, hi={hi})")
+        if dial == "epsilon" and hi > 1.0:
+            raise ValueError("epsilon range must lie in [0, 1]")
+        self.contexts = contexts
+        self.dial = dial
+        self.lo = float(lo)
+        self.hi = float(hi)
+        self.seed = int(seed)
+        self.match_indices = dict(match_indices or {})
+        self.current = {}
+        self._fields = sorted(
+            {(int(row["env_index"]), int(row["field_id"])) for row in contexts}
+        )
+        for field_key in self._fields:
+            self.start_match(field_key, self.match_indices.get(field_key, 0))
+
+    def _sample(self, field_key, match_index):
+        rng = np.random.default_rng(
+            np.random.SeedSequence(
+                [self.seed, field_key[0], field_key[1], int(match_index)]
+            )
+        )
+        return float(rng.uniform(self.lo, self.hi))
+
+    def start_match(self, field_key, match_index):
+        self.match_indices[field_key] = int(match_index)
+        self.current[field_key] = self._sample(field_key, match_index)
+
+    def value_for_agent(self, global_index):
+        row = self.contexts[global_index]
+        return self.current[(int(row["env_index"]), int(row["field_id"]))]
+
+    def value_vector(self):
+        return np.asarray(
+            [self.value_for_agent(i) for i in range(len(self.contexts))],
+            dtype=np.float64,
+        )
+
+    def push(self, policy):
+        vec = self.value_vector()
+        if self.dial == "noise_std":
+            policy.set_noise_std_by_agent(vec)
+        elif self.dial == "epsilon":
+            policy.set_epsilon_by_agent(vec)
+        else:
+            policy.set_temperature_by_agent(vec)
+
+
+class TeamRangeSchedule:
+    """Per-TEAM, per-match value sampled from a CONTINUOUS range (competitive self-play).
+
+    The competitive analogue of `GroupRangeSchedule`: one value is drawn per
+    (env, field, team) per match and shared by that team's agents for the whole
+    match, with the two teams on a field drawing INDEPENDENTLY from the same range.
+    For self-play (SoccerTwos) this reproduces league play — each match pits two
+    teams of independently-drawn skill (a random per-match skill GAP), the way
+    self-play training pits the current policy against a spread of past checkpoints.
+    A symmetric per-agent T (scalar `--temperature`) keeps both teams matched and no
+    gap emerges; an independent per-team draw is what creates the skill spread. A
+    tier is defined by the ego team's OWN sampled value (its skill vs a reference
+    expert, from side-swapped calibration); the opponent's independent draw is
+    environment variety. Keyed by (seed, env, field, match, team) like
+    `TeamNoiseSchedule`, so resuming after completed matches reproduces the
+    schedule. ``dial`` picks the knob ("temperature"/"epsilon"/"noise_std").
+    """
+
+    def __init__(self, contexts, dial, lo, hi, seed, match_indices=None):
+        if dial not in ("noise_std", "epsilon", "temperature"):
+            raise ValueError(f"dial must be noise_std/epsilon/temperature (got {dial!r})")
+        if dial == "temperature" and not (0.0 < lo <= hi):
+            raise ValueError(f"temperature range requires 0 < lo <= hi (got lo={lo}, hi={hi})")
+        if dial != "temperature" and not (0.0 <= lo <= hi):
+            raise ValueError(f"require 0 <= lo <= hi (got lo={lo}, hi={hi})")
+        if dial == "epsilon" and hi > 1.0:
+            raise ValueError("epsilon range must lie in [0, 1]")
+        self.contexts = contexts
+        self.dial = dial
+        self.lo = float(lo)
+        self.hi = float(hi)
+        self.seed = int(seed)
+        self.match_indices = dict(match_indices or {})
+        self.current = {}
+        self._fields = sorted(
+            {(int(row["env_index"]), int(row["field_id"])) for row in contexts}
+        )
+        for field_key in self._fields:
+            self.start_match(field_key, self.match_indices.get(field_key, 0))
+
+    def _sample(self, field_key, match_index, team_id):
+        # Per-(field, team, match) SeedSequence: stable, independent of traversal
+        # order, and distinct per team so the two teams draw independently.
+        rng = np.random.default_rng(
+            np.random.SeedSequence(
+                [self.seed, field_key[0], field_key[1], int(match_index), int(team_id)]
+            )
+        )
+        return float(rng.uniform(self.lo, self.hi))
+
+    def start_match(self, field_key, match_index):
+        self.match_indices[field_key] = int(match_index)
+        teams = {
+            int(row["team_id"])
+            for row in self.contexts
+            if (int(row["env_index"]), int(row["field_id"])) == field_key
+        }
+        for team_id in teams:
+            self.current[(field_key, team_id)] = self._sample(
+                field_key, match_index, team_id
+            )
+
+    def value_for_agent(self, global_index):
+        row = self.contexts[global_index]
+        field_key = (int(row["env_index"]), int(row["field_id"]))
+        return self.current[(field_key, int(row["team_id"]))]
+
+    def opponent_value_for_agent(self, global_index):
+        row = self.contexts[global_index]
+        field_key = (int(row["env_index"]), int(row["field_id"]))
+        team_id = int(row["team_id"])
+        opponents = [
+            value
+            for (candidate_field, candidate_team), value in self.current.items()
+            if candidate_field == field_key and candidate_team != team_id
+        ]
+        return opponents[0] if len(opponents) == 1 else None
+
+    def value_vector(self):
+        return np.asarray(
+            [self.value_for_agent(i) for i in range(len(self.contexts))],
+            dtype=np.float64,
+        )
+
+    def push(self, policy):
+        vec = self.value_vector()
+        if self.dial == "noise_std":
+            policy.set_noise_std_by_agent(vec)
+        elif self.dial == "epsilon":
+            policy.set_epsilon_by_agent(vec)
+        else:
+            policy.set_temperature_by_agent(vec)
 
 
 class IndependentNoiseSchedule:
@@ -340,6 +509,12 @@ def main():
                     help="Discrete softmax temperature on the patched tier_policies onnx "
                          "(samples softmax(logits/T)). >1 degrades the policy smoothly; "
                          "1.0 = expert. Needs a 'logits' output.")
+    ap.add_argument("--team0-temperature", type=float, default=None,
+                    help="SoccerTwos side-swapped calibration: static softmax temperature "
+                         "for team 0 (other team defaults to 1.0). Not resampled per match. "
+                         "Use with --team1-temperature to place both sides.")
+    ap.add_argument("--team1-temperature", type=float, default=None,
+                    help="Static softmax temperature for team 1 (see --team0-temperature).")
     ap.add_argument(
         "--team-epsilon-values",
         help=(
@@ -385,6 +560,27 @@ def main():
             "'lo,hi' softmax-temperature range sampled i.i.d. per agent per episode "
             "(discrete action spaces, patched tier_policies onnx). Smooth alternative "
             "to --epsilon-range that samples plausible near-expert actions."
+        ),
+    )
+    ap.add_argument(
+        "--group-temperature-range",
+        help=(
+            "'lo,hi' softmax-temperature range sampled per GROUP per match (all agents "
+            "in a cooperative group share one drawn T for the whole group episode). "
+            "Cooperative analogue of --temperature-range: use for co-op scenes "
+            "(DungeonEscape) where a per-agent draw would let the group ride its "
+            "strongest member. Needs a 'logits' onnx."
+        ),
+    )
+    ap.add_argument(
+        "--team-temperature-range",
+        help=(
+            "'lo,hi' softmax-temperature range sampled per TEAM per match (both teams "
+            "on a field draw INDEPENDENTLY from this range; each team's two agents "
+            "share the drawn T for the whole match). Competitive self-play analogue of "
+            "--group-temperature-range: use for SoccerTwos so each match pairs two "
+            "teams of independently-drawn skill (a per-match skill gap = cross-checkpoint "
+            "league play). Tier by the ego team's own drawn T. Needs a 'logits' onnx."
         ),
     )
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
@@ -448,6 +644,36 @@ def main():
             "scalar --temperature is not compatible with --team/group-epsilon-values"
         )
 
+    group_temperature_range = _parse_range(args.group_temperature_range)
+    if group_temperature_range is not None:
+        if independent_range is not None:
+            raise ValueError(
+                "--group-temperature-range is mutually exclusive with the per-agent "
+                "--noise-std-range/--epsilon-range/--temperature-range"
+            )
+        if (args.epsilon != 0.0 or args.noise_std != 0.0 or args.temperature != 1.0
+                or shared_team_values is not None or group_values is not None):
+            raise ValueError(
+                "--group-temperature-range cannot be combined with scalar "
+                "--epsilon/--noise-std/--temperature or --team/group-epsilon-values"
+            )
+
+    team_temperature_range = _parse_range(args.team_temperature_range)
+    if team_temperature_range is not None:
+        if independent_range is not None or group_temperature_range is not None:
+            raise ValueError(
+                "--team-temperature-range is mutually exclusive with the per-agent "
+                "ranges and --group-temperature-range"
+            )
+        if (args.epsilon != 0.0 or args.noise_std != 0.0 or args.temperature != 1.0
+                or shared_team_values is not None or group_values is not None
+                or args.team0_temperature is not None or args.team1_temperature is not None):
+            raise ValueError(
+                "--team-temperature-range cannot be combined with scalar "
+                "--epsilon/--noise-std/--temperature, --team0/1-temperature, or "
+                "--team/group-epsilon-values"
+            )
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     existing_episode_files = sorted(out_dir.glob("ep_*.npz"))
@@ -494,11 +720,48 @@ def main():
     )
     if args.temperature != 1.0:
         print(f"[temperature] scalar softmax temperature={args.temperature}")
+
+    # Side-swapped calibration: static per-team temperature (team 0 at one T, team
+    # 1 at another; not resampled per match). Lets the epsilon calibration harness
+    # measure a temperature-degraded team vs the fixed stock team. Not for shipped
+    # tiers (those noise both teams symmetrically via scalar --temperature).
+    team_temperature = args.team0_temperature is not None or args.team1_temperature is not None
+    if team_temperature:
+        if not getattr(policy, "has_logits", False):
+            raise ValueError("--team0/1-temperature needs the patched 'logits' onnx.")
+        if (args.temperature != 1.0 or shared_team_values is not None
+                or group_values is not None or independent_range is not None
+                or args.epsilon != 0.0 or args.noise_std != 0.0):
+            raise ValueError(
+                "--team0/1-temperature (side-swapped calibration) cannot be combined "
+                "with scalar --temperature, --epsilon/--noise-std, ranges, or "
+                "team/group-epsilon values."
+            )
+        observed_teams = sorted({int(row["team_id"]) for row in agent_context})
+        if observed_teams != [0, 1]:
+            raise ValueError(f"--team0/1-temperature requires teams [0, 1], got {observed_teams}")
+        t0 = 1.0 if args.team0_temperature is None else float(args.team0_temperature)
+        t1 = 1.0 if args.team1_temperature is None else float(args.team1_temperature)
+        if t0 <= 0.0 or t1 <= 0.0:
+            raise ValueError("team temperatures must be > 0.")
+        temp_vec = np.array(
+            [t0 if int(agent_context[g]["team_id"]) == 0 else t1 for g in range(n)],
+            dtype=np.float64,
+        )
+        policy.set_temperature_by_agent(temp_vec)
+        print(f"[temperature] static per-team: team0={t0} team1={t1}")
+    group_temperature = group_temperature_range is not None
+    if group_temperature and not getattr(policy, "has_logits", False):
+        raise ValueError("--group-temperature-range needs the patched 'logits' onnx.")
+    team_temperature_r = team_temperature_range is not None
+    if team_temperature_r and not getattr(policy, "has_logits", False):
+        raise ValueError("--team-temperature-range needs the patched 'logits' onnx.")
     team_noise = shared_team_values is not None
     group_noise = group_values is not None
     independent_noise = independent_range is not None
     noised = (args.noise_std > 0.0 or args.epsilon > 0.0
-              or team_noise or group_noise or independent_noise)
+              or team_noise or group_noise or independent_noise or group_temperature
+              or team_temperature_r)
     independent_schedule = None
     if noised:
         policy = NoisyPolicy(
@@ -515,6 +778,16 @@ def main():
             print(
                 "[noise] per-group match schedule "
                 f"group={group_values} seed={args.noise_seed}"
+            )
+        elif group_temperature:
+            print(
+                "[noise] per-group per-match temperature range="
+                f"{group_temperature_range} seed={args.noise_seed}"
+            )
+        elif team_temperature_r:
+            print(
+                "[noise] per-team per-match temperature range="
+                f"{team_temperature_range} seed={args.noise_seed}"
             )
         elif independent_noise:
             independent_schedule = IndependentNoiseSchedule(
@@ -544,6 +817,11 @@ def main():
         spec_meta["dataset_quality"] = args.dataset_quality
     if args.temperature != 1.0:
         spec_meta["temperature"] = float(args.temperature)
+    if team_temperature:
+        spec_meta["team_temperature"] = {
+            "team0": 1.0 if args.team0_temperature is None else float(args.team0_temperature),
+            "team1": 1.0 if args.team1_temperature is None else float(args.team1_temperature),
+        }
     if noised:
         if team_noise:
             spec_meta["noise"] = {
@@ -556,6 +834,20 @@ def main():
             spec_meta["noise"] = {
                 "mode": "per_group_per_match",
                 "group_epsilon_values": list(group_values),
+                "noise_seed": args.noise_seed,
+            }
+        elif group_temperature:
+            spec_meta["noise"] = {
+                "mode": "per_group_per_match",
+                "dial": "temperature",
+                "range": [group_temperature_range[0], group_temperature_range[1]],
+                "noise_seed": args.noise_seed,
+            }
+        elif team_temperature_r:
+            spec_meta["noise"] = {
+                "mode": "per_team_per_match",
+                "dial": "temperature",
+                "range": [team_temperature_range[0], team_temperature_range[1]],
                 "noise_seed": args.noise_seed,
             }
         elif independent_noise:
@@ -644,7 +936,7 @@ def main():
                 for field_key in field_sizes
             },
         )
-        policy.set_epsilon_by_agent(team_noise_schedule.epsilon_vector())
+        team_noise_schedule.push(policy)
 
     group_noise_schedule = None
     if group_noise:
@@ -657,11 +949,50 @@ def main():
                 for field_key in field_sizes
             },
         )
-        policy.set_epsilon_by_agent(group_noise_schedule.epsilon_vector())
+        group_noise_schedule.push(policy)
 
-    # One of the two schedules (if any) drives per-match epsilon resampling; both
-    # expose start_match()/epsilon_vector().
-    active_schedule = team_noise_schedule or group_noise_schedule
+    group_range_schedule = None
+    if group_temperature:
+        group_range_schedule = GroupRangeSchedule(
+            agent_context,
+            "temperature",
+            group_temperature_range[0],
+            group_temperature_range[1],
+            args.noise_seed,
+            {
+                field_key: field_episode_counts[field_key] // field_sizes[field_key]
+                for field_key in field_sizes
+            },
+        )
+        group_range_schedule.push(policy)
+
+    team_range_schedule = None
+    if team_temperature_r:
+        observed_teams = sorted({int(row["team_id"]) for row in agent_context})
+        if observed_teams != [0, 1]:
+            raise ValueError(
+                "--team-temperature-range currently requires exactly teams [0, 1], "
+                f"got {observed_teams}"
+            )
+        team_range_schedule = TeamRangeSchedule(
+            agent_context,
+            "temperature",
+            team_temperature_range[0],
+            team_temperature_range[1],
+            args.noise_seed,
+            {
+                field_key: field_episode_counts[field_key] // field_sizes[field_key]
+                for field_key in field_sizes
+            },
+        )
+        team_range_schedule.push(policy)
+
+    # One per-match schedule (if any) drives resampling on completed matches; each
+    # exposes start_match() + push(policy).
+    active_schedule = (
+        team_noise_schedule or group_noise_schedule
+        or group_range_schedule or team_range_schedule
+    )
 
     def flush(g, terminated, truncated):
         nonlocal ep_count
@@ -726,6 +1057,28 @@ def main():
             metadata.update(
                 {
                     "group_epsilon": group_noise_schedule.epsilon_for_agent(g),
+                    "noise_seed": args.noise_seed,
+                }
+            )
+        if group_range_schedule is not None:
+            metadata.update(
+                {
+                    # per-group shared value; keyed by dial name ("temperature") so
+                    # the same validators read it as the per-agent range does.
+                    group_range_schedule.dial: group_range_schedule.value_for_agent(g),
+                    "group_temperature": group_range_schedule.value_for_agent(g),
+                    "noise_seed": args.noise_seed,
+                }
+            )
+        if team_range_schedule is not None:
+            metadata.update(
+                {
+                    # ego team's own drawn T (keyed by dial name so validators read it
+                    # like the per-agent range) plus the opponent team's independent
+                    # draw (env variety / enables T-gap analysis).
+                    team_range_schedule.dial: team_range_schedule.value_for_agent(g),
+                    "team_temperature": team_range_schedule.value_for_agent(g),
+                    "opponent_temperature": team_range_schedule.opponent_value_for_agent(g),
                     "noise_seed": args.noise_seed,
                 }
             )
@@ -821,7 +1174,7 @@ def main():
                     field_episode_counts[field_key] // field_sizes[field_key],
                 )
             if ended_fields:
-                policy.set_epsilon_by_agent(active_schedule.epsilon_vector())
+                active_schedule.push(policy)
 
         if independent_schedule is not None and flushed_agents:
             for g in flushed_agents:
