@@ -8,8 +8,8 @@ Source-agnostic: the episodes can come from any environment. Each `.npz` holds
 (length T); a sibling `spec.json` declares the obs channels and action kind.
 
 The dataset is env-less: observation/action spaces are declared explicitly and no
-gym env is attached, so it has no `recover_environment()`. Load it with
-`recover_env=False`.
+gym env is attached, so `minari.load_dataset(id)` returns a dataset with no
+`recover_environment()`.
 
 Spaces follow the declared structure, not a forced flat layout:
 
@@ -20,6 +20,10 @@ Spaces follow the declared structure, not a forced flat layout:
     it is simply the honest, per-sensor form.
   - **action** — `Box[-1, 1]` (continuous), `Discrete`/`MultiDiscrete`
     (discrete), or `Tuple(Box, Discrete/MultiDiscrete)` (hybrid).
+  - **ego-agent wrapper** (`--ego-agent`) — for multi-agent recordings, both of
+    the above are nested under `Dict{"agents": {<key>: ...}}`, so a consumer
+    reads `observations["agents"]["agent_0"]`. One ego episode per physical
+    agent; the wrapper names whose trajectory the episode is.
 
 Raw `.npz` obs/actions are stored flat; this packager splits them by the declared
 dims into the structured leaf arrays Minari stores. Older raw dirs without
@@ -103,6 +107,26 @@ def _split_actions(raw, action_kind, spec):
     raise SystemExit(f"Unknown action_kind {action_kind!r}")
 
 
+# Group key of the ego-agent schema. The collector writes one episode per
+# physical agent, so there is exactly one ego key per episode; the nesting names
+# whose trajectory it is without changing the leaf spaces underneath.
+_EGO_GROUP = "agents"
+
+
+def _wrap_ego_space(space, ego_agent):
+    """`Dict{"agents": {<ego>: space}}`, or `space` unchanged when not requested."""
+    if ego_agent is None:
+        return space
+    return gym.spaces.Dict({_EGO_GROUP: gym.spaces.Dict({ego_agent: space})})
+
+
+def _wrap_ego_value(value, ego_agent):
+    """Nest one episode's obs/action payload to match `_wrap_ego_space`."""
+    if ego_agent is None:
+        return value
+    return {_EGO_GROUP: {ego_agent: value}}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw", required=True, help="Dir of ep_*.npz files from collect.py.")
@@ -116,10 +140,21 @@ def main():
         default=1000,
         help="Episodes appended per HDF5 write (bounds memory for many short episodes).",
     )
+    ap.add_argument(
+        "--ego-agent",
+        default=None,
+        metavar="KEY",
+        help="Multi-agent: nest obs/action under Dict{'agents': {KEY: ...}} "
+             "(the published SoccerTwos / DungeonEscape datasets use 'agent_0'). "
+             "Omit for the flat single-agent schema.",
+    )
     args = ap.parse_args()
 
     if args.batch_episodes < 1:
         raise SystemExit("--batch-episodes must be at least 1")
+
+    if args.ego_agent is not None and not args.ego_agent.strip():
+        raise SystemExit("--ego-agent must be a non-empty key (e.g. 'agent_0')")
 
     files = sorted(Path(args.raw).glob("ep_*.npz"))
     if not files:
@@ -139,8 +174,12 @@ def main():
             f"obs_channels {obs_channels} (sum={sum(obs_channels)}) != stored obs dim {flat_obs_dim}."
         )
 
-    observation_space = _build_observation_space(obs_channels)
-    action_space = _build_action_space(action_kind, spec, first)
+    observation_space = _wrap_ego_space(
+        _build_observation_space(obs_channels), args.ego_agent
+    )
+    action_space = _wrap_ego_space(
+        _build_action_space(action_kind, spec, first), args.ego_agent
+    )
 
     buffers = []
     ds = None
@@ -178,8 +217,8 @@ def main():
         buffers.append(
             EpisodeBuffer(
                 id=i,
-                observations=obs,
-                actions=act,
+                observations=_wrap_ego_value(obs, args.ego_agent),
+                actions=_wrap_ego_value(act, args.ego_agent),
                 rewards=list(rew),
                 terminations=list(term),
                 truncations=list(trunc),

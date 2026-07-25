@@ -86,15 +86,22 @@ python collect.py \
 python ../../collection/build_minari.py \
     --raw raw_soccer/ \
     --dataset-id unity/soccer-twos/expert-v0 \
+    --ego-agent agent_0 \
     --description "ML-Agents SoccerTwos release-23 stock self-play trajectories."
 ```
 
 The collector writes each ego-agent trajectory as one episode and writes match
 relationships (`match_id`, `field_id`, `team_id`, `group_id`) to the adjacent
-`manifest.jsonl`. The current source-agnostic Minari packager consumes the
-episode arrays, not that sidecar metadata; decentralized shared-policy training
-therefore sees independent per-agent episodes. Retain the manifest for W/D/L,
-team-return, provenance, and future group-aware processing.
+`manifest.jsonl`. `--ego-agent` nests both spaces under
+`Dict{"agents": {"agent_0": ...}}`, so a consumer reads
+`observations["agents"]["agent_0"]` and the episode says whose trajectory it is —
+this is the schema the published SoccerTwos and DungeonEscape datasets use. The
+leaf spaces are unchanged by the wrapper.
+
+The packager consumes the episode arrays, not the `manifest.jsonl` sidecar;
+decentralized shared-policy training therefore sees independent per-agent
+episodes. Retain the manifest for W/D/L, team-return, provenance, and future
+group-aware processing.
 
 ## Observation & action spaces
 
@@ -109,6 +116,14 @@ change**:
 - **Action** — `Box[-1, 1]` (continuous), `Discrete` / `MultiDiscrete`
   (discrete), or `Tuple(Box, Discrete/MultiDiscrete)` (hybrid — continuous and
   discrete together, e.g. move + jump).
+- **Multi-agent** — `--ego-agent KEY` nests either of the above under
+  `Dict{"agents": {KEY: ...}}`. The leaf spaces are unchanged; the wrapper only
+  names whose trajectory the episode holds.
+
+Whichever shape a build produces, the declared space *is* the interface —
+`causal_gpt_rl` walks `Tuple` / `Dict` nesting down to the same leaf specs, so a
+bare `Box`, a per-sensor `Tuple`, and an ego `Dict` are all ingested the same
+way with no adapter.
 
 Two worked builds:
 
@@ -166,6 +181,38 @@ norm = 100 * (return - random_ref) / (expert_ref - random_ref)
 above. For a discrete behavior, Gaussian noise is meaningless; use `--epsilon`
 (random-action probability) instead, which is also how `random_ref` is measured
 (`--epsilon 1`).
+
+### Degradation dials
+
+A scalar dial gives every episode the same skill. A **range** dial instead draws
+a value i.i.d. per agent per episode — keyed by `(--noise-seed, agent_index,
+episode_index)`, so it is reproducible and independent of traversal order — which
+records a *spread* of skill levels whose mean lands the tier, closer to a span of
+early-training checkpoints than to one uniformly-degraded policy.
+
+| Dial | Action space | Scope | Flag |
+|---|---|---|---|
+| Gaussian noise | continuous | scalar | `--noise-std` |
+| Gaussian noise | continuous | per episode | `--noise-std-range lo,hi` |
+| Random-action ε | discrete | scalar | `--epsilon` |
+| Random-action ε | discrete | per episode | `--epsilon-range lo,hi` |
+| Softmax temperature | discrete | scalar | `--temperature` |
+| Softmax temperature | discrete | per episode | `--temperature-range lo,hi` |
+| Random-action ε | discrete | per team, per match | `--team-epsilon-values` (+ `--team0/1-epsilon-values`) |
+| Random-action ε | discrete | per cooperative group, per match | `--group-epsilon-values` |
+
+The three range dials are mutually exclusive. Temperature samples
+`softmax(logits / T)` and so needs a policy with a `logits` output (the patched
+`tier_policies` ONNX); `T = 1.0` is expert and larger `T` degrades smoothly,
+sampling plausible near-expert actions rather than uniformly random ones — which
+is why it is preferred over `--epsilon` where a `logits` output is available.
+
+Team and group pools share the sampled strength across a whole match, so a
+degraded team is degraded *together* rather than per agent. They are epsilon-only
+and mutually exclusive with each other.
+
+Record the tier label and policy identity as provenance with `--dataset-quality
+{simple,medium,expert,random}`, `--policy-id`, and `--opponent-policy-id`.
 
 ## Measure return
 
