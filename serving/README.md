@@ -25,9 +25,10 @@ docker build -f serving/Dockerfile -t causal-gpt-rl-serving .
 
 ## Run locally
 
-Mount an exported bundle directory (containing `config.json`,
-`model.safetensors`, and `state_normalizer.safetensors`) at `/opt/ml/model`,
-the path SageMaker uses:
+Mount an exported bundle directory at `/opt/ml/model`, the path SageMaker uses.
+A current (v2) bundle is two files — `config.json` and `model.safetensors`, which
+carries the state-normalization statistics inside it. Older v1 bundles also ship
+a `state_normalizer.safetensors` sidecar and still load.
 
 ```bash
 docker run --rm -p 8080:8080 \
@@ -74,10 +75,27 @@ A bare JSON list is also accepted and treated as `observations`.
 
 | Env var | Default | Description |
 |---|---|---|
-| `MODEL_PATH` | `/opt/ml/model` | Bundle directory to load. |
+| `MODEL_PATH` | `/opt/ml/model` | Where to find the bundle (see below). |
 | `INFERENCE_DEVICE` | `cpu` | Torch device for inference. |
+| `LOG_LEVEL` | `INFO` | Container log level. |
 | `KV_CACHE_MAX_LEN` | _(bundle default)_ | Override the KV cache cap. |
 | `USE_WINDOWED` | `0` | Use windowed prediction instead of cached KV. |
 | `GUNICORN_WORKERS` | `1` | Worker processes. |
 | `GUNICORN_THREADS` | `4` | Threads per worker. |
 | `GUNICORN_TIMEOUT` | `120` | Worker timeout (seconds). |
+
+### Bundle location
+
+`MODEL_PATH` does not have to be the bundle directory itself. The container
+looks, in order, for:
+
+1. `MODEL_PATH/config.json` — a mounted export, a Hugging Face snapshot, or a
+   single downloaded checkpoint slot.
+2. `MODEL_PATH/bundle/config.json`.
+3. exactly one `MODEL_PATH/*/bundle/config.json` — the layout SageMaker produces
+   when it extracts a training artifact, where the bundle sits under a run
+   namespace the deployer cannot know in advance.
+
+If nothing matches, or more than one candidate does, startup fails with the
+paths it considered rather than guessing. Set `MODEL_PATH` to the exact bundle
+directory to override.

@@ -37,8 +37,10 @@ Copyright (c) 2026 CCNets, Inc. All rights reserved.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -53,9 +55,60 @@ USE_WINDOWED = os.environ.get("USE_WINDOWED", "0").lower() in ("1", "true", "yes
 
 app = Flask(__name__)
 
+# This module is the application entry point, so it owns log configuration.
+# Without it a bundle-load failure would only reach the default WARNING-level
+# handler and the resolved-path line would be dropped entirely.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 _runner: PolicyRunner | None = None
 _runner_lock = threading.Lock()
 _inference_lock = threading.Lock()
+
+_CONFIG_FILENAME = "config.json"
+
+
+def resolve_bundle_dir(model_path: str | Path) -> Path:
+    """Locate the bundle directory under `model_path`.
+
+    SageMaker extracts the training artifact into the model directory with the
+    bundle nested under `<run-namespace>/bundle/`, while a mounted export, a
+    Hugging Face snapshot, or a single downloaded checkpoint slot is the bundle
+    directory itself. Resolve all of those without asking the deployer to know
+    the run namespace ahead of time:
+
+    1. `model_path` is already a bundle.
+    2. `model_path/bundle`.
+    3. exactly one `model_path/*/bundle`.
+
+    Ambiguity is an error, not a guess: zero or multiple candidates raise with
+    the paths that were considered.
+    """
+    root = Path(model_path)
+    if (root / _CONFIG_FILENAME).is_file():
+        return root
+    if (root / "bundle" / _CONFIG_FILENAME).is_file():
+        return root / "bundle"
+
+    candidates = sorted(
+        match.parent for match in root.glob(f"*/bundle/{_CONFIG_FILENAME}")
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise FileNotFoundError(
+            f"No inference bundle under {root}: expected {_CONFIG_FILENAME} at "
+            f"{root}, {root / 'bundle'}, or exactly one {root}/*/bundle. "
+            "Set MODEL_PATH to the bundle directory."
+        )
+    listed = ", ".join(str(path) for path in candidates)
+    raise RuntimeError(
+        f"Multiple inference bundles under {root}: {listed}. "
+        "Set MODEL_PATH to the one to serve."
+    )
 
 
 def get_runner() -> PolicyRunner:
@@ -65,8 +118,10 @@ def get_runner() -> PolicyRunner:
         with _runner_lock:
             if _runner is None:
                 kv = int(KV_CACHE_MAX_LEN) if KV_CACHE_MAX_LEN else None
+                bundle_dir = resolve_bundle_dir(MODEL_PATH)
+                logger.info("Loading bundle from %s", bundle_dir)
                 _runner = load_runner(
-                    MODEL_PATH,
+                    bundle_dir,
                     device=DEVICE,
                     num_envs=1,
                     kv_cache_max_len=kv,
@@ -120,6 +175,9 @@ def ping() -> Response:
         get_runner()
         status = 200
     except Exception:  # noqa: BLE001 - report any load failure as unhealthy.
+        # SageMaker only sees the status code, so the reason has to reach the
+        # container log or a failed deployment has no diagnostic anywhere.
+        logger.exception("Model load failed; reporting unhealthy")
         status = 503
     return Response(response="\n", status=status, mimetype="application/json")
 
