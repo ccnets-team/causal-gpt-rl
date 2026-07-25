@@ -74,7 +74,7 @@ Flattened action shape: (9,)
 State specs: [continuous(size=336)]
 Action specs: [multi_discrete(size=3), multi_discrete(size=3), multi_discrete(size=3)]
 Evaluation mode: offline
-Checkpoint metric: eval/action_nll
+Checkpoint metric: offline_eval/action_nll
 Metric direction: min
 ```
 
@@ -97,14 +97,14 @@ The default evaluation reports an overall value and per-context-length values:
 
 | Metric | Description |
 | --- | --- |
-| `Eval/ActionNll` | Representative Action NLL across all eval scoring positions. |
-| `Eval/ShortContextActionNll` | Positions in the `0`–`0.5x` range of the training context length. |
-| `Eval/SteadyActionNll` | Positions in the `0.5`–`1.0x` range. |
-| `Eval/LongContextActionNll` | Positions beyond the training context length, `1.0x` and above. |
+| `OfflineEval/ActionNll` | Representative Action NLL across all eval scoring positions. |
+| `OfflineEval/ShortContextActionNll` | Positions in the `0`–`0.5x` range of the training context length. |
+| `OfflineEval/StandardContextActionNll` | Positions in the `0.5`–`1.0x` range. |
+| `OfflineEval/LongContextActionNll` | Positions beyond the training context length, `1.0x` and above. |
 
 To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required. When dataset episodes are short or padded, only valid positions are averaged.
 
-`Eval/ActionNll` is also the checkpoint-selection metric shown in the startup summary (`Checkpoint metric: eval/action_nll`, `Metric direction: min`): lower values rank as better checkpoints.
+`OfflineEval/ActionNll` is also the checkpoint-selection metric shown in the startup summary (`Checkpoint metric: offline_eval/action_nll`, `Metric direction: min`): lower values rank as better checkpoints.
 
 ### Forecast Metrics
 
@@ -172,15 +172,23 @@ The current Marketplace training example uses a single training instance type:
 ## Output Bundles
 
 The final `model.tar.gz` contains a canonical `<namespace>/bundle/` for normal
-inference. Intermediate `snapshots/slot_NNN/` policy bundles are not duplicated
-in the final artifact; they are live-synced during training under the configured
-checkpoint S3 prefix and can be loaded without restoring a training checkpoint.
+inference.
+
+Training does not make you wait for it. Policy bundles are exported while the
+job runs and synced to the configured checkpoint S3 prefix, so you can load an
+in-progress policy with the public runtime and roll it out in your own
+environment. Because the job cannot measure episode return offline, this is the
+only way to see real task performance before a run finishes — and the way to
+stop a run that is not learning.
+
+See `training/docs/aws/sagemaker-realtime-policy-delivery.md`.
 
 ## More Details
 
 - Input datasets: `training/docs/aws/sagemaker-input-datasets.md`
 - Hyperparameters: `training/docs/aws/sagemaker-hyperparameters.md`
 - Output artifact: `training/docs/aws/sagemaker-output-artifacts.md`
+- Real-time policy delivery: `training/docs/aws/sagemaker-realtime-policy-delivery.md`
 - Checkpoints: `training/docs/aws/sagemaker-checkpoints.md`
 - Retraining: `training/docs/aws/sagemaker-retraining.md`
     

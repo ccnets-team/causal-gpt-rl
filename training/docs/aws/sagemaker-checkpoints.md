@@ -52,11 +52,11 @@ At most 10 checkpoint slots are kept. After `model_checkpoint_slot_009.pt`, trai
 The training job tracks an evaluation metric and direction so checkpoints can be ranked by quality. The startup log reports both:
 
 ```text
-Checkpoint metric: eval/action_nll
+Checkpoint metric: offline_eval/action_nll
 Metric direction: min
 ```
 
-`eval/action_nll` is the held-out Action NLL (lower is better). Each `snapshots/slot_NNN/metrics.json` records this metric for its slot. See the eval metrics in `training/docs/aws/aws-marketplace-training.md` for details.
+`offline_eval/action_nll` is the held-out Action NLL (lower is better). Each `snapshots/slot_NNN/metrics.json` records this metric for its slot. See the eval metrics in `training/docs/aws/aws-marketplace-training.md` for details.
 
 ## Canonical Bundle and Live Snapshots
 
@@ -75,9 +75,18 @@ model.tar.gz
 ```
 
 - `bundle/` is the canonical inference bundle to load by default.
-- `<checkpoint-prefix>/<namespace>/snapshots/slot_NNN/` are intermediate policy bundles aligned with checkpoint slots. They can be loaded by the public inference runtime without restoring a training checkpoint.
+- `<checkpoint-prefix>/<namespace>/snapshots/slot_NNN/` are policy bundles delivered while training runs. They load with the public inference runtime without restoring a training checkpoint. See `training/docs/aws/sagemaker-realtime-policy-delivery.md`.
 - `archive/*.pt` checkpoints are for resume/retraining, not normal inference.
 
 ## Why Snapshots Exist
 
-Checkpoint `.pt` files contain optimizer and scheduler state and are meant for training resume. Snapshot bundles are exported and live-synced through the checkpoint path so intermediate policies can be inspected or loaded with `causal_gpt_rl.inference` without the training stack or waiting for the final model artifact. To roll out a policy, the caller still needs compatible observations or an evaluation environment, but not the original training job state.
+Checkpoint `.pt` files contain optimizer and scheduler state and are meant for
+training resume. Snapshot bundles are a different thing: they are the product's
+real-time policy delivery path. Each one is a complete inference bundle, synced
+out while the job runs, so a policy can be evaluated in your own environment
+before training finishes.
+
+This document covers the checkpoint plumbing. For what the delivered bundles are
+for and how to consume them — finding them, reading the manifest, polling for new
+ones, and stopping a run early — see
+`training/docs/aws/sagemaker-realtime-policy-delivery.md`.
