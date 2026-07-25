@@ -252,12 +252,6 @@ def export_bundle(
     capabilities = set(requires_capabilities or [])
     if len(set(action_types)) > 1:
         capabilities.add("hybrid_action")
-    # Discrete/one-hot state needs the input adapter (gym.flatten + continuous-
-    # first permutation); a runtime that feeds raw state would mis-shape it, so
-    # gate it behind "hybrid_state". Pure-continuous state stays ungated — its
-    # flatten is a plain concat and the permutation is identity.
-    if any(s.type != "continuous" for s in state_specs):
-        capabilities.add("hybrid_state")
 
     # Serialized declared Gymnasium spaces — the lossless schema gym.spaces
     # .unflatten needs. The model stores only flat head sizes; structure (Dict
@@ -278,6 +272,23 @@ def export_bundle(
     # never gated. (Mirrors the input side: hybrid_state gates structured obs.)
     if action_container is not None and action_container["type"] in ("Dict", "Tuple"):
         capabilities.add("action_container")
+
+    # Structured observations need the input adapter (gym.flatten + continuous-
+    # first permutation) before the model sees them, so gate them behind
+    # "hybrid_state" — an older runtime then refuses loudly instead of feeding a
+    # raw observation of the wrong shape. Two independent things make a state
+    # structured: a non-continuous leaf, whose one-hot block the permutation has
+    # to reorder; or a Dict/Tuple container the caller passes and gym.flatten has
+    # to collapse. The second is why this gate cannot be decided from
+    # `state_specs` alone — a Dict of all-Box leaves produces uniformly
+    # continuous specs, yet an unaware runtime still expects a flat array and
+    # fails obscurely on the container it was handed. A bare Box with continuous
+    # specs stays ungated: its flatten is a plain concat and the permutation is
+    # identity. (Mirrors `action_container` on the output side.)
+    if state_container is not None and state_container["type"] in ("Dict", "Tuple"):
+        capabilities.add("hybrid_state")
+    elif any(s.type != "continuous" for s in state_specs):
+        capabilities.add("hybrid_state")
 
     config_payload = {
         "bundle_format_version": bundle_format_version,
