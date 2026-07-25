@@ -193,23 +193,39 @@ early-training checkpoints than to one uniformly-degraded policy.
 | Dial | Action space | Scope | Flag |
 |---|---|---|---|
 | Gaussian noise | continuous | scalar | `--noise-std` |
-| Gaussian noise | continuous | per episode | `--noise-std-range lo,hi` |
+| Gaussian noise | continuous | per agent, per episode | `--noise-std-range lo,hi` |
 | Random-action ε | discrete | scalar | `--epsilon` |
-| Random-action ε | discrete | per episode | `--epsilon-range lo,hi` |
+| Random-action ε | discrete | per agent, per episode | `--epsilon-range lo,hi` |
 | Softmax temperature | discrete | scalar | `--temperature` |
-| Softmax temperature | discrete | per episode | `--temperature-range lo,hi` |
-| Random-action ε | discrete | per team, per match | `--team-epsilon-values` (+ `--team0/1-epsilon-values`) |
+| Softmax temperature | discrete | per agent, per episode | `--temperature-range lo,hi` |
 | Random-action ε | discrete | per cooperative group, per match | `--group-epsilon-values` |
+| Softmax temperature | discrete | per cooperative group, per match | `--group-temperature-range lo,hi` |
+| Random-action ε | discrete | per team, per match | `--team-epsilon-values` (+ `--team0/1-epsilon-values`) |
+| Softmax temperature | discrete | per team, per match | `--team-temperature-range lo,hi` |
+| Softmax temperature | discrete | static per side (not resampled) | `--team0-temperature` / `--team1-temperature` |
 
-The three range dials are mutually exclusive. Temperature samples
-`softmax(logits / T)` and so needs a policy with a `logits` output (the patched
-`tier_policies` ONNX); `T = 1.0` is expert and larger `T` degrades smoothly,
-sampling plausible near-expert actions rather than uniformly random ones — which
-is why it is preferred over `--epsilon` where a `logits` output is available.
+The dials are mutually exclusive — pick one mode per run.
 
-Team and group pools share the sampled strength across a whole match, so a
-degraded team is degraded *together* rather than per agent. They are epsilon-only
-and mutually exclusive with each other.
+Temperature samples `softmax(logits / T)`, so it needs a policy with a `logits`
+output (the patched `tier_policies` ONNX); `T = 1.0` is expert and larger `T`
+degrades smoothly, sampling plausible near-expert actions rather than uniformly
+random ones — which is why it is preferred over `--epsilon` wherever a `logits`
+output is available.
+
+Pick the **scope** to match the scene:
+
+- **Single-agent** — the per-agent/per-episode ranges. Not compatible with the
+  team/group dials.
+- **Cooperative group** (DungeonEscape) — `--group-*`: all agents in a group
+  share one drawn value for the whole group episode, because a per-agent draw
+  would let the group ride its strongest member.
+- **Competitive self-play** (SoccerTwos) — `--team-*`: both teams on a field draw
+  *independently* from the range and each team's agents share the draw for the
+  match, so every match pairs two teams of independently-drawn skill — a
+  per-match skill gap, i.e. cross-checkpoint league play. The tier is defined by
+  the ego team's own drawn value.
+- **Side-swapped calibration** — `--team0-temperature` / `--team1-temperature`
+  place a static value on each side instead of resampling per match.
 
 Record the tier label and policy identity as provenance with `--dataset-quality
 {simple,medium,expert,random}`, `--policy-id`, and `--opponent-policy-id`.
