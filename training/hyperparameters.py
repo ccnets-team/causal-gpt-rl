@@ -20,6 +20,12 @@ context_length       : (int)    RL trajectory context window passed to the
                                 Hugging Face Transformers Llama backbone.
                                 Applies both at training time and to the
                                 exported model at inference.
+
+archive_steps        : (list)   Training steps to preserve permanently, on top
+                                of the evenly spaced points the job already
+                                keeps. Preserved points are never rotated away,
+                                so each one costs disk for the whole run. At
+                                most 10, each within 0 < step <= max_steps.
 -------------------------------------------------------------------
 """
 
@@ -57,6 +63,9 @@ class Hyperparameters:
     num_layers: int = 4                                         # transformer layer count
     dropout: float = 0.05                                       # transformer dropout probability
     context_length: int = 32                                    # trajectory timesteps visible to the policy
+
+    # 5) Checkpointing
+    archive_steps: Optional[list[int]] = None                   # steps to preserve permanently; max 10, 0 < step <= max_steps
 
     # -----------------------
     # Methods

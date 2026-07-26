@@ -76,9 +76,9 @@ def resolve_bundle_dir(model_path: str | Path) -> Path:
 
     SageMaker extracts the training artifact into the model directory with the
     bundle nested under `<run-namespace>/bundle/`, while a mounted export, a
-    Hugging Face snapshot, or a single downloaded checkpoint slot is the bundle
-    directory itself. Resolve all of those without asking the deployer to know
-    the run namespace ahead of time:
+    Hugging Face snapshot, or a single checkpoint bundle downloaded from the
+    checkpoint prefix is the bundle directory itself. Resolve all of those
+    without asking the deployer to know the run namespace ahead of time:
 
     1. `model_path` is already a bundle.
     2. `model_path/bundle`.

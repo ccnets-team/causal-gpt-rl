@@ -90,7 +90,7 @@ A bare JSON list is also accepted and treated as `observations`.
 looks, in order, for:
 
 1. `MODEL_PATH/config.json` — a mounted export, a Hugging Face snapshot, or a
-   single downloaded checkpoint slot.
+   single checkpoint bundle downloaded from the checkpoint prefix.
 2. `MODEL_PATH/bundle/config.json`.
 3. exactly one `MODEL_PATH/*/bundle/config.json` — the layout SageMaker produces
    when it extracts a training artifact, where the bundle sits under a run

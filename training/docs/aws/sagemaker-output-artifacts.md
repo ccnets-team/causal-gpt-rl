@@ -13,7 +13,7 @@ s3://my-bucket/cgrl/output/<training-job-name>/output/model.tar.gz
 ## Artifact Layout
 
 After extracting `model.tar.gz`, find the canonical `bundle/` directory. The
-final artifact does not contain intermediate snapshots; those are live-synced
+final artifact does not contain the intermediate bundles; those are live-synced
 separately through the configured SageMaker checkpoint S3 prefix.
 
 ```text
@@ -33,8 +33,9 @@ model.tar.gz
 - `state_normalizer.safetensors`: Optional legacy sidecar. Current bundle format
   v2 embeds state normalization statistics in `model.safetensors`.
 
-Intermediate `snapshots/slot_NNN/` bundles and their `metrics.json` files live
-under the checkpoint prefix. See `training/docs/aws/sagemaker-checkpoints.md`.
+Intermediate bundles and their `metrics.json` files live under the checkpoint
+prefix, in `archive/bundles/step_NNNNNNN/` and `improvements/bundles/slot_NNN/`.
+See `training/docs/aws/sagemaker-checkpoints.md`.
 
 ## Load Example
 

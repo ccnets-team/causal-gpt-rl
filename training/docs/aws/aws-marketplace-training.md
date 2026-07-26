@@ -76,6 +76,9 @@ Action specs: [multi_discrete(size=3), multi_discrete(size=3), multi_discrete(si
 Evaluation mode: offline
 Checkpoint metric: offline_eval/action_nll
 Metric direction: min
+Archive periodic: 20000, 40000, 60000, 80000, 100000
+Archive steps: none
+Archive disk estimate: 500 MB for 5 point(s) (free: 24.3 GB)
 ```
 
 Key items to confirm:
@@ -86,6 +89,7 @@ Key items to confirm:
 - Dataset, episode, and transition counts.
 - Dataset validation result and the minimum required episode length.
 - Evaluation mode and the checkpoint-selection metric.
+- The archive schedule: which steps are preserved for the whole run, including any you requested with `archive_steps`, and what they cost on disk.
 
 The original environment action and the model's flattened action shape are shown together so that action-encoding mistakes are easy to spot. For example, a `MultiDiscrete([3, 3, 3])` action is three environment indices, but the model's flattened action shape is `(9,)` — the sum of the one-hot blocks. Seeing both values makes an incorrect encoding obvious.
 
@@ -104,7 +108,7 @@ The default evaluation reports an overall value and per-context-length values:
 
 To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required. When dataset episodes are short or padded, only valid positions are averaged.
 
-`OfflineEval/ActionNll` is also the checkpoint-selection metric shown in the startup summary (`Checkpoint metric: offline_eval/action_nll`, `Metric direction: min`): lower values rank as better checkpoints.
+`OfflineEval/ActionNll` is also the checkpoint-selection metric shown in the startup summary (`Checkpoint metric: offline_eval/action_nll`, `Metric direction: min`): lower values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step.
 
 ### Forecast Metrics
 
@@ -180,6 +184,11 @@ in-progress policy with the public runtime and roll it out in your own
 environment. Because the job cannot measure episode return offline, this is the
 only way to see real task performance before a run finishes — and the way to
 stop a run that is not learning.
+
+Bundles arrive in two series. `archive/` holds an even sample of the run plus
+any steps you requested, kept permanently; it is the series to score when you
+are deciding whether to let a run continue. `improvements/` holds the best-so-far
+track by the offline metric, in 10 rotating slots.
 
 See `training/docs/aws/sagemaker-realtime-policy-delivery.md`.
 

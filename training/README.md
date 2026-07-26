@@ -38,6 +38,7 @@ AWS Marketplace/SageMaker training notes live under `training/docs/aws/`:
 - `training/docs/aws/sagemaker-input-datasets.md`
 - `training/docs/aws/sagemaker-hyperparameters.md`
 - `training/docs/aws/sagemaker-output-artifacts.md`
+- `training/docs/aws/sagemaker-realtime-policy-delivery.md`
 - `training/docs/aws/sagemaker-checkpoints.md`
 - `training/docs/aws/sagemaker-retraining.md`
 
