@@ -1,7 +1,7 @@
 """Byte-oracle check against the trainer's delivered hybrid bundle fixture.
 
 The trainer ships a real exported bundle plus a `meta.json` oracle under
-`.local/fixtures/` (gitignored, hand-delivered). This test cross-checks the
+`.local/test/fixtures/bundles/` (gitignored, hand-delivered). This test cross-checks the
 serving P4 input adapter (and the L2 output primitive) against that oracle:
 
   * adapter(raw_obs) == expected_flat        (gym.flatten + continuous-first)
@@ -28,7 +28,9 @@ from causal_gpt_rl.inference.spaces import deserialize_space
 _FIXTURE_DIR = (
     Path(__file__).resolve().parents[1]
     / ".local"
+    / "test"
     / "fixtures"
+    / "bundles"
     / "hybrid-bundle-dict-box3-disc4"
 )
 

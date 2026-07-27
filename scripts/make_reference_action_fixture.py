@@ -3,7 +3,7 @@
 Serving-side self-test + an exact template for the trainer's real fixture
 (consumed by ``tests/test_fixture_hybrid_action_bundle.py``). Produces a
 container-action bundle ``Tuple(Box(2), Discrete(3))`` under
-``.local/fixtures/hybrid-action-bundle/`` with a ``meta.json`` oracle computed
+``.local/test/fixtures/bundles/hybrid-action-bundle/`` with a ``meta.json`` oracle computed
 INDEPENDENTLY of the runner (continuous clipped to bounds, categorical argmax +
 Discrete start). The runner must reproduce that oracle.
 
@@ -40,7 +40,13 @@ from causal_gpt_rl.inference.spaces import (
 from causal_gpt_rl.model.autoregressive_model import AutoregressiveModel
 from causal_gpt_rl.model.schema import ModelConfig, SpaceSpec
 
-_FIXTURES = Path(__file__).resolve().parents[1] / ".local" / "fixtures"
+_FIXTURES = (
+    Path(__file__).resolve().parents[1]
+    / ".local"
+    / "test"
+    / "fixtures"
+    / "bundles"
+)
 _OUT = _FIXTURES / "hybrid-action-bundle"
 _OUT_MB = _FIXTURES / "hybrid-action-multibinary"
 _CFG = ModelConfig(d_model=32, num_heads=4)

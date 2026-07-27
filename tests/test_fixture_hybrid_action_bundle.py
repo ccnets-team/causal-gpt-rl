@@ -2,7 +2,7 @@
 
 Mirror of ``test_fixture_hybrid_bundle.py`` on the action side. The trainer ships
 a real exported CONTAINER-action bundle plus a ``meta.json`` oracle under
-``.local/fixtures/<name>/`` (gitignored, hand-delivered). This test discovers any
+``.local/test/fixtures/bundles/<name>/`` (gitignored, hand-delivered). This test discovers any
 such fixture and cross-checks the serving P5 output adapter: the runner decodes a
 per-head flat model action into the declared Dict/Tuple container, and it must
 match the oracle.
@@ -43,7 +43,13 @@ import pytest
 
 from causal_gpt_rl.inference import bundle
 
-_FIXTURES_BASE = Path(__file__).resolve().parents[1] / ".local" / "fixtures"
+_FIXTURES_BASE = (
+    Path(__file__).resolve().parents[1]
+    / ".local"
+    / "test"
+    / "fixtures"
+    / "bundles"
+)
 
 
 def _discover_action_fixtures() -> list[Path]:
