@@ -78,4 +78,27 @@ class Hyperparameters:
                 print(f"Warning: No attribute '{k}' in Hyperparameters")
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        """Job payload, with list fields flattened to comma-separated strings.
+
+        SageMaker hyperparameters are ``Map<String,String>``: a managed run reads
+        ``/opt/ml/input/config/hyperparameters.json``, so whatever is submitted
+        arrives as a string. A Python list submitted here would arrive as its
+        ``repr`` -- ``"['a', 'b']"`` -- which the training job splits on commas
+        into broken values. Comma-separated is the only form that survives the
+        wire, so it is what this emits.
+
+        Unset stays ``None``; the training job reads that as "use the default".
+        """
+        payload = asdict(self)
+        for field in ("dataset_ids", "archive_steps"):
+            payload[field] = _as_csv(payload[field])
+        return payload
+
+
+def _as_csv(value) -> Optional[str]:
+    """Comma-join a list field, passing an already-joined string through."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    return ",".join(str(item) for item in value) or None

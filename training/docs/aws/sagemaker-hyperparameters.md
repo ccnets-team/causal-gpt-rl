@@ -1,6 +1,6 @@
 ﻿# SageMaker Hyperparameters
 
-This document lists only the minimum details needed to pass hyperparameters to a SageMaker training job. The canonical field list and defaults live in `training/hyperparameters.py`.
+This document lists only the minimum details needed to pass hyperparameters to a SageMaker training job. The canonical list of the fields you can set, and their defaults, lives in `training/hyperparameters.py`. A managed job may accept other keys internally; anything not in that file is not part of this interface.
 
 ## Rules
 
