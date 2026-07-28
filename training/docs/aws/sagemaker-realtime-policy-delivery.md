@@ -169,10 +169,14 @@ the files next to it.
 slot the canonical bundle came from. The canonical bundle is still valid at its
 own location. Do not fall back to `latest_slot` — it is unrelated.
 
-**`metrics` can be empty.** Improvement slots are selected by the metric, so
-they always carry one. Archive points carry the most recent eval result, but a
-`requested` step early enough to precede the first evaluation has nothing to
-carry: `metrics` is `{}` and `metrics_step` is `null`. Do not require the field.
+**`metrics` can be empty, and the two metric fields move together.** `metrics`
+is `{}` if and only if `metrics_step` is `null`, so testing either one is
+enough. Improvement slots are selected by the metric, so they always carry one.
+Archive points carry the most recent eval result, but a `requested` step early
+enough to precede the first evaluation has nothing to carry. A point that fires
+between evaluations carries the previous evaluation's values along with its
+older `metrics_step` — that lag is what the field exists to show, not a missing
+metric. Do not require the field.
 
 ## Loading a delivered bundle
 

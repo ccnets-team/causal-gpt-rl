@@ -1,6 +1,12 @@
 # AWS Marketplace Training
 
-Product version: `0.0.8`
+Product version: `0.0.10`
+
+> **Not published yet.** This version is not live on AWS Marketplace. What
+> follows describes what the `0.0.10` training image does, so the steps and
+> contracts are usable once the listing is available. Until then there is no
+> subscription to take and no Algorithm ARN to use. See "Hosted Training Status"
+> in `training/README.md`.
 
 This document describes the minimum steps needed to run a Causal GPT-RL SageMaker training job after subscribing through AWS Marketplace.
 
@@ -15,6 +21,7 @@ A Causal GPT-RL training job takes user-provided offline trajectory datasets and
 - S3 prefix containing the training data
 - S3 output prefix for the model artifact
 - SageMaker Algorithm ARN provided through Marketplace
+- Checkpoint S3 prefix, if you want policy bundles delivered while the job runs. The execution role must be able to write to it.
 
 ## Basic Flow
 
@@ -39,6 +46,9 @@ estimator = AlgorithmEstimator(
     instance_count=1,
     instance_type="ml.g5.xlarge",
     output_path="s3://my-bucket/cgrl/output/",
+    # Live policy bundles are delivered through the checkpoint prefix. Without
+    # it the job produces one model, at the end.
+    checkpoint_s3_uri="s3://my-bucket/cgrl/checkpoints/my-job/",
     hyperparameters={
         "dataset_ids": "mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0",
         "max_steps": "100000",
@@ -61,8 +71,8 @@ At the start of a training job, the log prints a validation summary so users can
 
 ```text
 Dataset validation: PASSED
-Dataset IDs: unity/soccer-twos/expert-v0
-Dataset variants: expert-v0
+Dataset IDs: unity/soccer-twos/medium-v0
+Dataset variants: medium-v0
 Datasets: 1
 Episodes: 1,024
 Transitions: 245,760
