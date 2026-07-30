@@ -583,6 +583,21 @@ def main():
             "league play). Tier by the ego team's own drawn T. Needs a 'logits' onnx."
         ),
     )
+    ap.add_argument(
+        "--beta-jitter", type=float, default=0.0,
+        help=(
+            "C in 'beta = 1/T + C*randn': per-STEP inverse-temperature jitter around "
+            "the episode's drawn T (any of the temperature dials above). The episode "
+            "still fixes one T; each step acts at a beta redrawn near 1/T, so the "
+            "degradation is not a rigid function of the expert's confidence. beta "
+            "(=1/T) is the coordinate because log-odds are exactly linear in it. "
+            "Two upper bounds, take the smaller: (a) draws are rejected at beta <= 0 "
+            "(which would reverse the ranking), so C < min(1/T)/5; (b) Var(beta) = "
+            "Var(beta_ep) + C^2, so C < sd(beta_ep)/3 or the per-step jitter swamps "
+            "the between-episode spread that defines the tier. On the shipped narrow "
+            "bands (b) binds first, at C ~ 0.006-0.036. 0 disables."
+        ),
+    )
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
     ap.add_argument(
         "--dataset-quality",
@@ -717,9 +732,14 @@ def main():
     policy = OnnxPolicy(
         args.onnx, num_agents=n, obs_shapes=env.observation_shapes,
         action_spec=action_spec, temperature=args.temperature,
+        beta_jitter=args.beta_jitter,
     )
     if args.temperature != 1.0:
         print(f"[temperature] scalar softmax temperature={args.temperature}")
+    if args.beta_jitter > 0.0:
+        if not getattr(policy, "has_logits", False):
+            raise ValueError("--beta-jitter needs the patched 'logits' onnx.")
+        print(f"[temperature] per-step beta jitter C={args.beta_jitter}")
 
     # Side-swapped calibration: static per-team temperature (team 0 at one T, team
     # 1 at another; not resampled per match). Lets the epsilon calibration harness
@@ -817,6 +837,10 @@ def main():
         spec_meta["dataset_quality"] = args.dataset_quality
     if args.temperature != 1.0:
         spec_meta["temperature"] = float(args.temperature)
+    if args.beta_jitter > 0.0:
+        # Part of the generating policy, so it has to travel with the dataset:
+        # without C the recorded T alone does not reproduce the trajectories.
+        spec_meta["beta_jitter"] = float(args.beta_jitter)
     if team_temperature:
         spec_meta["team_temperature"] = {
             "team0": 1.0 if args.team0_temperature is None else float(args.team0_temperature),

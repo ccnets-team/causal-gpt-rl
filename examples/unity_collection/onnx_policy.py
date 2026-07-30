@@ -44,7 +44,7 @@ _RECURRENT_INPUT = "recurrent_in"
 
 class OnnxPolicy:
     def __init__(self, onnx_path, num_agents, obs_shapes, action_spec,
-                 providers=None, rng=None, temperature=1.0):
+                 providers=None, rng=None, temperature=1.0, beta_jitter=0.0):
         self.session = ort.InferenceSession(
             onnx_path, providers=providers or ["CPUExecutionProvider"]
         )
@@ -60,6 +60,14 @@ class OnnxPolicy:
             raise ValueError(f"temperature must be > 0 (got {temperature}).")
         self.temperature = float(temperature)
         self._temperature_by_agent = None
+        # Per-step inverse-temperature jitter. The episode fixes T; each step then
+        # acts at beta = 1/T + C*randn. beta (not T) is the coordinate because the
+        # log-odds are exactly linear in it: log(q_i/q_j) = beta*(z_i - z_j), so a
+        # symmetric draw in beta is symmetric in the quantity being degraded.
+        # C == 0 reproduces the frozen-T behavior exactly.
+        if beta_jitter < 0.0:
+            raise ValueError(f"beta_jitter must be >= 0 (got {beta_jitter}).")
+        self.beta_jitter = float(beta_jitter)
 
         # Classify inputs: obs inputs (partition the flat obs), action_masks, and
         # the unsupported recurrent input.
@@ -198,24 +206,62 @@ class OnnxPolicy:
         return float(self._temperature_by_agent[agent_index])
 
     def _temperature_active(self):
-        return self._temperature_by_agent is not None or self.temperature != 1.0
+        return (self._temperature_by_agent is not None or self.temperature != 1.0
+                or self.beta_jitter > 0.0)
+
+    def _sample_beta(self, temp):
+        """This step's inverse temperature, drawn around the episode's beta = 1/T.
+
+        Rejected below zero rather than clipped: beta <= 0 reverses the action
+        ranking (beta < 0 makes the policy prefer the action the expert likes
+        least), and clipping to a floor would pile mass on that boundary. Since
+        the mean 1/T is positive, P(draw <= 0) < 0.5, so the retry budget fails
+        with probability < 2^-64 -- the fallback exists only to bound the loop.
+        """
+        beta0 = 1.0 / temp
+        if self.beta_jitter <= 0.0:
+            return beta0
+        for _ in range(64):
+            beta = beta0 + self.beta_jitter * self._rng.standard_normal()
+            if beta > 0.0:
+                return beta
+        return beta0
 
     def _decode_temperature(self, logits, present):
-        """Sample one index per branch from softmax(logits / T), per-agent T.
+        """Sample one index per branch from softmax(beta * logits), per-agent T.
 
         `logits` is the patched onnx `logits` output `[P, sum(branch_sizes)]`,
         rows aligned with `present`. Replaces the frozen T=1 discrete sample with
         a temperature-controlled draw (higher T -> lower skill) for tier synthesis.
+
+        The episode fixes T per agent; `beta = 1/T + C*randn` is redrawn each step
+        (C = `beta_jitter`, 0 to disable). One beta serves all branches of an agent
+        at a step -- the branches are one policy acting once, not independent dials.
+
+        C == 0 keeps the original `logits / T` division rather than multiplying by
+        beta = 1/T. Those are not the same float32 operation -- 1/T is rounded
+        before it multiplies, so the two disagree by 1 ULP on every T that is not
+        a power of two (measured: up to 3e-7 in the sampled probabilities, enough
+        to flip an occasional `rng.choice`). Dividing keeps already-published
+        datasets replayable bit for bit.
+
+        Feeding `log_prob` instead of `logits` is the same operation: softmax is
+        invariant to a constant shift and `log p = z - logsumexp(z)`, so
+        softmax(beta*log p) == softmax(beta*z). That is why this path works
+        unchanged for the exports that emit log-probabilities.
         """
         logits = np.asarray(logits, dtype=np.float32)
         n_present = logits.shape[0]
         nb = len(self.branches)
         idx = np.zeros((n_present, nb), np.int64)
+        jitter = self.beta_jitter > 0.0
         for r in range(n_present):
             temp = self._temperature_for(present[r])
+            beta = self._sample_beta(temp) if jitter else None
             off = 0
             for b, size in enumerate(self.branches):
-                z = logits[r, off:off + size] / temp
+                raw = logits[r, off:off + size]
+                z = (beta * raw) if jitter else (raw / temp)
                 z = z - z.max()
                 prob = np.exp(z)
                 prob /= prob.sum()

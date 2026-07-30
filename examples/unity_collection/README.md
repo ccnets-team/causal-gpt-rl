@@ -203,6 +203,7 @@ early-training checkpoints than to one uniformly-degraded policy.
 | Random-action ε | discrete | per team, per match | `--team-epsilon-values` (+ `--team0/1-epsilon-values`) |
 | Softmax temperature | discrete | per team, per match | `--team-temperature-range lo,hi` |
 | Softmax temperature | discrete | static per side (not resampled) | `--team0-temperature` / `--team1-temperature` |
+| Inverse-temperature jitter | discrete | per agent, **per step** (modifier) | `--beta-jitter C` |
 
 The dials are mutually exclusive — pick one mode per run.
 
@@ -211,6 +212,40 @@ output (the patched `tier_policies` ONNX); `T = 1.0` is expert and larger `T`
 degrades smoothly, sampling plausible near-expert actions rather than uniformly
 random ones — which is why it is preferred over `--epsilon` wherever a `logits`
 output is available.
+
+### `--beta-jitter C` — per-step spread on top of a temperature dial
+
+`--beta-jitter` is a **modifier, not a mode**: it composes with whichever
+temperature dial above is in use, and `C = 0` (the default) leaves that dial
+bit-for-bit unchanged.
+
+A fixed `T` applies the same degradation at every step, so how far the action
+strays from the expert's is pinned to how confident the expert happens to be in
+that state — a state the policy is sure about barely moves, an ambiguous one
+moves a lot. An episode standing for one skill level does not imply the same
+perturbation in every state it passes through. With `C > 0` the episode still
+draws one `T`, but each step acts at
+
+```
+beta = 1/T + C * randn        (redrawn per agent per step, rejected at beta <= 0)
+action ~ softmax(beta * logits)
+```
+
+`beta = 1/T` is the coordinate rather than `T` because the log-odds are exactly
+linear in it (`log(q_i/q_j) = beta * (z_i - z_j)`), so a symmetric draw in `beta`
+is symmetric in the quantity being degraded.
+
+Two upper bounds on `C`, take the smaller:
+
+- `beta <= 0` is rejected (it would reverse the ranking, making the policy prefer
+  the expert's *least* favoured action), so keep `C < min(1/T)/5` over the range.
+- The between-episode spread is what makes episodes differ:
+  `Var(beta) = Var(beta_ep) + C^2`. If `C` is not well under `sd(beta_ep)` the
+  per-step jitter swamps it and every episode collapses to the same effective
+  policy. Keep `C < sd(beta_ep)/3`.
+
+On narrow ranges the second bound binds first. `C` is recorded in the episode
+metadata, since the drawn `T` alone no longer reproduces the trajectories.
 
 Pick the **scope** to match the scene:
 
