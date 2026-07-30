@@ -878,10 +878,17 @@ def main():
     buf_act = [[] for _ in range(n)]
     buf_rew = [[] for _ in range(n)]
     active = [False] * n
+    # Last action the policy actually produced for each agent, i.e. the one Unity
+    # is still executing during the action-repeat gap. `policy.act()` emits a zero
+    # row for an agent whose obs is None (absent from this step's DecisionSteps);
+    # recording that row would label the transition with an action neither the
+    # policy chose nor Unity ran. See the carry-forward in the step loop.
+    last_act = [None] * n
 
     def reset_agent(g):
         buf_obs[g], buf_act[g], buf_rew[g] = [], [], []
         active[g] = False
+        last_act[g] = None
 
     def seed(observations, g):
         reset_agent(g)
@@ -1109,7 +1116,21 @@ def main():
     pending_fields = None
     retired_fields = set()
     while total < args.target or (pending_fields is not None and pending_fields):
+        # An agent only carries an obs on the steps it requested a decision, so
+        # `policy.act()` returns a fabricated zero row for the rest. The wrapper
+        # never sends those rows (set_actions only covers `decision_ids`, i.e.
+        # agents that acted last step) — Unity repeats each agent's last decision
+        # through the gap. Carry that action forward so the recorded label is the
+        # action Unity actually ran; without this, every transition an agent
+        # reports after a gap is mislabelled as index/zero-vector 0 (PushBlock
+        # expert: 72% of rows).
+        acted = [observations[0][g] is not None for g in range(n)]
         actions = policy.act(observations)
+        for g in range(n):
+            if acted[g]:
+                last_act[g] = np.array(actions[g], copy=True)
+            elif last_act[g] is not None:
+                actions[g] = last_act[g]
         next_obs, rewards, terminated, truncated, info = env.step(actions)
         final = info["final_observation"]
 

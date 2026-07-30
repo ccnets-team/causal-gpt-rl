@@ -29,7 +29,11 @@ build's branch sizes:
   - hybrid     -> `[continuous | discrete indices]` concatenated,
                   `[num_agents, cont_size + num_branches]`
 
-Agents absent this step get a zero row (the UnityEnv wrapper masks them out).
+Agents absent this step (no obs, i.e. not in this step's DecisionSteps) get a
+zero row. The wrapper never sends those rows to Unity — `set_actions` only covers
+`decision_ids` — but they are NOT a valid action label: Unity repeats the agent's
+last decision through the gap, so a recorder must carry that action forward
+rather than store the zero row (see `collect.py`'s `last_act`).
 """
 import numpy as np
 import onnxruntime as ort
