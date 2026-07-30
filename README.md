@@ -123,10 +123,10 @@ and a structured-space (`Dict` / `Tuple`) example.
 
 | Env | Bundle | Ctx | Return | Norm. | Simple Ref. | Medium Ref. |
 |---|---|---:|---:|---:|---:|---:|
-| `Ant-v5` | `ant-v5` | 32 | 5262.53±1400.17 | 79.08±20.76 | 59.99 ✓ | 86.54 ✗ |
+| `Ant-v5` | `ant-v5` | 32 | 5434.12±1298.24 | 81.62±19.25 | 59.99 ✓ | 86.54 ✗ |
 | `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6816.48±3135.53 | 42.87±19.01 | 43.54 ✗ | 74.83 ✗ |
-| `Hopper-v5` | `hopper-v5` | 32 | 2713.66±1075.57 | 70.21±28.01 | 42.65 ✓ | 72.91 ✗ |
-| `Walker2d-v5` | `walker2d-v5` | 32 | 3899.88±706.57 | 56.93±10.32 | 59.51 ✗ | 83.26 ✗ |
+| `Hopper-v5` | `hopper-v5` | 32 | 3199.65±21.74 | 82.87±0.57 | 42.65 ✓ | 72.91 ✓ |
+| `Walker2d-v5` | `walker2d-v5` | 32 | 4122.68±299.84 | 60.19±4.38 | 59.51 ✓ | 83.26 ✗ |
 | `Humanoid-v5` | `humanoid-v5` | 32 | 7892.65±1018.11 | 91.63±11.99 | 63.29 ✓ | 81.30 ✓ |
 
 Training data is expert-free: bundles are trained using Minari simple and medium datasets only; expert trajectories are not used for training.
@@ -153,10 +153,10 @@ seeds `0..49`, `max_steps=1000`):
 
 | Env | `kv=16` (0.5×) | `kv=32` (1×) | `kv=64` (2×) | Trend |
 |---|---:|---:|---:|---|
-| `Ant-v5` | 5163.35±1608.02 | 5262.53±1400.17 | 4516.35±1773.93 | ≈, -14% at 2× |
+| `Ant-v5` | 5292.09±1338.88 | 5434.12±1298.24 | 5323.72±1635.79 | 1× highest mean (≈) |
 | `HalfCheetah-v5` | 6793.17±2939.17 | 6816.48±3135.53 | 6468.21±3234.51 | ≈ flat |
-| `Hopper-v5` | 3361.71±103.69 | 2713.66±1075.57 | 992.92±445.63 | shorter ↑, 2× collapses |
-| `Walker2d-v5` | 3950.09±459.01 | 3899.88±706.57 | 3842.19±718.60 | ≈ flat |
+| `Hopper-v5` | 3189.53±22.58 | 3199.65±21.74 | 3190.09±23.75 | ≈ flat and stable |
+| `Walker2d-v5` | 4021.00±573.17 | 4122.68±299.84 | 2659.11±1297.61 | 1× best; 2× collapses |
 | `Humanoid-v5` | 7431.52±2024.95 | 7892.65±1018.11 | 8040.41±38.02 | longer ↑, steadiest |
 
 The `kv=32` column matches the main table. At `kv=64` the rollout attends over
@@ -165,17 +165,18 @@ range. This stays within the backbone's position capacity (Llama/RoPE,
 `max_position_embeddings=256`), so it is an extrapolation regime, not a hard cap.
 
 Best retention is **environment-dependent**, but for most envs the difference
-across 0.5×/1×/2× is within run-to-run noise (`Trend` marks these `≈`). The real
-exceptions: `Hopper-v5` clearly prefers a shorter window (0.5× is +24% with much
-lower variance; 2× collapses to roughly a third of return, episodes ending early),
-while `Humanoid-v5` is best at 2× (highest return and its steadiest — std 38
-across all 50 episodes). The context window (1×) is a safe default; deviating from
-it helps only in specific environments.
+across 0.5×/1×/2× is within run-to-run noise (`Trend` marks these `≈`). The
+refreshed `Hopper-v5` bundle is especially stable: all three settings average
+about 3,190–3,200 return with all 50 episodes reaching 1,000 steps. `Humanoid-v5`
+is best at 2× (highest return and its steadiest — std 38 across all 50 episodes).
+The refreshed `Walker2d-v5` bundle is strongest at 1×: it reaches 1,000 steps in
+48/50 episodes, while 2× falls to 2,659 return and 15/50 full episodes. The
+context window (1×) remains a safe default.
 
 Evaluation runtime — every row above is measured on this one:
 
 ```text
-causal-gpt-rl 0.13.0
+causal-gpt-rl 0.14.0
 torch 2.8.0+cu129
 gymnasium 1.2.3
 mujoco 3.2.3
