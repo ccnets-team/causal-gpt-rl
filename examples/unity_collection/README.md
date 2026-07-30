@@ -203,7 +203,7 @@ early-training checkpoints than to one uniformly-degraded policy.
 | Random-action ε | discrete | per team, per match | `--team-epsilon-values` (+ `--team0/1-epsilon-values`) |
 | Softmax temperature | discrete | per team, per match | `--team-temperature-range lo,hi` |
 | Softmax temperature | discrete | static per side (not resampled) | `--team0-temperature` / `--team1-temperature` |
-| Inverse-temperature jitter | discrete | per agent, **per step** (modifier) | `--beta-jitter C` |
+| Inverse-temperature jitter | discrete | per agent, **per step** (modifier) | `--beta-jitter-icc 0.99` (or `--beta-jitter C`) |
 
 The dials are mutually exclusive — pick one mode per run.
 
@@ -227,25 +227,57 @@ perturbation in every state it passes through. With `C > 0` the episode still
 draws one `T`, but each step acts at
 
 ```
-beta = 1/T + C * randn        (redrawn per agent per step, rejected at beta <= 0)
+beta ~ U(1/T - C*sqrt(3), 1/T + C*sqrt(3))     (redrawn per agent per step; sd = C)
 action ~ softmax(beta * logits)
 ```
 
 `beta = 1/T` is the coordinate rather than `T` because the log-odds are exactly
 linear in it (`log(q_i/q_j) = beta * (z_i - z_j)`), so a symmetric draw in `beta`
-is symmetric in the quantity being degraded.
+is symmetric in the quantity being degraded. Drawing in `T` instead would bias
+`beta` upward by `C^2/T^3` (Jensen on the convex `1/x`), i.e. quietly *undo* some
+of the degradation.
 
-Two upper bounds on `C`, take the smaller:
+The draw is uniform rather than Gaussian because `beta`'s domain is `(0, inf)`.
+`beta <= 0` would reverse the ranking, making the policy prefer the expert's
+*least* favoured action; with a bounded support that is structural — `C*sqrt(3) <
+min(1/T)` over the range and it cannot happen — so there is no rejection step to
+pile mass on the boundary. The condition is checked once at startup and violating
+it is an error, not a silently truncated distribution.
 
-- `beta <= 0` is rejected (it would reverse the ranking, making the policy prefer
-  the expert's *least* favoured action), so keep `C < min(1/T)/5` over the range.
-- The between-episode spread is what makes episodes differ:
-  `Var(beta) = Var(beta_ep) + C^2`. If `C` is not well under `sd(beta_ep)` the
-  per-step jitter swamps it and every episode collapses to the same effective
-  policy. Keep `C < sd(beta_ep)/3`.
+### Setting `C`: pass an ICC, not an absolute number
 
-On narrow ranges the second bound binds first. `C` is recorded in the episode
-metadata, since the drawn `T` alone no longer reproduces the trajectories.
+`C` is absolute but the quantity that matters is `C / sd(beta_ep)`, which differs
+per band, so the same `C` means different things in different tiers. Pass the
+dimensionless ratio instead and let the band supply the rest:
+
+```
+--beta-jitter-icc 0.99        # same value for every tier; C is derived per band
+```
+
+ICC is the share of `Var(beta) = Var(beta_ep) + C^2` that stays *between*
+episodes, so `C = sd(beta_ep) * sqrt((1 - ICC) / ICC)`. The between-episode part
+is what makes episodes differ at all: drive ICC down and every episode collapses
+to the same effective policy, and the tier's quality label stops meaning
+anything.
+
+Raising `C` does **not** buy more policy variety. A per-step redraw that is
+independent of state and history marginalises to a single stationary policy, so
+within-episode jitter adds randomness to one policy rather than adding policies —
+the spread *across* policies is fixed by the band alone. What `C` does is blur
+neighbouring episodes into each other, so the count of distinguishable policy
+levels in a band is roughly `W / C` (`W` = band width in `beta`). At ICC 0.99
+that is ~35 levels; at 0.90 it is ~10.
+
+Either way the startup log prints the band, `C`, the implied ICC and `W/C`, so a
+hand-passed `C` that was copied from the wrong tier shows up immediately:
+
+```
+[beta] band T=(2.1, 3.2) -> beta=[0.3125,0.4762] E[beta]=0.3829 sd=0.0467 W=0.1637
+[beta] jitter uniform +-0.00812922 (sd C=0.00469341) -> ICC=0.9900 ... W/C=34.9
+```
+
+`C`, its distribution and the implied ICC are all recorded in the collection
+spec, since the drawn `T` alone no longer reproduces the trajectories.
 
 Pick the **scope** to match the scene:
 

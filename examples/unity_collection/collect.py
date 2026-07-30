@@ -457,6 +457,35 @@ def _parse_range(text):
     return float(parts[0]), float(parts[1])
 
 
+def _beta_moments(lo, hi):
+    """Mean and sd of the episode's inverse temperature beta = 1/T for T ~ U(lo, hi).
+
+    beta is the degradation coordinate (log-odds are exactly linear in it), so the
+    tier's spread has to be measured there, not in T. By direct integration
+    E[beta] = ln(hi/lo)/(hi-lo) and E[beta^2] = 1/(lo*hi); the variance being
+    non-negative is the geometric-vs-logarithmic mean inequality.
+    """
+    if hi < lo:
+        raise ValueError(f"temperature range must be lo<=hi (got {lo},{hi})")
+    if hi == lo:
+        return 1.0 / lo, 0.0
+    mean = float(np.log(hi / lo) / (hi - lo))
+    return mean, float(np.sqrt(max(1.0 / (lo * hi) - mean * mean, 0.0)))
+
+
+def _jitter_for_icc(icc, sd_beta):
+    """Per-step jitter C leaving `icc` of Var(beta) between episodes.
+
+    Var(beta_step) = Var(beta_ep) + C^2, so ICC = V/(V+C^2) and
+    C = sd(beta_ep)*sqrt((1-ICC)/ICC). ICC is dimensionless, which is the point: one
+    ICC means the same thing in every band, whereas one absolute C implies a
+    different ICC per band (C/W scales with the band, see _beta_moments).
+    """
+    if not 0.0 < icc < 1.0:
+        raise ValueError(f"--beta-jitter-icc must be in (0,1) (got {icc})")
+    return sd_beta * float(np.sqrt((1.0 - icc) / icc))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", required=True, help="Path to the Unity build (exe).")
@@ -586,16 +615,31 @@ def main():
     ap.add_argument(
         "--beta-jitter", type=float, default=0.0,
         help=(
-            "C in 'beta = 1/T + C*randn': per-STEP inverse-temperature jitter around "
-            "the episode's drawn T (any of the temperature dials above). The episode "
-            "still fixes one T; each step acts at a beta redrawn near 1/T, so the "
-            "degradation is not a rigid function of the expert's confidence. beta "
-            "(=1/T) is the coordinate because log-odds are exactly linear in it. "
-            "Two upper bounds, take the smaller: (a) draws are rejected at beta <= 0 "
-            "(which would reverse the ranking), so C < min(1/T)/5; (b) Var(beta) = "
-            "Var(beta_ep) + C^2, so C < sd(beta_ep)/3 or the per-step jitter swamps "
-            "the between-episode spread that defines the tier. On the shipped narrow "
-            "bands (b) binds first, at C ~ 0.006-0.036. 0 disables."
+            "Standard deviation C of the per-STEP inverse-temperature jitter around the "
+            "episode's drawn T (any of the temperature dials above): beta is redrawn "
+            "uniformly on [1/T - C*sqrt(3), 1/T + C*sqrt(3)]. The episode still fixes "
+            "one T; each step acts at a nearby beta, so the degradation is not a rigid "
+            "function of the expert's confidence. beta (=1/T) is the coordinate because "
+            "log-odds are exactly linear in it, and the jitter is uniform because beta's "
+            "domain is (0,inf) -- a bounded support makes beta>0 structural instead of "
+            "needing a rejection step that would bias the edge. PREFER "
+            "--beta-jitter-icc: C is absolute but the meaningful quantity is "
+            "C/sd(beta_ep), which differs per band. 0 disables."
+        ),
+    )
+    ap.add_argument(
+        "--beta-jitter-icc", type=float, default=None,
+        help=(
+            "Derive --beta-jitter from the active temperature range instead of passing "
+            "C by hand: ICC is the share of Var(beta) that stays BETWEEN episodes, so "
+            "C = sd(beta_ep)*sqrt((1-ICC)/ICC). Prefer this over --beta-jitter -- ICC is "
+            "dimensionless, so one value means the same thing in every band, while a "
+            "single absolute C implies a different ICC per band and silently changes "
+            "what the tier label means. Raising C does NOT add policy diversity (the "
+            "within-episode jitter marginalizes to one stationary policy); it only "
+            "blurs neighbouring episodes together, so the count of distinguishable "
+            "policy levels is ~W/C. 0.99 is the shipped choice (~35 levels). Mutually "
+            "exclusive with --beta-jitter. Needs one of the --*temperature-range dials."
         ),
     )
     ap.add_argument("--noise-seed", type=int, default=0, help="Seed for the noise RNG (reproducible tiers).")
@@ -689,6 +733,55 @@ def main():
                 "--team/group-epsilon-values"
             )
 
+    # Resolve the per-step beta jitter against the band it will be applied to. Whether
+    # C came in absolutely or via an ICC, report the band and BOTH numbers, so a
+    # mis-paired C cannot pass silently: the shipped tiers each have their own band and
+    # a C copied from the neighbouring tier still runs, just at the wrong ICC.
+    beta_band = (
+        temperature_range if temperature_range is not None
+        else group_temperature_range if group_temperature_range is not None
+        else team_temperature_range
+    )
+    beta_jitter = float(args.beta_jitter)
+    beta_icc = None
+    if args.beta_jitter_icc is not None:
+        if beta_jitter != 0.0:
+            raise ValueError("pass either --beta-jitter or --beta-jitter-icc, not both")
+        if beta_band is None:
+            raise ValueError(
+                "--beta-jitter-icc derives C from a temperature band, so it needs one of "
+                "--temperature-range / --group-temperature-range / --team-temperature-range "
+                "(a scalar --temperature has no band: sd(beta_ep)=0). Pass --beta-jitter "
+                "directly if that is really what you want."
+            )
+        _, sd_beta = _beta_moments(*beta_band)
+        beta_jitter = _jitter_for_icc(args.beta_jitter_icc, sd_beta)
+    if beta_jitter > 0.0 and beta_band is not None:
+        mean_beta, sd_beta = _beta_moments(*beta_band)
+        beta_lo, beta_hi = 1.0 / beta_band[1], 1.0 / beta_band[0]
+        width = beta_hi - beta_lo
+        beta_icc = sd_beta ** 2 / (sd_beta ** 2 + beta_jitter ** 2)
+        half = beta_jitter * float(np.sqrt(3.0))
+        # The jitter is uniform, so beta > 0 is a support condition, not a tail
+        # probability: check it once here against the band's smallest beta rather than
+        # rejecting draws later (a rejection would bias the distribution at the edge).
+        if half >= beta_lo:
+            raise ValueError(
+                f"jitter half-width {half:.6g} (= C*sqrt(3), C={beta_jitter:.6g}) reaches "
+                f"beta <= 0: the band's smallest beta is {beta_lo:.6g} (T={beta_band[1]}). "
+                "Lower the jitter (raise --beta-jitter-icc) or narrow the band."
+            )
+        print(
+            f"[beta] band T={beta_band} -> beta=[{beta_lo:.4f},{beta_hi:.4f}] "
+            f"E[beta]={mean_beta:.4f} sd={sd_beta:.4f} W={width:.4f}"
+        )
+        print(
+            f"[beta] jitter uniform +-{half:.6g} (sd C={beta_jitter:.6g}) -> "
+            f"ICC={beta_icc:.4f} C/sd={beta_jitter/sd_beta:.4f} W/C={width/beta_jitter:.1f} "
+            f"beta_lo/h={beta_lo/half:.1f} "
+            "(ICC = between-episode share of Var(beta); W/C ~ distinguishable policy levels)"
+        )
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     existing_episode_files = sorted(out_dir.glob("ep_*.npz"))
@@ -732,14 +825,14 @@ def main():
     policy = OnnxPolicy(
         args.onnx, num_agents=n, obs_shapes=env.observation_shapes,
         action_spec=action_spec, temperature=args.temperature,
-        beta_jitter=args.beta_jitter,
+        beta_jitter=beta_jitter, beta_seed=args.noise_seed,
     )
     if args.temperature != 1.0:
         print(f"[temperature] scalar softmax temperature={args.temperature}")
-    if args.beta_jitter > 0.0:
+    if beta_jitter > 0.0:
         if not getattr(policy, "has_logits", False):
             raise ValueError("--beta-jitter needs the patched 'logits' onnx.")
-        print(f"[temperature] per-step beta jitter C={args.beta_jitter}")
+        print(f"[temperature] per-step beta jitter C={beta_jitter:.6g}")
 
     # Side-swapped calibration: static per-team temperature (team 0 at one T, team
     # 1 at another; not resampled per match). Lets the epsilon calibration harness
@@ -837,10 +930,18 @@ def main():
         spec_meta["dataset_quality"] = args.dataset_quality
     if args.temperature != 1.0:
         spec_meta["temperature"] = float(args.temperature)
-    if args.beta_jitter > 0.0:
+    if beta_jitter > 0.0:
         # Part of the generating policy, so it has to travel with the dataset:
         # without C the recorded T alone does not reproduce the trajectories.
-        spec_meta["beta_jitter"] = float(args.beta_jitter)
+        spec_meta["beta_jitter"] = float(beta_jitter)
+        # `beta_jitter` is the jitter's standard deviation; the shape has to travel too
+        # or a consumer cannot reconstruct the draw from it.
+        spec_meta["beta_jitter_dist"] = "uniform"
+        if beta_icc is not None:
+            # The band-relative reading of the same dial. Recorded so a consumer can
+            # tell whether two tiers were jittered comparably without re-deriving
+            # sd(beta_ep) from the band themselves.
+            spec_meta["beta_jitter_icc"] = float(beta_icc)
     if team_temperature:
         spec_meta["team_temperature"] = {
             "team0": 1.0 if args.team0_temperature is None else float(args.team0_temperature),

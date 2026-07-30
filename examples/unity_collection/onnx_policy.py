@@ -44,7 +44,8 @@ _RECURRENT_INPUT = "recurrent_in"
 
 class OnnxPolicy:
     def __init__(self, onnx_path, num_agents, obs_shapes, action_spec,
-                 providers=None, rng=None, temperature=1.0, beta_jitter=0.0):
+                 providers=None, rng=None, temperature=1.0, beta_jitter=0.0,
+                 beta_seed=0):
         self.session = ort.InferenceSession(
             onnx_path, providers=providers or ["CPUExecutionProvider"]
         )
@@ -68,6 +69,22 @@ class OnnxPolicy:
         if beta_jitter < 0.0:
             raise ValueError(f"beta_jitter must be >= 0 (got {beta_jitter}).")
         self.beta_jitter = float(beta_jitter)
+        # The jitter is UNIFORM, parameterised by its standard deviation `beta_jitter`
+        # so that the tier's between-episode share of Var(beta) -- the quantity that
+        # decides whether episodes stay distinguishable -- reads the same as it would
+        # for any other jitter shape. U(-h,h) has variance h^2/3, hence h = C*sqrt(3).
+        # Uniform rather than Gaussian because beta's domain is (0, inf): a bounded
+        # support makes beta > 0 structural, so there is no rejection step to bias the
+        # distribution near the boundary.
+        self._beta_halfwidth = self.beta_jitter * float(np.sqrt(3.0))
+        # Dedicated stream, matching the keyed-SeedSequence pattern the noise schedules
+        # in collect.py use. Sharing `self._rng` with the action draw would make the
+        # beta sequence depend on how many rng.choice calls preceded it -- i.e. on the
+        # branch count and on which agents happened to be present -- so an episode's
+        # betas could not be recomputed without replaying the whole collection.
+        self._beta_rng = np.random.default_rng(
+            np.random.SeedSequence([int(beta_seed), 0xBE7A])
+        )
 
         # Classify inputs: obs inputs (partition the flat obs), action_masks, and
         # the unsupported recurrent input.
@@ -210,22 +227,30 @@ class OnnxPolicy:
                 or self.beta_jitter > 0.0)
 
     def _sample_beta(self, temp):
-        """This step's inverse temperature, drawn around the episode's beta = 1/T.
+        """This step's inverse temperature, drawn uniformly around the episode's 1/T.
 
-        Rejected below zero rather than clipped: beta <= 0 reverses the action
-        ranking (beta < 0 makes the policy prefer the action the expert likes
-        least), and clipping to a floor would pile mass on that boundary. Since
-        the mean 1/T is positive, P(draw <= 0) < 0.5, so the retry budget fails
-        with probability < 2^-64 -- the fallback exists only to bound the loop.
+        beta <= 0 would reverse the action ranking (the policy would prefer the action
+        the expert likes least), so it must never be drawn. With a uniform jitter that
+        is structural rather than statistical: the support is [1/T - h, 1/T + h], so
+        h < 1/T makes beta > 0 impossible to violate -- no rejection loop, and no mass
+        piled on the boundary the way clipping to a floor would.
+
+        The condition is checked once per band at startup in collect.py, where the band
+        is known; the raise here is the backstop for callers that pass a scalar T or
+        drive the policy directly. It is a hard error rather than a retry because a
+        violated support is a mis-specified dial, not an unlucky draw.
         """
         beta0 = 1.0 / temp
         if self.beta_jitter <= 0.0:
             return beta0
-        for _ in range(64):
-            beta = beta0 + self.beta_jitter * self._rng.standard_normal()
-            if beta > 0.0:
-                return beta
-        return beta0
+        h = self._beta_halfwidth
+        if h >= beta0:
+            raise ValueError(
+                f"beta jitter half-width {h:.6g} (= C*sqrt(3), C={self.beta_jitter:.6g}) "
+                f"reaches beta <= 0 for T={temp:.6g} (beta=1/T={beta0:.6g}). The jitter "
+                "must satisfy C*sqrt(3) < min(1/T) over the tier band."
+            )
+        return beta0 + h * self._beta_rng.uniform(-1.0, 1.0)
 
     def _decode_temperature(self, logits, present):
         """Sample one index per branch from softmax(beta * logits), per-agent T.
@@ -234,9 +259,10 @@ class OnnxPolicy:
         rows aligned with `present`. Replaces the frozen T=1 discrete sample with
         a temperature-controlled draw (higher T -> lower skill) for tier synthesis.
 
-        The episode fixes T per agent; `beta = 1/T + C*randn` is redrawn each step
-        (C = `beta_jitter`, 0 to disable). One beta serves all branches of an agent
-        at a step -- the branches are one policy acting once, not independent dials.
+        The episode fixes T per agent; beta is redrawn each step uniformly on
+        [1/T - C*sqrt(3), 1/T + C*sqrt(3)], i.e. with standard deviation C
+        (`beta_jitter`, 0 to disable). One beta serves all branches of an agent at a
+        step -- the branches are one policy acting once, not independent dials.
 
         C == 0 keeps the original `logits / T` division rather than multiplying by
         beta = 1/T. Those are not the same float32 operation -- 1/T is rounded
