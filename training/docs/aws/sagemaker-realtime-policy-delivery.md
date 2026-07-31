@@ -107,7 +107,9 @@ the CloudWatch log stream directly.
 
 ## The manifests
 
-Each series has its own manifest with its own schema.
+Each series has its own manifest with its own schema. **`metrics` is abbreviated
+to one key in both examples below**; every point carries all six. The full list
+is under "What `metrics` contains".
 
 ### `archive/bundles/manifest.json`
 
@@ -155,6 +157,27 @@ more than once. See `training/docs/aws/sagemaker-retraining.md`.
   bundle in the final model artifact. May be `null`.
 - `slots` — per-slot `step` and metrics.
 
+### What `metrics` contains
+
+Six keys per point, in both manifests and in each bundle's `metrics.json`:
+
+| Key | Role |
+| --- | --- |
+| `offline_eval/action_nll` | Selection metric. Lower is better. |
+| `offline_eval/short_context_action_nll` | Positions in the `0`–`0.5x` context range. |
+| `offline_eval/standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
+| `offline_eval/long_context_action_nll` | Positions at `1.0x` and above. |
+| `offline_eval/value_loss` | Diagnostic. |
+| `offline_eval/policy_loss` | Diagnostic. |
+
+The two diagnostics are internal training values. They depend on your dataset and
+reward scale, so they are not comparable across runs and have no direction to
+sort by — do not rank checkpoints with them. They are worth including when you
+contact support.
+
+Rank and select with `offline_eval/action_nll`, and score the bundles in your own
+environment for the decision that actually matters.
+
 ### Reading them safely
 
 **Slot names are not identities.** Slots cycle through `slot_000`–`slot_009` and
@@ -177,6 +200,9 @@ enough to precede the first evaluation has nothing to carry. A point that fires
 between evaluations carries the previous evaluation's values along with its
 older `metrics_step` — that lag is what the field exists to show, not a missing
 metric. Do not require the field.
+
+It is all six keys or none. A point never carries a partial set, so testing for
+one key is enough to know the rest are there.
 
 ## Loading a delivered bundle
 

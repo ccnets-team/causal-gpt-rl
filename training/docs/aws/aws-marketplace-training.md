@@ -103,22 +103,51 @@ Key items to confirm:
 
 The original environment action and the model's flattened action shape are shown together so that action-encoding mistakes are easy to spot. For example, a `MultiDiscrete([3, 3, 3])` action is three environment indices, but the model's flattened action shape is `(9,)` — the sum of the one-hot blocks. Seeing both values makes an incorrect encoding obvious.
 
+### Training Progress
+
+At the configured logging interval the job reports one progress line:
+
+```text
+Training: step=20000 learning_rate=8.7e-05 grad_norm=0.42 step_time_seconds=0.115
+```
+
+| SageMaker metric | Description |
+| --- | --- |
+| `training:learning_rate` | Current learning rate, after warmup and decay. |
+| `training:grad_norm` | Gradient norm for the step, before clipping. |
+| `training:step_time_seconds` | Average wall-clock seconds per training step over the logging interval. |
+
+`training:step_time_seconds` is the one to watch for cost. Multiply it by the
+steps remaining to `max_steps` to project how much longer the job will run, and
+compare that against what the run has produced so far.
+
 ### Eval Metrics
 
 The training job evaluates the policy on a held-out portion of the dataset and reports Action NLL, the negative log likelihood the model assigns to the dataset's ground-truth actions. Lower Action NLL means the model predicts the dataset actions better. Unlike the Forecast metrics below, these are measured directly from held-out data rather than estimated by the model.
 
 The default evaluation reports an overall value and per-context-length values:
 
-| Metric | Description |
+| SageMaker metric | Description |
 | --- | --- |
-| `OfflineEval/ActionNll` | Representative Action NLL across all eval scoring positions. |
-| `OfflineEval/ShortContextActionNll` | Positions in the `0`–`0.5x` range of the training context length. |
-| `OfflineEval/StandardContextActionNll` | Positions in the `0.5`–`1.0x` range. |
-| `OfflineEval/LongContextActionNll` | Positions beyond the training context length, `1.0x` and above. |
+| `offline_eval:action_nll` | Representative Action NLL across all eval scoring positions. |
+| `offline_eval:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
+| `offline_eval:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
+| `offline_eval:long_context_action_nll` | Positions beyond the training context length, `1.0x` and above. |
+
+The same metrics appear inside delivered bundles with a `/` separator instead of
+`:` — `offline_eval/action_nll`. The `:` form is the SageMaker metric name you
+select in the console; the `/` form is the key inside `metrics.json` and
+`manifest.json`. Same metric, different surface.
 
 To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required. When dataset episodes are short or padded, only valid positions are averaged.
 
-`OfflineEval/ActionNll` is also the checkpoint-selection metric shown in the startup summary (`Checkpoint metric: offline_eval/action_nll`, `Metric direction: min`): lower values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step.
+`offline_eval:action_nll` is also the checkpoint-selection metric shown in the startup summary (`Checkpoint metric: offline_eval/action_nll`, `Metric direction: min`): lower values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step.
+
+Delivered bundles also record `offline_eval/value_loss` and
+`offline_eval/policy_loss` in `metrics.json`. These are internal training
+diagnostics. They depend on your dataset and reward scale, so they are not
+comparable across runs and must not be used to rank checkpoints or select a
+model. Include them when contacting support.
 
 ### Forecast Metrics
 

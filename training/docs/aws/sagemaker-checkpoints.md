@@ -135,8 +135,11 @@ Metric direction: min
 ```
 
 `offline_eval/action_nll` is the held-out Action NLL (lower is better). Each
-`bundles/*/metrics.json` records this metric for its point. See the eval metrics
-in `training/docs/aws/aws-marketplace-training.md` for details.
+`bundles/*/metrics.json` records the evaluation metrics for its point, of which
+this one is the selection metric. See the eval metrics in
+`training/docs/aws/aws-marketplace-training.md` for the full list, and
+`training/docs/aws/sagemaker-realtime-policy-delivery.md` for what each key
+means.
 
 The metric is measured against your dataset, not against your environment. It
 ranks checkpoints by how well they predict your dataset's actions, which is not
