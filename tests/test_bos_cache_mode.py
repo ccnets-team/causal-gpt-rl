@@ -9,7 +9,6 @@ The discriminating signal is the persisted KV-cache length right after each
 act():
   * discard: [0, 1, 2, 3, ...]  (bos KV dropped after act#0, then bos=0 grows)
   * retain:  [1, 2, 3, 4, ...]  (bos KV kept at act#0 → always +1)
-See .local/docs/dev/model-output/bos-kv-cache-discard.md for the mechanism.
 """
 import json
 

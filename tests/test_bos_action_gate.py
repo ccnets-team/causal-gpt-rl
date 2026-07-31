@@ -8,8 +8,6 @@ Covers the opt-in `use_bos_action_gate` capability:
 - old checkpoints load into a gate-on model via strict=False (only gate keys
   missing);
 - the flag persists through ModelConfig and a full bundle round-trip.
-
-See .local/docs/dev/model-output/bos-gate-to-zero.md.
 """
 import tempfile
 

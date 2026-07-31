@@ -72,7 +72,7 @@ class AutoregressiveModel(nn.Module):
         self.use_eos = bool(getattr(model_config, "use_eos", False))
         # BOS action gate: neutralize the (absent) previous-action channel at
         # episode start. Serving capability (persisted); default-off is
-        # byte-identical. See .local/docs/dev/model-output/bos-gate-to-zero.md.
+        # byte-identical.
         self.use_bos_action_gate = bool(getattr(model_config, "use_bos_action_gate", False))
         self.state_specs = list(state_specs)
         self.action_specs = list(action_specs)

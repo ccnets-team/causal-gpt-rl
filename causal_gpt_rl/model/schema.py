@@ -319,8 +319,8 @@ class ModelConfig:
     dropout: float = 0.05
     use_eos: bool = False
     # Capability: gate the (absent) previous-action channel at episode start.
-    # See .local/docs/dev/model-output/bos-gate-to-zero.md. default-off; when off
-    # the input path is byte-identical to legacy bundles.
+    # Default-off; when off the input path is byte-identical to legacy
+    # bundles.
     use_bos_action_gate: bool = False
     rope_theta: float = 1e3
     intermediate_size: Optional[int] = None

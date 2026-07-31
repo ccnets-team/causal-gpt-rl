@@ -152,9 +152,7 @@ def extract_data_specs_from_space(space: gym.spaces.Space) -> list[SpaceSpec]:
 #
 # FROZEN CONTRACT. Single owner = serving (this package); the trainer repo
 # imports these. The signatures and the direction conventions below are
-# authoritative — see the cross-repo note
-#   .local/docs/dev/model-output/instruction/l2-api-contract.md
-# for the worked example both repos verify against.
+# authoritative.
 #
 # Scope: vector spaces only — Box (1-D), Discrete, MultiDiscrete, MultiBinary
 # and their Tuple/Dict nesting (mirrors `extract_data_specs_from_space`). Image
