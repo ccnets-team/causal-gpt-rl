@@ -91,9 +91,43 @@ def test_export_onnx_fixed_batch_and_verification(tmp_path: Path):
     assert shape(outputs["action"]) == [2, 2]
 
 
+def test_export_onnx_context_length_override(tmp_path: Path):
+    onnx = pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("onnxscript")
+    bundle = _make_bundle(tmp_path / "bundle")
+    output = tmp_path / "policy-ctx2.onnx"
+
+    result = export_onnx(bundle, output, batch_size=2, context_length=2)
+
+    assert result.context_length == 2
+    graph = onnx.load(str(output))
+    inputs = {value.name: value for value in graph.graph.input}
+
+    def shape(value):
+        return [dim.dim_value for dim in value.type.tensor_type.shape.dim]
+
+    assert shape(inputs["states"]) == [2, 2, 3]
+    assert shape(inputs["actions"]) == [2, 2, 2]
+    assert shape(inputs["is_bos"]) == [2, 2, 1]
+    assert shape(inputs["mask"]) == [2, 2]
+
+
 @pytest.mark.parametrize("batch_size", [0, -1])
 def test_export_rejects_non_positive_batch_before_loading_bundle(
     tmp_path: Path, batch_size: int
 ):
     with pytest.raises(ValueError, match="batch_size must be greater than zero"):
         export_onnx(tmp_path / "missing", tmp_path / "out.onnx", batch_size=batch_size)
+
+
+@pytest.mark.parametrize("context_length", [0, -1])
+def test_export_rejects_non_positive_context_before_loading_bundle(
+    tmp_path: Path, context_length: int
+):
+    with pytest.raises(ValueError, match="context_length must be greater than zero"):
+        export_onnx(
+            tmp_path / "missing",
+            tmp_path / "out.onnx",
+            context_length=context_length,
+        )

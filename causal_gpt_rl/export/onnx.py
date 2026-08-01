@@ -19,6 +19,8 @@ import torch
 from torch import nn
 
 from causal_gpt_rl.inference import load_runner
+from causal_gpt_rl.inference.context.buffer import ContextBuffer
+from causal_gpt_rl.inference.runner import DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER
 
 
 @dataclass(frozen=True)
@@ -179,6 +181,7 @@ def export_onnx(
     output_path: str | Path,
     *,
     batch_size: int = 1,
+    context_length: int | None = None,
     opset: int = 18,
     attention: str = "eager",
     verify: bool = True,
@@ -192,6 +195,8 @@ def export_onnx(
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be greater than zero")
+    if context_length is not None and context_length <= 0:
+        raise ValueError("context_length must be greater than zero")
     if attention not in {"eager", "sdpa"}:
         raise ValueError("attention must be 'eager' or 'sdpa'")
     onnx = _require_onnx()
@@ -216,6 +221,21 @@ def export_onnx(
         kv_cache_max_len=None,
         use_windowed=True,
     )
+    if context_length is not None and runner.context_length != context_length:
+        # Re-derive everything the runner keys off context_length. `kv_cache_max_len`
+        # tracks the default because the load above passed None for it.
+        runner.context_length = int(context_length)
+        runner.default_kv_cache_max_len = (
+            int(context_length) * DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER
+        )
+        runner.kv_cache_max_len = runner.default_kv_cache_max_len
+        runner.buffer = ContextBuffer(
+            num_agents=runner.num_envs,
+            context_length=int(context_length),
+            state_size=runner.state_size,
+            action_size=runner.action_size,
+            kv_cache_max_len=None,
+        )
     context_length = int(runner.context_length)
     _patch_transformers_causal_mask(attention)
     network_config = runner.model.backbone.net.config
@@ -306,6 +326,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument(
+        "--context-length",
+        type=int,
+        default=None,
+        help="Override the exported rolling-window length (default: bundle context).",
+    )
     parser.add_argument("--opset", type=int, default=18)
     parser.add_argument("--attention", choices=("eager", "sdpa"), default="eager")
     parser.add_argument("--no-verify", action="store_true")
@@ -318,6 +344,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.bundle,
         args.out,
         batch_size=args.batch_size,
+        context_length=args.context_length,
         opset=args.opset,
         attention=args.attention,
         verify=not args.no_verify,
