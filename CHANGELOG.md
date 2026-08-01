@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Changed the default cached-inference KV retention from `4 × context_length`
+  to `context_length` (1×). Omitting `kv_cache_max_len` now keeps a rollout
+  inside the window the model was trained on — the setting the published
+  benchmark table is measured at and the one the retention sweep names the safe
+  default. The sweep covers 0.5×, 1×, and 2×, so retention past the trained
+  window is measured, but it is environment-dependent there (at 2× `Walker2d-v5`
+  drops from 4122 to 2659 return while `Humanoid-v5` is at its best and
+  steadiest); the previous 4× default sat beyond the swept range. Larger values
+  remain supported and within the backbone's position capacity (sized at 8× the
+  context length), but retaining more history is now an explicit opt-in.
+  **Migration:** callers that relied on the old behavior should pass
+  `kv_cache_max_len=4 * context_length` (or set `KV_CACHE_MAX_LEN` for the
+  serving container) to keep it.
+
 ## 0.14.0
 
 - Added `causal_gpt_rl.export` with `export_onnx` / `OnnxExportResult` and a

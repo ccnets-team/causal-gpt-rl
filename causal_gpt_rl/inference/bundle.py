@@ -360,8 +360,9 @@ def load_runner(
 ) -> PolicyRunner:
     """Load a bundle and return a ready-to-run `PolicyRunner`.
 
-    When `kv_cache_max_len` is omitted, PolicyRunner uses
-    `4 * context_length` from the bundle config as the cached inference cap.
+    When `kv_cache_max_len` is omitted, PolicyRunner uses the bundle config's
+    `context_length` as the cached inference cap, keeping the rollout inside
+    the model's trained window. Pass a larger value to retain more history.
 
     `bos_cache_mode` selects whether the episode-start bos token's KV is kept
     in the cache ("retain") or dropped after the first act ("discard"). It is a

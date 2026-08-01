@@ -41,7 +41,7 @@ Loading exposes the one knob the rollout has — **how much history it keeps**:
 | Parameter | What it is | Can you set it? |
 |---|---|---|
 | `context_length` | the trained token window the model was built for | **No** — fixed in the bundle at training time |
-| `kv_cache_max_len` | how much past the rollout retains | **Yes** — passed at load time; defaults to `4 × context_length` |
+| `kv_cache_max_len` | how much past the rollout retains | **Yes** — passed at load time; defaults to `context_length` (1×) |
 
 Then drive it by alternating `act()` and `observe()`:
 

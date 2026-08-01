@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
         "--kv-cache-max-len",
         type=int,
         default=None,
-        help="Optional KV cache cap. Defaults to 4x the bundle context_length.",
+        help="Optional KV cache cap. Defaults to the bundle context_length.",
     )
     return p.parse_args()
 
