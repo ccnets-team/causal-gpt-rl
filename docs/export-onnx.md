@@ -48,6 +48,34 @@ this policy,” not necessarily every agent present in the environment.
 | DungeonEscape, 12 arenas × 3 controlled agents | 36 |
 | SoccerTwos, 8 fields × 2 Causal-controlled teammates | 16 |
 
+`--context-length` is optional. Omitted, the graph is exported at the bundle's
+own context length. Supplied, it fixes a different rolling-window length in the
+graph:
+
+```bash
+causal-gpt-rl-export-onnx \
+    --bundle path/to/bundle \
+    --out policy-ctx16.onnx \
+    --batch-size 16 \
+    --context-length 16
+```
+
+A runtime that hosts a fixed graph cannot choose the window at load time, so
+exporting one bundle several times is how per-context variants of the same
+policy are published. A shorter window costs less per call and carries less
+history.
+
+Exporting *longer* than the bundle's own context length is not checked, and the
+two backbones fail differently. Each bundle carries a position capacity sized
+from its training context — 8× for Llama, 2× for GPT-2. A GPT-2 bundle asked for
+more raises `IndexError` inside the backbone, because its position embeddings
+are a trained lookup table. A Llama bundle exports without complaint: RoPE
+computes positions instead of looking them up, so a graph is produced at any
+length. Verification does not catch this — it compares ONNX against PyTorch, and
+both run equally far outside what the policy was trained on. Treat the bundle's
+own context length as the supported ceiling, and measure before deploying
+anything longer.
+
 The output is one self-contained ONNX file. Raw observations are inputs because
 bundle state normalization is embedded in the graph. Continuous, discrete,
 MultiDiscrete, structured observation, and hybrid-action bundles use the same
@@ -57,7 +85,7 @@ By default the exporter:
 
 1. reconstructs the model from the bundle;
 2. creates a real window using the bundle's declared observation structure;
-3. exports a fixed batch and the bundle's context length;
+3. exports a fixed batch and context length;
 4. folds external weight data into one ONNX file;
 5. runs `onnx.checker`;
 6. compares ONNX Runtime output with the PyTorch model and fails when the
@@ -80,6 +108,10 @@ result = export_onnx(
 print(result)
 ```
 
+`context_length` is accepted here as well, with the same meaning as
+`--context-length`. `result.context_length` reports the length the graph was
+exported at.
+
 ## ONNX contract
 
 The dimensions are derived from the bundle:
@@ -92,7 +124,8 @@ mask     [B, T]
 action   [B, action_size]
 ```
 
-`T` is the bundle context length. Discrete action heads produce logits; the
+`T` is the exported context length: the bundle's own, or the value passed to
+`--context-length`. Discrete action heads produce logits; the
 consumer selects one index per branch and feeds its one-hot representation back
 into the action context. See the Unity evaluators for complete continuous,
 Discrete, MultiDiscrete, and hybrid decoding examples.
