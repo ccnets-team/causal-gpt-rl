@@ -30,7 +30,7 @@ from huggingface_hub import hf_hub_download, snapshot_download
 
 policy = hf_hub_download(
     repo_id="ccnets/causal-gpt-rl-unity",
-    filename="dungeon-escape/dungeonescape-b36.onnx",
+    filename="dungeon-escape/dungeonescape-b36-ctx32.onnx",
     local_dir="hf_unity/model",
 )
 
@@ -42,14 +42,15 @@ snapshot_download(
 )
 ```
 
-The DungeonEscape build is being published separately. Until its folder appears
-in the environment repository, use a compatible local release-23 model-removed
-build. The model card records the required observation/action signature.
+The DungeonEscape build is published in the environment repository, so the two
+snippets above download everything the evaluator needs.
 
-The published DungeonEscape ONNX is an **intermediate training checkpoint**
-provided to validate this end-to-end download and evaluation workflow. Its
-reported performance is provisional and does not represent the final trained
-policy. The artifact and metrics will be updated after training completes.
+Each policy folder publishes one ONNX per KV-retention length. `ctx32` matches
+the policy's context length and is the recommended variant; the model card
+reports the closed-loop result for every published length. The sibling
+`config.json` and `model.safetensors` in the same folder are the original
+bundle, loadable directly when you want to re-evaluate at another retention
+length.
 
 ## Measure return
 
@@ -64,7 +65,7 @@ the default cached `PolicyRunner` serving convention.
 ```bash
 python examples/unity/evaluate_onnx.py \
     --build hf_unity/envs/DungeonEscape/UnityEnvironment.exe \
-    --onnx hf_unity/model/dungeon-escape/dungeonescape-b36.onnx
+    --onnx hf_unity/model/dungeon-escape/dungeonescape-b36-ctx32.onnx
 ```
 
 It supports continuous, discrete, MultiDiscrete, and hybrid policies. A model
@@ -139,7 +140,7 @@ into the same Unity step.
 ```bash
 python examples/unity/evaluate_matchup.py \
     --build hf_unity/envs/SoccerTwos/UnityEnvironment.exe \
-    --causal-onnx hf_unity/model/soccer-twos/soccertwos-b16.onnx \
+    --causal-onnx hf_unity/model/soccer-twos/soccertwos-b16-ctx32.onnx \
     --stock-onnx hf_unity/envs/SoccerTwos.onnx \
     --causal-team both \
     --stock-baseline
@@ -156,12 +157,13 @@ bundle's `config.json` and `model.safetensors` through the cached
 `PolicyRunner`; keep the same seed, side-swap, and BOS-cache options when
 comparing it with ONNX.
 
-The published SoccerTwos policy is the completed training-run checkpoint. In
-one context-32, BOS-discard side-swapped smoke run it won 4 and lost 12 against
-the stock release-23 policy: **25.00% win rate**. The original safetensors bundle
-produced the same W/D/L through the cached `PolicyRunner`. `--seed 0` controlled
-stock-policy action sampling; the current Unity wrapper used deterministic
-launch seeds 100 and 101, so this is not a multi-environment-seed benchmark.
+The published SoccerTwos policy is the completed training-run checkpoint.
+Across environment seeds `100..104`, both side assignments, paired environment
+and stock-policy sampling seeds, and 80 matches, the `ctx32` ONNX scored 32
+wins, 0 draws, and 48 losses against the stock release-23 policy: **40.00% win
+rate**. The original safetensors bundle scored 33/0/47 (41.25%) under the same
+protocol. The checkpoint is published for reproducibility and continued
+training; it does not yet exceed the stock policy.
 
 [`soccer_twos_hf.ipynb`](soccer_twos_hf.ipynb) is the worked download and
 side-swapped matchup tutorial. Its dataset representation is one ego-centric

@@ -1,14 +1,16 @@
 """Run a Causal GPT-RL Unity policy (ONNX) in a Unity ML-Agents build.
 
-The Unity deploy + measurement example: it drives the `crawler.onnx` policy from
-[ccnets/causal-gpt-rl-unity](https://huggingface.co/ccnets/causal-gpt-rl-unity)
+The Unity deploy + measurement example: it drives a continuous-action policy ONNX
 in a Unity Crawler build and reports closed-loop return per agent. ONNX-only — it
 needs `onnxruntime` and the ML-Agents stepping wrapper, but NOT PyTorch and NOT
 the `causal_gpt_rl` runtime.
 
-Inputs (both public):
-  - policy: ccnets/causal-gpt-rl-unity           (`crawler.onnx`)
-  - build:  ccnets/causal-gpt-rl-unity-envs       (model-removed Crawler build)
+Inputs:
+  - build:  ccnets/causal-gpt-rl-unity-envs       (public model-removed Crawler build)
+  - policy: your own continuous-action ONNX for that build. The policies published
+            in [ccnets/causal-gpt-rl-unity](https://huggingface.co/ccnets/causal-gpt-rl-unity)
+            are discrete (DungeonEscape, SoccerTwos); for those, use the batched
+            evaluators under `examples/unity/` instead.
 
 The policy is a windowed graph: it consumes a 32-step rolling window of raw
 observations + past actions and returns the next action. This script reproduces,
@@ -29,7 +31,7 @@ First-episode-per-agent: each scene agent is measured for one episode, then froz
 Run (in an env with onnxruntime + mlagents_envs; no torch needed):
     python examples/deploy/mlagents.py \
         --build path/to/Crawler.exe \
-        --onnx  path/to/crawler.onnx
+        --onnx  path/to/policy.onnx
 """
 from __future__ import annotations
 
@@ -95,7 +97,7 @@ def _pack(observations, g, n_ch):
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--build", required=True, type=Path, help="Path to the Unity Crawler build (.exe).")
-    p.add_argument("--onnx", required=True, type=Path, help="Path to the policy crawler.onnx.")
+    p.add_argument("--onnx", required=True, type=Path, help="Path to the continuous-action policy ONNX.")
     p.add_argument("--env-id", default="crawler")
     p.add_argument("--time-scale", type=float, default=20.0)
     p.add_argument("--graphics", action="store_true", help="Render the Unity window (default headless).")
