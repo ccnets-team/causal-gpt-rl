@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0
 
 - Changed the default cached-inference KV retention from `4 × context_length`
   to `context_length` (1×). Omitting `kv_cache_max_len` now keeps a rollout
@@ -15,6 +15,20 @@
   **Migration:** callers that relied on the old behavior should pass
   `kv_cache_max_len=4 * context_length` (or set `KV_CACHE_MAX_LEN` for the
   serving container) to keep it.
+- Added an optional `context_length` to `export_onnx`, and `--context-length` to
+  the `causal-gpt-rl-export-onnx` console script, so one bundle can produce ONNX
+  policies at several rolling-window lengths. A runtime that hosts a fixed graph
+  picks the window at export time rather than at load time, which is what
+  publishing per-context variants of the same policy requires. Omitting it keeps
+  the previous behavior exactly — the bundle's own context length is used — so
+  existing calls are unchanged. Lengths above the bundle's own context are not
+  validated, and the backbones diverge there: a GPT-2 bundle raises `IndexError`
+  past its baked position capacity, while a Llama bundle exports and verifies at
+  any length because RoPE computes positions rather than looking them up — and
+  verification compares ONNX against PyTorch, so it cannot flag a window the
+  policy was never trained on. Treat the bundle's context length as the
+  supported ceiling. Non-positive values are rejected before the bundle is
+  loaded.
 
 ## 0.14.0
 
