@@ -158,6 +158,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--time-scale", type=float, default=20.0)
     parser.add_argument("--max-ticks", type=int, default=20_000)
     parser.add_argument("--worker-id", type=int, default=None)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=100,
+        help=(
+            "Unity environment seed (default: 100). Also becomes the worker id, "
+            "and so the port offset, unless --worker-id is given; pass that too "
+            "when running several instances at once."
+        ),
+    )
     parser.add_argument("--graphics", action="store_true")
     parser.add_argument(
         "--bos-cache-mode",
@@ -190,6 +200,7 @@ def main() -> None:
     model_action_size = int(actions_shape[2])
 
     UnityEnv.register(args.env_id, None, str(args.build))
+    UnityEnv._instance_count = args.seed - 100
     make_kwargs = {
         "time_scale": args.time_scale,
         "use_graphics": args.graphics,

@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
+import torch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "unity_collection"))
@@ -73,7 +74,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--time-scale", type=float, default=20.0)
     parser.add_argument("--max-ticks", type=int, default=20_000)
     parser.add_argument("--worker-id", type=int, default=300)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Stock-policy action-sampling seed (does not seed Unity).",
+    )
+    parser.add_argument(
+        "--env-seed",
+        type=int,
+        default=100,
+        help=(
+            "Unity seed for the first side; side swapping uses env-seed and "
+            "env-seed+1 (default: 100)."
+        ),
+    )
+    parser.add_argument(
+        "--paired-env-seed",
+        action="store_true",
+        help="Reuse exactly env-seed for both sides instead of incrementing it.",
+    )
+    parser.add_argument(
+        "--paired-stock-seed",
+        action="store_true",
+        help="Reuse exactly the stock action-sampling seed for both sides.",
+    )
+    parser.add_argument(
+        "--device",
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help=(
+            "Device for the --causal-bundle path (default: cuda when available). "
+            "CPU and CUDA do not sample bit-identical actions, so compare scores "
+            "only against runs on the same device. --causal-onnx ignores this."
+        ),
+    )
     parser.add_argument("--graphics", action="store_true")
     parser.add_argument(
         "--bos-cache-mode",
@@ -118,6 +152,10 @@ def _print_result(label: str, result: SideResult) -> None:
 def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: int) -> SideResult:
     env_id = f"soccer-twos-matchup-{run_index}"
     UnityEnv.register(env_id, None, str(args.build))
+    if args.paired_env_seed:
+        # A strict environment-side swap changes only which team the Causal
+        # policy controls; both launches start from the same Unity seed.
+        UnityEnv._instance_count = args.env_seed - 100
     env = UnityEnv.make(
         env_id,
         time_scale=args.time_scale,
@@ -160,7 +198,7 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
 
             causal_runner = load_runner(
                 args.causal_bundle,
-                device="cpu",
+                device=args.device,
                 num_envs=len(causal_indices),
                 use_windowed=False,
                 bos_cache_mode=args.bos_cache_mode,
@@ -190,11 +228,28 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
             num_agents=num_agents,
             obs_shapes=env.observation_shapes,
             action_spec=action_spec,
-            rng=np.random.default_rng(args.seed + run_index),
+            rng=np.random.default_rng(
+                args.seed if args.paired_stock_seed else args.seed + run_index
+            ),
         )
         print(
             f"[contract] agents={num_agents} fields={len(field_sizes)} teams=16+16 "
             f"obs={state_size} branches={branches} causal_batch={batch}"
+        )
+        # Record what this side actually ran on. The bundle path's device is a
+        # default, not a constant, and CPU and CUDA do not sample identical
+        # actions — a score is only comparable against one taken the same way.
+        unity_seed = args.env_seed if args.paired_env_seed else args.env_seed + run_index
+        stock_seed = args.seed if args.paired_stock_seed else args.seed + run_index
+        if causal_session is not None:
+            causal_backend = "onnx/cpu"
+        elif causal_runner is not None:
+            causal_backend = f"bundle/{args.device}"
+        else:
+            causal_backend = "none"
+        print(
+            f"[run] unity_seed={unity_seed} stock_seed={stock_seed} "
+            f"causal={causal_backend}"
         )
 
         observations, _ = env.reset()
@@ -332,6 +387,10 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
 
 def main() -> None:
     args = parse_args()
+    # UnityEnv's non-vector wrapper launches with `_instance_count + 100` and
+    # increments once per fresh build. Seed the two side-swapped launches
+    # independently from the stock policy's action-sampling RNG.
+    UnityEnv._instance_count = args.env_seed - 100
     teams = [0, 1] if args.causal_team == "both" else [int(args.causal_team)]
     results = []
     for run_index, team in enumerate(teams):
