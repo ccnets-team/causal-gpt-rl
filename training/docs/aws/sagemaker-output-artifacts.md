@@ -33,9 +33,9 @@ model.tar.gz
 ```json
 {
   "evaluation": {
-    "best_metric_name": "offline_eval/action_nll",
-    "best_metric_value": 0.055177,
-    "best_metric_direction": "min",
+    "best_metric_name": "offline_eval/checkpoint_score",
+    "best_metric_value": 0.418732,
+    "best_metric_direction": "max",
     "best_return": null
   }
 }
@@ -43,18 +43,22 @@ model.tar.gz
 
 - `best_metric_name` — the metric that selected the canonical bundle.
 - `best_metric_value` — its value at the selected point.
-- `best_metric_direction` — `min` or `max`. **Read it before ranking runs
-  against each other.** `offline_eval/action_nll` is a negative log likelihood,
-  so `min` wins: the run with the *lower* value scored better. Sorting the wrong
-  way picks the worse model.
+- `best_metric_direction` — `min` or `max`. It is carried as its own field
+  because the direction is not part of the metric name. **Read it before ranking
+  runs against each other.** `offline_eval/checkpoint_score` is a bounded
+  `[0, 1]` score, so `max` wins: the run with the *higher* value scored better.
+  Sorting the wrong way picks the worse model.
 - `best_return` — filled in only when the selection metric is an actual episode
-  return (`direction: max`). On an offline-selected run it is `null` — absent,
-  not zero. Do not read `null` as a score of 0.
+  return, which requires environment evaluation during training. On an
+  offline-selected run it is `null` — absent, not zero. Do not read `null` as a
+  score of 0; on that path the selected point is described by
+  `best_metric_name` and `best_metric_value`.
 
-This block says which checkpoint predicted your dataset's actions best. It is
-not episode return, and it is not a statement about task performance. To find
-the point your own environment prefers, score the preserved archive bundles —
-see `training/docs/aws/sagemaker-realtime-policy-delivery.md`.
+This block says which checkpoint scored best on the held-out selection
+criterion — see `training/docs/aws/checkpoint-score.md`. It is not episode
+return, and it is not a statement about task performance. To find the point your
+own environment prefers, score the preserved archive bundles — see
+`training/docs/aws/sagemaker-realtime-policy-delivery.md`.
 
 ## Bundle Files
 

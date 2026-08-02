@@ -10,9 +10,9 @@ artifact.
 
 Training runs offline. There is no simulator or game engine inside the training
 container, so the job cannot measure episode return — the thing you actually
-care about. What it can measure is `offline_eval/action_nll`, which tells you how well
-the model predicts your dataset's actions, not how well the resulting policy
-performs at your task.
+care about. What it can measure is `offline_eval/checkpoint_score`, which tells
+you how well the policy tracks your dataset while running on its own rollout,
+not how well the resulting policy performs at your task.
 
 That leaves exactly one trustworthy check: **run the policy in your own
 environment.** Your environment is the only place it can happen.
@@ -57,7 +57,7 @@ restore, no waiting for the final artifact.
 | Series | Arrives | Retention | What it is |
 | --- | --- | --- | --- |
 | `archive/` | at scheduled and requested steps | permanent | An even sample of the run, plus any steps you asked for. |
-| `improvements/` | whenever `offline_eval/action_nll` reaches a new minimum | 10 rotating slots | The best-so-far track by the offline metric. Also updates the canonical bundle. |
+| `improvements/` | whenever `offline_eval/checkpoint_score` reaches a new maximum | 10 rotating slots | The best-so-far track by the offline metric. Also updates the canonical bundle. |
 
 `step` is the training-loop counter used by `max_steps`. Do not interpret it as
 an episode count.
@@ -73,12 +73,12 @@ metric has seen so far" — and it is worth loading when you want that specific
 model. It is not a good trend signal, for one reason worth stating plainly:
 
 **Silence in `improvements/` does not mean the policy stopped improving.**
-Deliveries stop when the offline metric stops reaching new minimums, and that
+Deliveries stop when the offline metric stops reaching new bests, and that
 metric is not your task performance. In one measured run the offline metric
-froze at step 54,300 and no further bundle was delivered for 46,000 steps —
-while measured episode return over that same stretch rose from 2,045 to 5,391.
-A polling loop watching `improvements/` would have seen a flat line through the
-most productive part of the run.
+plateaued and no further bundle was delivered for 46,000 steps — while measured
+episode return over that same stretch more than doubled. A polling loop watching
+`improvements/` would have seen a flat line through the most productive part of
+the run.
 
 ## Finding your bundles
 
@@ -108,7 +108,7 @@ the CloudWatch log stream directly.
 ## The manifests
 
 Each series has its own manifest with its own schema. **`metrics` is abbreviated
-to one key in both examples below**; every point carries all six. The full list
+to one key in both examples below**; every point carries all eight. The full list
 is under "What `metrics` contains".
 
 ### `archive/bundles/manifest.json`
@@ -118,9 +118,9 @@ is under "What `metrics` contains".
   "periodic_planned": 5,
   "points": [
     { "step": 20000, "reasons": ["periodic"],
-      "metrics": { "offline_eval/action_nll": 0.91 }, "metrics_step": 19800 },
+      "metrics": { "offline_eval/checkpoint_score": 0.3812 }, "metrics_step": 19800 },
     { "step": 25000, "reasons": ["periodic", "requested"],
-      "metrics": { "offline_eval/action_nll": 0.87 }, "metrics_step": 24800 }
+      "metrics": { "offline_eval/checkpoint_score": 0.4057 }, "metrics_step": 24800 }
   ]
 }
 ```
@@ -145,8 +145,8 @@ more than once. See `training/docs/aws/sagemaker-retraining.md`.
   "latest_slot": "slot_003",
   "canonical_source": { "slot": "slot_002", "step": 98000 },
   "slots": {
-    "slot_002": { "step": 98000, "metrics": { "offline_eval/action_nll": 0.8421 } },
-    "slot_003": { "step": 100000, "metrics": { "offline_eval/action_nll": 0.8390 } }
+    "slot_002": { "step": 98000, "metrics": { "offline_eval/checkpoint_score": 0.4102 } },
+    "slot_003": { "step": 100000, "metrics": { "offline_eval/checkpoint_score": 0.4187 } }
   }
 }
 ```
@@ -159,24 +159,27 @@ more than once. See `training/docs/aws/sagemaker-retraining.md`.
 
 ### What `metrics` contains
 
-Six keys per point, in both manifests and in each bundle's `metrics.json`:
+Eight keys per point, in both manifests and in each bundle's `metrics.json`:
 
 | Key | Role |
 | --- | --- |
-| `offline_eval/action_nll` | Selection metric. Lower is better. |
+| `offline_eval/checkpoint_score` | Selection metric. Range `[0, 1]`, higher is better. |
+| `offline_eval/rollout_action_prob` | The action term of the selection metric on its own. |
+| `offline_eval/action_nll` | Diagnostic. Held-out negative log-likelihood of the dataset action. |
 | `offline_eval/short_context_action_nll` | Positions in the `0`–`0.5x` context range. |
 | `offline_eval/standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
 | `offline_eval/long_context_action_nll` | Positions at `1.0x` and above. |
 | `offline_eval/value_loss` | Diagnostic. |
 | `offline_eval/policy_loss` | Diagnostic. |
 
-The two diagnostics are internal training values. They depend on your dataset and
-reward scale, so they are not comparable across runs and have no direction to
-sort by — do not rank checkpoints with them. They are worth including when you
-contact support.
+`value_loss` and `policy_loss` are internal training values. They depend on your
+dataset and reward scale, so they are not comparable across runs and have no
+direction to sort by — do not rank checkpoints with them. They are worth
+including when you contact support.
 
-Rank and select with `offline_eval/action_nll`, and score the bundles in your own
-environment for the decision that actually matters.
+Rank and select with `offline_eval/checkpoint_score`, and score the bundles in
+your own environment for the decision that actually matters. See
+`training/docs/aws/checkpoint-score.md` for what the selection metric measures.
 
 ### Reading them safely
 
@@ -443,11 +446,11 @@ Do not drive early stopping from this feed. See "Which one to score" above.
 
 ## Choosing what to deploy
 
-The canonical bundle is selected by `offline_eval/action_nll` — the best the
-model scored at predicting your dataset's actions. That is not the same as the
+The canonical bundle is selected by `offline_eval/checkpoint_score` — the best
+the model scored on the held-out selection criterion. That is not the same as the
 best policy for your task, and the gap can be large. In the measured run cited
-earlier, the canonical checkpoint scored 2,045 average return while the point
-the run ended on scored 5,391.
+earlier, the canonical checkpoint's return was less than half the return of the
+point the run ended on.
 
 So: **treat the canonical bundle as a default, not as a verdict.** The archive
 points are preserved precisely so you can score them yourself and pick the one

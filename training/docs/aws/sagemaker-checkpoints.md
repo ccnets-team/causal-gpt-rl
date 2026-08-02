@@ -130,20 +130,23 @@ The training job tracks an evaluation metric and direction. This metric is what
 The startup log reports both:
 
 ```text
-Checkpoint metric: offline_eval/action_nll
-Metric direction: min
+Checkpoint metric: offline_eval/checkpoint_score
+Metric direction: max
 ```
 
-`offline_eval/action_nll` is the held-out Action NLL (lower is better). Each
+`offline_eval/checkpoint_score` is Checkpoint Score, a bounded `[0, 1]` statistic
+measured on a held-out split of your dataset — higher is better. Each
 `bundles/*/metrics.json` records the evaluation metrics for its point, of which
-this one is the selection metric. See the eval metrics in
+this one is the selection metric. See `training/docs/aws/checkpoint-score.md` for
+what it measures and how to read it, the eval metrics in
 `training/docs/aws/aws-marketplace-training.md` for the full list, and
 `training/docs/aws/sagemaker-realtime-policy-delivery.md` for what each key
 means.
 
 The metric is measured against your dataset, not against your environment. It
-ranks checkpoints by how well they predict your dataset's actions, which is not
-the same as how well the resulting policy performs at your task.
+ranks checkpoints by how well the policy tracks your dataset while running on
+its own rollout, which is not the same as how well the resulting policy performs
+at your task.
 
 ## Canonical Bundle and Live Bundles
 
