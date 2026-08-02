@@ -70,15 +70,7 @@ build a decision on.
 
 `improvements/` answers a different question — "what is the best the offline
 metric has seen so far" — and it is worth loading when you want that specific
-model. It is not a good trend signal, for one reason worth stating plainly:
-
-**Silence in `improvements/` does not mean the policy stopped improving.**
-Deliveries stop when the offline metric stops reaching new bests, and that
-metric is not your task performance. In one measured run the offline metric
-plateaued and no further bundle was delivered for 46,000 steps — while measured
-episode return over that same stretch more than doubled. A polling loop watching
-`improvements/` would have seen a flat line through the most productive part of
-the run.
+model. It is not a good trend signal.
 
 ## Finding your bundles
 
@@ -448,9 +440,7 @@ Do not drive early stopping from this feed. See "Which one to score" above.
 
 The canonical bundle is selected by `offline_eval/checkpoint_score` — the best
 the model scored on the held-out selection criterion. That is not the same as the
-best policy for your task, and the gap can be large. In the measured run cited
-earlier, the canonical checkpoint's return was less than half the return of the
-point the run ended on.
+best policy for your task, and the gap can be large.
 
 So: **treat the canonical bundle as a default, not as a verdict.** The archive
 points are preserved precisely so you can score them yourself and pick the one
