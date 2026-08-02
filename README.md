@@ -7,6 +7,8 @@ tags:
   - reinforcement-learning
   - gymnasium
   - mujoco
+  - unity
+  - ml-agents
   - causal-gpt-rl
 ---
 
@@ -28,7 +30,6 @@ A single autoregressive model drives full-episode rollouts via KV cache — no c
 This repository is the public inference runtime. It loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers.
 
 - **Code (GitHub):** [ccnets-team/causal-gpt-rl](https://github.com/ccnets-team/causal-gpt-rl)
-- **Run logs (W&B, public):** [wandb.ai/junhopark/Causal GPT-RL](https://wandb.ai/junhopark/Causal%20GPT-RL)
 - **Hugging Face org:** https://huggingface.co/ccnets
 - Website: https://ccnets.org
 - LinkedIn: https://www.linkedin.com/company/ccnets
@@ -119,74 +120,40 @@ sample of the declared `action_space`.
 See **[docs/spaces.md](docs/spaces.md)** for the full table, the rollout loop,
 and a structured-space (`Dict` / `Tuple`) example.
 
-## Supported Environments
+## Available Policies
 
-| Env | Bundle | Ctx | Return | Norm. | Simple Ref. | Medium Ref. |
-|---|---|---:|---:|---:|---:|---:|
-| `Ant-v5` | `ant-v5` | 32 | 5434.12±1298.24 | 81.62±19.25 | 59.99 ✓ | 86.54 ✗ |
-| `HalfCheetah-v5` | `halfcheetah-v5` | 32 | 6816.48±3135.53 | 42.87±19.01 | 43.54 ✗ | 74.83 ✗ |
-| `Hopper-v5` | `hopper-v5` | 32 | 3199.65±21.74 | 82.87±0.57 | 42.65 ✓ | 72.91 ✓ |
-| `Walker2d-v5` | `walker2d-v5` | 32 | 4122.68±299.84 | 60.19±4.38 | 59.51 ✓ | 83.26 ✗ |
-| `Humanoid-v5` | `humanoid-v5` | 32 | 7892.65±1018.11 | 91.63±11.99 | 63.29 ✓ | 81.30 ✓ |
+Policy bundles, the environments they run in, and the trajectory datasets are
+published on the Hugging Face org:
 
-Training data is expert-free: bundles are trained using Minari simple and medium datasets only; expert trajectories are not used for training.
+| Repo | Contents |
+|---|---|
+| [ccnets/causal-gpt-rl](https://huggingface.co/ccnets/causal-gpt-rl) | MuJoCo continuous control — `Ant-v5`, `HalfCheetah-v5`, `Hopper-v5`, `Walker2d-v5`, `Humanoid-v5` |
+| [ccnets/causal-gpt-rl-unity](https://huggingface.co/ccnets/causal-gpt-rl-unity) | Unity ML-Agents — DungeonEscape, SoccerTwos (`model.safetensors` + per-context ONNX) |
+| [ccnets/causal-gpt-rl-unity-envs](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs) | Model-removed Unity builds + stock policies where redistributable |
+| [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets) | Recorded Minari trajectories |
 
-`Return` and `Norm.` are mean±std over 50 episodes with seeds `0..49`. `Ctx` is context length. `max_steps=1000`, and KV cache max length is capped to `Ctx`.
+Per-bundle returns, the evaluation protocol, and the runtime versions each score
+was measured on are on the corresponding model card. Unity download-and-measure
+walkthroughs are in [examples/unity/](examples/unity/).
 
-Normalized scores use random=0 and expert=100:
+## Context Window and KV Cache
 
-```text
-100 * (return - random_ref) / (expert_ref - random_ref)
+A bundle's `context_length` is the model's context window. It is fixed in the
+bundle and is not changeable at inference.
+
+`kv_cache_max_len` — how much past a rollout retains — *is* a load-time knob. It
+defaults to the bundle's own `context_length`, which keeps a rollout inside the
+window the policy was measured on:
+
+```python
+runner = load_runner("path/to/bundle", kv_cache_max_len=64)
 ```
 
-`Simple Ref.` and `Medium Ref.` are the normalized means of the Minari `simple-v0`
-and `medium-v0` datasets. They are shown for context and are not the normalization
-baseline. `✓` marks a reference the bundle's `Norm.` exceeds, `✗` one it does not.
-
-### KV cache retention sweep
-
-`Ctx` above is the bundle's `context_length` — the model's context window, fixed
-at **32** and not changeable at inference. `kv_cache_max_len` (how much past the
-rollout retains) *is* a load-time knob; the main table caps it to `Ctx` (1×).
-Sweeping it to 0.5×, 1×, and 2× the window, with the same protocol (50 episodes,
-seeds `0..49`, `max_steps=1000`):
-
-| Env | `kv=16` (0.5×) | `kv=32` (1×) | `kv=64` (2×) | Trend |
-|---|---:|---:|---:|---|
-| `Ant-v5` | 5292.09±1338.88 | 5434.12±1298.24 | 5323.72±1635.79 | 1× highest mean (≈) |
-| `HalfCheetah-v5` | 6793.17±2939.17 | 6816.48±3135.53 | 6468.21±3234.51 | ≈ flat |
-| `Hopper-v5` | 3189.53±22.58 | 3199.65±21.74 | 3190.09±23.75 | ≈ flat and stable |
-| `Walker2d-v5` | 4021.00±573.17 | 4122.68±299.84 | 2659.11±1297.61 | 1× best; 2× collapses |
-| `Humanoid-v5` | 7431.52±2024.95 | 7892.65±1018.11 | 8040.41±38.02 | longer ↑, steadiest |
-
-The `kv=32` column matches the main table. At `kv=64` the rollout attends over
-more history than the model's 32-token window — positions outside its native
-range. This stays within the backbone's position capacity (Llama/RoPE,
-`max_position_embeddings=256`), so it is an extrapolation regime, not a hard cap.
-
-Best retention is **environment-dependent**, but for most envs the difference
-across 0.5×/1×/2× is within run-to-run noise (`Trend` marks these `≈`). The
-refreshed `Hopper-v5` bundle is especially stable: all three settings average
-about 3,190–3,200 return with all 50 episodes reaching 1,000 steps. `Humanoid-v5`
-is best at 2× (highest return and its steadiest — std 38 across all 50 episodes).
-The refreshed `Walker2d-v5` bundle is strongest at 1×: it reaches 1,000 steps in
-48/50 episodes, while 2× falls to 2,659 return and 15/50 full episodes. The
-context window (1×) remains a safe default.
-
-Evaluation runtime — every row above is measured on this one:
-
-```text
-causal-gpt-rl 0.14.0
-torch 2.8.0+cu129
-gymnasium 1.2.3
-mujoco 3.2.3
-minari 0.5.3
-```
-
-`mujoco` is pinned to `3.2.3` because that is the version the Minari datasets
-were recorded with (`requirements: ['mujoco==3.2.3', 'gymnasium>=1.0.0']`). The
-`Norm.` and `Medium Ref.` columns are derived from those recorded trajectories,
-so returns are only comparable to them when measured on the same physics.
+Larger values are supported and stay within the backbone's position capacity, but
+retaining more history than the context window is an extrapolation regime, and
+its effect is environment-dependent — across the published MuJoCo bundles it
+ranges from a modest improvement to a large regression. The default is the safe
+choice; measure before raising it.
 
 ## Bundle Format
 
