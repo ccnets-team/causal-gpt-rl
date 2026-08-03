@@ -97,7 +97,7 @@ Key items to confirm:
 - Flattened observation/action shape the model actually consumes.
 - Type, size, and order of the flattened state/action heads.
 - Dataset, episode, and transition counts.
-- Dataset validation result and the minimum required episode length.
+- Dataset validation result.
 - Evaluation mode and the checkpoint-selection metric.
 - The archive schedule: which steps are preserved for the whole run, including any you requested with `archive_steps`, and what they cost on disk.
 
