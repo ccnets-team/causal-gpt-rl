@@ -131,7 +131,7 @@ Action NLL is the negative log likelihood the model assigns to the dataset's gro
 | --- | --- |
 | `offline_eval:checkpoint_score` | Checkpoint-selection metric. Range `[0, 1]`, higher is better. |
 | `offline_eval:rollout_action_prob` | The action term of the selection metric on its own. |
-| `offline_eval:action_nll` | Representative Action NLL across all eval scoring positions. |
+| `offline_eval:action_nll` | Representative Action NLL across eval positions within the training context length. |
 | `offline_eval:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
 | `offline_eval:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
 | `offline_eval:long_context_action_nll` | Positions beyond the training context length, `1.0x` and above. |
@@ -141,7 +141,7 @@ The same metrics appear inside delivered bundles with a `/` separator instead of
 you select in the console; the `/` form is the key inside `metrics.json` and
 `manifest.json`. Same metric, different surface.
 
-To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required. When dataset episodes are short or padded, only valid positions are averaged.
+To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required. Episodes too short to supply the full evaluation span are excluded from the eval sample entirely, not partially averaged.
 
 `offline_eval:checkpoint_score` is the metric shown in the startup summary (`Checkpoint metric: offline_eval/checkpoint_score`, `Metric direction: max`): higher values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step. See `training/docs/aws/checkpoint-score.md` for what it measures and how to read it.
 
