@@ -147,8 +147,8 @@ raw dataset may need more transitions than the formula suggests. A large
 dataset made mostly of short episodes may therefore support a smaller context
 than a dataset with fewer but longer episodes.
 
-Short episodes are not discarded. They can still contribute to training where
-their length allows; they simply do not count as complete `2C` chunks for this
+Short episodes are not discarded from training. They contribute where their
+length allows; they simply do not count as complete `2C` chunks for this
 startup capacity check.
 
 If the requested shape does not fit, the job lowers batch and context one
