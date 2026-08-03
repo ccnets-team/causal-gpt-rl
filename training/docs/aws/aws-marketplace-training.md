@@ -76,7 +76,6 @@ Dataset variants: medium-v0
 Datasets: 1
 Episodes: 1,024
 Transitions: 245,760
-Minimum required episode length: 64
 Observation space: Box(-inf, inf, (336,), float32)
 Action space: MultiDiscrete([3 3 3])
 Flattened observation shape: (336,)

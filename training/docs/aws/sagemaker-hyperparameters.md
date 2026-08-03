@@ -11,7 +11,6 @@ This document is the contract for passing hyperparameters to a SageMaker trainin
 - Values that are not provided use the training recipe defaults.
 - Dataset-specific metadata is read from the Minari dataset itself.
 - Some values are **adjusted** to the nearest supported value rather than rejected. Others **fail the job at startup**. Which is which is fixed and listed below.
-- Every automatic adjustment records the requested value, the effective value, and the reason.
 
 ## Required Value
 
@@ -102,9 +101,7 @@ gamma         = 0.5  -> 0.98
 scheduler name is not a failure; it falls back to `cosine`. A non-finite number
 (NaN or infinity) cannot be adjusted and fails the job.
 
-Every change records the requested value, effective value, and adjustment
-reason. Training and inference use the effective values, not the original
-request.
+Training and inference use the effective values, not the original request.
 
 ## Dataset Capacity Can Lower Batch and Context
 
