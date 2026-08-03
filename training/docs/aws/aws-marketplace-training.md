@@ -141,7 +141,7 @@ The same metrics appear inside delivered bundles with a `/` separator instead of
 you select in the console; the `/` form is the key inside `metrics.json` and
 `manifest.json`. Same metric, different surface.
 
-To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required. Episodes too short to supply the full evaluation span are excluded from the eval sample entirely, not partially averaged.
+To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required.
 
 `offline_eval:checkpoint_score` is the metric shown in the startup summary (`Checkpoint metric: offline_eval/checkpoint_score`, `Metric direction: max`): higher values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step. See `training/docs/aws/checkpoint-score.md` for what it measures and how to read it.
 
