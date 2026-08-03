@@ -69,38 +69,57 @@ During training, users can monitor progress through Amazon CloudWatch Logs conne
 
 At the start of a training job, the log prints a validation summary so users can immediately confirm that the training data was read with the intended observation and action schema.
 
+The summary is printed as three titled sections.
+
 ```text
+================ Dataset Configuration ================
 Dataset validation: PASSED
-Dataset IDs: unity/soccer-twos/medium-v0
-Dataset variants: medium-v0
+Dataset IDs: mujoco/humanoid/simple-v0
+Dataset variants: simple-v0
 Datasets: 1
-Episodes: 1,024
-Transitions: 245,760
-Observation space: Box(-inf, inf, (336,), float32)
-Action space: MultiDiscrete([3 3 3])
-Flattened observation shape: (336,)
-Flattened action shape: (9,)
-State specs: [continuous(size=336)]
-Action specs: [multi_discrete(size=3), multi_discrete(size=3), multi_discrete(size=3)]
+Episodes: 1039
+Transitions: 999269
+Observation space: Box(-inf, inf, (348,), float64)
+Action space: Box(-0.4, 0.4, (17,), float32)
+Flattened observation shape: (348,)
+Flattened action shape: (17,)
+State specs: [continuous(size=348)]
+Action specs: [continuous(size=17)]
+=======================================================
+================ Evaluation Configuration ==============
 Evaluation mode: offline
+Requested env ID: Humanoid-v5
+Environment source: disabled
 Checkpoint metric: offline_eval/checkpoint_score
 Metric direction: max
-Archive periodic: 20000, 40000, 60000, 80000, 100000
+========================================================
+================ Checkpoint Schedule ===================
+Archive periodic: 200, 400, 600, 800, 1000
 Archive steps: none
-Archive disk estimate: 500 MB for 5 point(s) (free: 24.3 GB)
+Archive disk estimate: 410.1 MB for 5 point(s) (free: 867.3 GB)
+========================================================
 ```
 
 Key items to confirm:
+
+**Dataset Configuration**
 
 - Original observation/action space read from the dataset.
 - Flattened observation/action shape the model actually consumes.
 - Type, size, and order of the flattened state/action heads.
 - Dataset, episode, and transition counts.
 - Dataset validation result.
-- Evaluation mode and the checkpoint-selection metric.
-- The archive schedule: which steps are preserved for the whole run, including any you requested with `archive_steps`, and what they cost on disk.
 
-The original environment action and the model's flattened action shape are shown together so that action-encoding mistakes are easy to spot. For example, a `MultiDiscrete([3, 3, 3])` action is three environment indices, but the model's flattened action shape is `(9,)` — the sum of the one-hot blocks. Seeing both values makes an incorrect encoding obvious.
+**Evaluation Configuration**
+
+- Evaluation mode and the checkpoint-selection metric.
+- `Environment source` — `disabled` for offline training. `Requested env ID` records the environment the dataset was recorded against; it is metadata, not something the training job launches.
+
+**Checkpoint Schedule**
+
+- Which steps are preserved for the whole run, including any you requested with `archive_steps`, and what they cost on disk. `Archive periodic` is derived from `max_steps` at 20, 40, 60, 80, and 100 percent.
+
+The original environment action and the model's flattened action shape are shown together so that action-encoding mistakes are easy to spot. They match for a continuous `Box` action like the one above. They do not match for categorical actions: a `MultiDiscrete([3, 3, 3])` action is three environment indices, but the model's flattened action shape is `(9,)` — the sum of the one-hot blocks. Seeing both values makes an incorrect encoding obvious.
 
 ### Training Progress
 
