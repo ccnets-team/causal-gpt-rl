@@ -1,14 +1,10 @@
 # AWS Marketplace Training
 
-Product version: `0.0.10`
-
-> **Not published yet.** This version is not live on AWS Marketplace. What
-> follows describes what the `0.0.10` training image does, so the steps and
-> contracts are usable once the listing is available. Until then there is no
-> subscription to take and no Algorithm ARN to use. See "Hosted Training Status"
-> in `training/README.md`.
-
 This document describes the minimum steps needed to run a Causal GPT-RL SageMaker training job after subscribing through AWS Marketplace.
+
+The product listing carries the current version and its Algorithm ARN:
+
+https://aws.amazon.com/marketplace/pp/prodview-is6jt3bcwkq5c
 
 ## Purpose
 

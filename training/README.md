@@ -43,12 +43,14 @@ AWS Marketplace/SageMaker training notes live under `training/docs/aws/`:
 - `training/docs/aws/checkpoint-score.md`
 - `training/docs/aws/sagemaker-retraining.md`
 
-## Hosted Training Status
+## Hosted Training
 
-AWS Marketplace/SageMaker training entrypoints are being prepared but are not
-live public products yet. Until they are published, keep listing links, pricing,
-EULA text, and default SageMaker Algorithm ARNs out of public examples.
+Hosted training is available on AWS Marketplace as the CCNets Causal GPT-RL
+Training Algorithm:
 
-When the hosted path is ready, its quickstart should use this interface to
-submit training hyperparameters, then load the exported bundle with the runtime
-inference APIs.
+https://aws.amazon.com/marketplace/pp/prodview-is6jt3bcwkq5c
+
+Subscribe there, then follow `training/docs/aws/aws-marketplace-training.md`.
+Take the Algorithm ARN from the listing rather than hard-coding one here, and
+keep pricing and EULA text out of this repository — the listing is the only
+place those are current.
