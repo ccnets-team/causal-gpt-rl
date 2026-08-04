@@ -27,13 +27,13 @@
   `Checkpoint: step=<step> checkpoints_saved=<count>`. It is job progress rather
   than a property of a checkpoint, so it is registered as a SageMaker metric but
   is not written to `metrics.json` or the bundle manifest.
-- Corrected the Forecast metrics documentation. `forecast:step_reward` is now
-  emitted by Marketplace training jobs, on the progress-log cadence as
-  `Forecast: step=<n> step_reward=<value>`; the docs previously said no forecast
-  metric was available. Estimated episode length and episode return are **not**
-  emitted by the current version and are now described as planned, replacing
-  example log output and troubleshooting text that implied a running job
-  produces them.
+- Rewrote the Forecast metrics documentation as planned-only. No `forecast:`
+  metric is registered with SageMaker and no forecast line appears in a job's
+  logs — all three estimates (step reward, episode length, episode return) are
+  held back from the customer surface until they are validated. The section
+  previously carried example log output, interpretation guidance, and
+  troubleshooting steps for metrics a running job does not produce; those are
+  removed.
 
 ## 0.15.0
 

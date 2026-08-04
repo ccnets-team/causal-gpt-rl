@@ -24,7 +24,7 @@ A Causal GPT-RL training job takes user-provided offline trajectory datasets and
 1. Upload the training data to S3.
 2. Set `dataset_ids` to the dataset ids you want to train on.
 3. Create a training job with the SageMaker Algorithm ARN.
-4. Monitor training progress in CloudWatch Logs, including the startup validation summary, eval metrics such as Action NLL, and the Forecast step-reward estimate.
+4. Monitor training progress in CloudWatch Logs, including the startup validation summary, eval metrics such as Action NLL, and checkpoint save progress.
 5. After training finishes, download `model.tar.gz` from the S3 output path.
 6. Extract the archive and load the canonical `bundle/` with the `causal_gpt_rl.inference` runtime.
 
@@ -162,7 +162,7 @@ two series are and when each is written.
 
 ### Eval Metrics
 
-The training job evaluates the policy on a held-out portion of the dataset. One of these metrics selects checkpoints — Checkpoint Score — and the rest are diagnostics. Unlike the Forecast metrics below, all of them are measured directly from held-out data rather than estimated by the model.
+The training job evaluates the policy on a held-out portion of the dataset. One of these metrics selects checkpoints — Checkpoint Score — and the rest are diagnostics. All of them are measured directly from held-out data rather than estimated by the model.
 
 Action NLL is the negative log likelihood the model assigns to the dataset's ground-truth actions; lower means the model predicts the dataset actions better. It is reported as an overall value and per-context-length values.
 
@@ -184,53 +184,32 @@ To keep results comparable across runs, the service evaluates at a standard Shor
 
 `eval_offline:checkpoint_score` is the metric shown in the startup summary (`Checkpoint metric: eval_offline/checkpoint_score`, `Metric direction: max`): higher values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step. See `training/docs/aws/checkpoint-score.md` for what it measures and how to read it.
 
-### Forecast Metrics
+### Forecast Metrics (Planned)
 
-Forecast metrics give an approximate view of how the current policy may behave
-without running the target simulator, game engine, or environment inside the
-training container. One is emitted today:
+Forecast metrics would give an approximate view of how the current policy may
+behave without running the target simulator, game engine, or environment inside
+the training container. Three are planned:
 
-| SageMaker metric | Description |
+| Planned metric | Description |
 | --- | --- |
-| `forecast:step_reward` | Estimated average reward per environment step. |
+| Estimated step reward | Average reward per environment step. |
+| Estimated episode length | Average episode length in environment steps. |
+| Estimated episode return | Average episode return, or total episode score. |
 
-It is reported on the same progress cadence as the training line, as a single
-`Forecast:` entry:
+**None of them is emitted by the current version.** No `forecast:` metric is
+registered with SageMaker, and no forecast line appears in a job's logs or
+dashboard. They are experimental and are not exposed until validated; there is
+nothing here to configure, watch for, or build tooling against.
 
-```text
-Forecast: step=20000 step_reward=1.24
-```
+When they do arrive, they will be model-based estimates rather than rollout
+scores measured in your simulator or game engine, and improving one will not by
+itself guarantee improved real-environment performance.
 
-Estimated episode length and estimated episode return are planned. Neither is
-emitted by the current version, and no `forecast:` metric other than the one
-above appears in a job's logs or dashboard.
-
-`forecast:step_reward` is a model-based estimate computed from reward
-information in the training dataset. It is not a rollout score measured in your
-simulator or game engine. A rising trend may indicate the policy is learning
-better actions, but the value is not an absolute environment score, and
-improving it does not guarantee improved real-environment performance.
-
-Final performance should be validated by running the exported `bundle/` in the customer’s actual simulator, game engine, or evaluation environment.
-
-### Notes and Limitations
-
-The forecast can be unstable early in training. Before the model and dataset
-statistics settle, the value may fluctuate sharply or may not appear at all.
-
-It is difficult to compare directly across different datasets, reward scales, or
-environment settings. It is safest for comparing trends across repeated runs with
-the same configuration.
-
-### If the Forecast Metric Does Not Appear
-
-`forecast:step_reward` may be absent in the following cases:
-
-- The training job has not yet initialized the required data statistics.
-- The current batch does not contain valid prediction positions.
-- Invalid or non-finite values are detected and the metric is skipped from logging.
-
-If it does not appear, continue training and check the training logs for warnings or errors.
+Until then, real task performance comes from running a delivered `bundle/` in
+your own environment while the job runs — see
+`training/docs/aws/sagemaker-realtime-policy-delivery.md`. Final performance
+should be validated the same way, in the customer’s actual simulator, game
+engine, or evaluation environment.
 
 ## Recommended Instance
 
