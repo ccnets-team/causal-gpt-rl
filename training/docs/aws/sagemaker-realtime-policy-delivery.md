@@ -151,7 +151,8 @@ more than once. See `training/docs/aws/sagemaker-retraining.md`.
 
 ### What `metrics` contains
 
-Eight keys per point, in both manifests and in each bundle's `metrics.json`:
+The same keys at every point, in both manifests and in each bundle's
+`metrics.json`:
 
 | Key | Role |
 | --- | --- |
@@ -160,14 +161,6 @@ Eight keys per point, in both manifests and in each bundle's `metrics.json`:
 | `offline_eval/action_nll` | Diagnostic. Held-out negative log-likelihood of the dataset action. |
 | `offline_eval/short_context_action_nll` | Positions in the `0`–`0.5x` context range. |
 | `offline_eval/standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
-| `offline_eval/long_context_action_nll` | Positions at `1.0x` and above. |
-| `offline_eval/value_loss` | Diagnostic. |
-| `offline_eval/policy_loss` | Diagnostic. |
-
-`value_loss` and `policy_loss` are internal training values. They depend on your
-dataset and reward scale, so they are not comparable across runs and have no
-direction to sort by — do not rank checkpoints with them. They are worth
-including when you contact support.
 
 Rank and select with `offline_eval/checkpoint_score`, and score the bundles in
 your own environment for the decision that actually matters. See
@@ -196,7 +189,7 @@ between evaluations carries the previous evaluation's values along with its
 older `metrics_step` — that lag is what the field exists to show, not a missing
 metric. Do not require the field.
 
-It is all six keys or none. A point never carries a partial set, so testing for
+It is every key or none. A point never carries a partial set, so testing for
 one key is enough to know the rest are there.
 
 ## Loading a delivered bundle

@@ -148,7 +148,6 @@ Action NLL is the negative log likelihood the model assigns to the dataset's gro
 | `offline_eval:action_nll` | Representative Action NLL across eval positions within the training context length. |
 | `offline_eval:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
 | `offline_eval:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
-| `offline_eval:long_context_action_nll` | Positions beyond the training context length, `1.0x` and above. |
 
 The same metrics appear inside delivered bundles with a `/` separator instead of
 `:` — `offline_eval/checkpoint_score`. The `:` form is the SageMaker metric name
@@ -158,12 +157,6 @@ you select in the console; the `/` form is the key inside `metrics.json` and
 To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required.
 
 `offline_eval:checkpoint_score` is the metric shown in the startup summary (`Checkpoint metric: offline_eval/checkpoint_score`, `Metric direction: max`): higher values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step. See `training/docs/aws/checkpoint-score.md` for what it measures and how to read it.
-
-Delivered bundles also record `offline_eval/value_loss` and
-`offline_eval/policy_loss` in `metrics.json`. These are internal training
-diagnostics. They depend on your dataset and reward scale, so they are not
-comparable across runs and must not be used to rank checkpoints or select a
-model. Include them when contacting support.
 
 ### Forecast Metrics
 

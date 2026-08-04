@@ -42,7 +42,9 @@ model.tar.gz
 ```
 
 - `best_metric_name` — the metric that selected the canonical bundle.
-- `best_metric_value` — its value at the selected point.
+- `best_metric_value` — its value at the selected point. It ranks points inside
+  one run. The offline criterion is revised as it is tuned, so do not compare it
+  across runs.
 - `best_metric_direction` — `min` or `max`. It is carried as its own field
   because the direction is not part of the metric name. **Read it before ranking
   runs against each other.** `offline_eval/checkpoint_score` is a bounded

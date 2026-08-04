@@ -15,47 +15,40 @@ delivered bundles while a job runs, see
 
 ## Which metric selects
 
-Every key below goes to the training dashboard, which also carries internal
-diagnostics not listed here. A subset reaches what a training job ships — the
-checkpoint metadata, each snapshot's `metrics.json`, the bundle manifest, and
-the job's log stream. **Where** says which. Only one key selects.
+A small set of keys travels with what a training job ships — the checkpoint
+metadata, each snapshot's `metrics.json`, the bundle manifest, and the job's log
+stream. That set is the contract, and only one key in it selects.
 
-| Key | Role | Where |
-|---|---|---|
-| `OfflineEval/CheckpointScore` | **Selection criterion.** Direction `max` | dashboard + artifacts |
-| `OfflineEval/RolloutActionProb` | Component: the action term on its own | dashboard + artifacts |
-| `OfflineEval/ActionNll` | **Diagnostic, not the criterion.** Held-out negative log-likelihood of the dataset action | dashboard + artifacts |
-| `OfflineEval/{Short,Standard,Long}ContextActionNll` | Position-bucket diagnostics, including behaviour past the training window | dashboard + artifacts |
-| `OfflineEval/ValueLoss`, `PolicyLoss` | Held-out value and policy error terms | dashboard + artifacts |
-| `OfflineEval/AdvantageMean`, `AdvantageStd` | Distribution of the raw value gap. **Not an input to the score** — the score reads the gap per position, never its batch mean or spread | dashboard |
-| `OfflineEval/ActionNll/head_*` | Per-action-head breakdown | dashboard |
-| `OfflineEval/CheckpointsSaved` | Cumulative count of saved checkpoints | dashboard |
+| Key | Role |
+|---|---|
+| `offline_eval/checkpoint_score` | **Selection criterion.** Direction `max` |
+| `offline_eval/rollout_action_prob` | Component: the action term on its own |
+| `offline_eval/action_nll` | **Diagnostic, not the criterion.** Held-out negative log-likelihood of the dataset action |
+| `offline_eval/short_context_action_nll`, `offline_eval/standard_context_action_nll` | The same NLL split by position bucket within the training context length |
+
+The training dashboard renders these alongside internal instrumentation, under
+display names of its own. Those names are for reading a run, not an interface —
+they are regrouped and relabelled between versions. Key your own tooling off the
+table above.
 
 ### Key forms
 
-The names above are how the dashboard renders them. The artifact-facing keys
-carry the same metric under two more notations:
+The keys above appear under two notations, one per surface:
 
 | Surface | Notation |
 | --- | --- |
-| SageMaker metric name (console, CloudWatch) | `offline_eval:checkpoint_score` |
 | `metrics.json`, `manifest.json`, checkpoint metadata | `offline_eval/checkpoint_score` |
-| Training dashboard | `OfflineEval/CheckpointScore` |
+| SageMaker metric name (console, CloudWatch) | `offline_eval:checkpoint_score` |
 
-The mapping is mechanical — PascalCase becomes snake_case, and the separator is
-`:` for the SageMaker metric name you select in the console and `/` everywhere
-else. Same metric, different surface.
+The only difference is the separator: `:` for the SageMaker metric name you
+select in the console, `/` everywhere else. Same metric, different surface. The
+two sets coincide, so a key you can read in `metrics.json` is a key you can
+graph.
 
 Direction is **not** part of the name. It travels as its own field: artifacts
 record `best_metric_name` and `best_metric_direction` separately, and the startup
 summary prints them on separate lines. Searching an artifact for a fused
 `checkpoint_score/max` finds nothing.
-
-Of the artifact-facing keys, six are also published as SageMaker metric names a
-training job can graph: `offline_eval:checkpoint_score`,
-`offline_eval:rollout_action_prob`, `offline_eval:action_nll`, and the three
-context-band NLLs. `ValueLoss` / `PolicyLoss` reach the log stream and the
-artifacts but are not among the scraped scalars.
 
 Held-out action NLL is kept as a diagnostic rather than promoted to the
 criterion for two reasons, both properties of the statistic itself. It is
@@ -152,32 +145,13 @@ Two properties matter.
   There is nothing to configure here: the offline ceiling is what defines "caught
   up", and moving the anchor off zero would move that definition arbitrarily.
 
-The score is the mean of `advantage_weight * rollout_action_prob` over the
-positions an evaluation scores. A checkpoint should close as much of the gap to
-the dataset's continuation as it can while learning the dataset's action.
-
-Both terms are logged, so `CheckpointScore / RolloutActionProb` recovers the mean
-`advantage_weight` without a third metric — exactly when the two channels are
-uncorrelated, and close enough when they nearly are.
-
-Read that mean as what it is: the **average per-position weight**, `1` wherever
-the model has caught up and less wherever it lags. It is *not* the fraction of
-positions that caught up. A position lagging by a little still weighs nearly `1`,
-so the average sits well above that fraction whenever gaps are small — which is
-the normal case. It is a level that falls as gaps widen, not a percentage.
-
 ## How to read it
 
-- Range `[0, 1]`, higher is better. It discriminates between checkpoints within
-  one run; comparing absolute values across datasets, or across revisions of the
-  metric, is not meaningful.
-- **It measures how often the model falls behind, not how badly.** Both terms
-  decay exponentially at their bad end, so past a few nats they are already near
-  zero and stop separating degrees: a position that diverged badly and one that
-  diverged far worse contribute the same almost-nothing. That is the same
-  bounding that keeps one position from dominating the mean, and it means a
-  checkpoint that tracks the reference on most positions and diverges badly on a
-  few will still score well. Severity is not what this number reports.
+Range `[0, 1]`, higher is better. It ranks checkpoints within one run and nothing
+wider — the criterion is revised as it is tuned, so values are not comparable
+across runs or datasets. A good score requires fitting the dataset's action *and*
+closing the gap to its continuation; how the two are combined is an
+implementation detail.
 
 ## Scope
 
