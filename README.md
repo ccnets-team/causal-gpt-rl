@@ -31,6 +31,7 @@ This repository is the public inference runtime. It loads policy bundles, runs G
 
 - **Code (GitHub):** [ccnets-team/causal-gpt-rl](https://github.com/ccnets-team/causal-gpt-rl)
 - **Hugging Face org:** https://huggingface.co/ccnets
+- **MuJoCo runs (W&B):** https://wandb.ai/causal-gpt-rl/mujoco
 - Website: https://ccnets.org
 - LinkedIn: https://www.linkedin.com/company/ccnets
 
@@ -135,6 +136,10 @@ published on the Hugging Face org:
 Per-bundle returns, the evaluation protocol, and the runtime versions each score
 was measured on are on the corresponding model card. Unity download-and-measure
 walkthroughs are in [examples/unity/](examples/unity/).
+
+The runs behind the MuJoCo bundles are public at
+[wandb.ai/causal-gpt-rl/mujoco](https://wandb.ai/causal-gpt-rl/mujoco) — the
+learning curves and per-run configuration, alongside the reported returns.
 
 ## Context Window and KV Cache
 
