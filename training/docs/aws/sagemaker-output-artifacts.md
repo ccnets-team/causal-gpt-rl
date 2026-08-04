@@ -33,7 +33,7 @@ model.tar.gz
 ```json
 {
   "evaluation": {
-    "best_metric_name": "offline_eval/checkpoint_score",
+    "best_metric_name": "eval_offline/checkpoint_score",
     "best_metric_value": 0.418732,
     "best_metric_direction": "max",
     "best_return": null
@@ -47,7 +47,7 @@ model.tar.gz
   across runs.
 - `best_metric_direction` — `min` or `max`. It is carried as its own field
   because the direction is not part of the metric name. **Read it before ranking
-  runs against each other.** `offline_eval/checkpoint_score` is a bounded
+  runs against each other.** `eval_offline/checkpoint_score` is a bounded
   `[0, 1]` score, so `max` wins: the run with the *higher* value scored better.
   Sorting the wrong way picks the worse model.
 - `best_return` — filled in only when the selection metric is an actual episode

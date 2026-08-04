@@ -123,6 +123,24 @@ the stop grace period. **If you need the model a run ended on, copy the latest
 archive point out before you stop the job.** A job killed outright, by an
 out-of-memory condition or a host failure, has no `final` point at all.
 
+## Watching Saves Happen
+
+Whether anything is being written at all is a separate question from which point
+is best. The job reports a running count of completed saves:
+
+```text
+Checkpoint: step=<step> checkpoints_saved=<count>
+```
+
+It is registered as the SageMaker metric `eval_offline:checkpoints_saved`. The
+count covers `improvements/` and `archive/` together, and it increments only
+after a save has actually been processed — a step whose save completed is
+already included in the line printed for that step. Graph it to confirm a long
+run is still producing points, or to see when it stopped.
+
+This counter is job progress, not a property of any one checkpoint, so it is not
+recorded in `metrics.json` or the bundle manifest.
+
 ## Checkpoint Selection Metric
 
 The training job tracks an evaluation metric and direction. This metric is what
@@ -130,11 +148,11 @@ The training job tracks an evaluation metric and direction. This metric is what
 The startup log reports both:
 
 ```text
-Checkpoint metric: offline_eval/checkpoint_score
+Checkpoint metric: eval_offline/checkpoint_score
 Metric direction: max
 ```
 
-`offline_eval/checkpoint_score` is Checkpoint Score, a bounded `[0, 1]` statistic
+`eval_offline/checkpoint_score` is Checkpoint Score, a bounded `[0, 1]` statistic
 measured on a held-out split of your dataset — higher is better. Each
 `bundles/*/metrics.json` records the evaluation metrics for its point, of which
 this one is the selection metric. See `training/docs/aws/checkpoint-score.md` for

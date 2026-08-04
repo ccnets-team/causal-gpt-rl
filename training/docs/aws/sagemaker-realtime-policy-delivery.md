@@ -10,7 +10,7 @@ artifact.
 
 Training runs offline. There is no simulator or game engine inside the training
 container, so the job cannot measure episode return — the thing you actually
-care about. What it can measure is `offline_eval/checkpoint_score`, which tells
+care about. What it can measure is `eval_offline/checkpoint_score`, which tells
 you how well the policy tracks your dataset while running on its own rollout,
 not how well the resulting policy performs at your task.
 
@@ -57,7 +57,7 @@ restore, no waiting for the final artifact.
 | Series | Arrives | Retention | What it is |
 | --- | --- | --- | --- |
 | `archive/` | at scheduled and requested steps | permanent | An even sample of the run, plus any steps you asked for. |
-| `improvements/` | whenever `offline_eval/checkpoint_score` reaches a new maximum | 10 rotating slots | The best-so-far track by the offline metric. Also updates the canonical bundle. |
+| `improvements/` | whenever `eval_offline/checkpoint_score` reaches a new maximum | 10 rotating slots | The best-so-far track by the offline metric. Also updates the canonical bundle. |
 
 `step` is the training-loop counter used by `max_steps`. Do not interpret it as
 an episode count.
@@ -110,9 +110,9 @@ is under "What `metrics` contains".
   "periodic_planned": 5,
   "points": [
     { "step": 20000, "reasons": ["periodic"],
-      "metrics": { "offline_eval/checkpoint_score": 0.3812 }, "metrics_step": 19800 },
+      "metrics": { "eval_offline/checkpoint_score": 0.3812 }, "metrics_step": 19800 },
     { "step": 25000, "reasons": ["periodic", "requested"],
-      "metrics": { "offline_eval/checkpoint_score": 0.4057 }, "metrics_step": 24800 }
+      "metrics": { "eval_offline/checkpoint_score": 0.4057 }, "metrics_step": 24800 }
   ]
 }
 ```
@@ -137,8 +137,8 @@ more than once. See `training/docs/aws/sagemaker-retraining.md`.
   "latest_slot": "slot_003",
   "canonical_source": { "slot": "slot_002", "step": 98000 },
   "slots": {
-    "slot_002": { "step": 98000, "metrics": { "offline_eval/checkpoint_score": 0.4102 } },
-    "slot_003": { "step": 100000, "metrics": { "offline_eval/checkpoint_score": 0.4187 } }
+    "slot_002": { "step": 98000, "metrics": { "eval_offline/checkpoint_score": 0.4102 } },
+    "slot_003": { "step": 100000, "metrics": { "eval_offline/checkpoint_score": 0.4187 } }
   }
 }
 ```
@@ -156,13 +156,14 @@ The same keys at every point, in both manifests and in each bundle's
 
 | Key | Role |
 | --- | --- |
-| `offline_eval/checkpoint_score` | Selection metric. Range `[0, 1]`, higher is better. |
-| `offline_eval/rollout_action_prob` | The action term of the selection metric on its own. |
-| `offline_eval/action_nll` | Diagnostic. Held-out negative log-likelihood of the dataset action. |
-| `offline_eval/short_context_action_nll` | Positions in the `0`–`0.5x` context range. |
-| `offline_eval/standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
+| `eval_offline/checkpoint_score` | Selection metric. Range `[0, 1]`, higher is better. |
+| `eval_offline/rollout_action_prob` | The action term of the selection metric on its own. |
+| `eval_offline/rollout_advantage_prob` | Diagnostic. Mean value-relative weight over the evaluated positions, range `[0, 1]`. |
+| `eval_offline/action_nll` | Diagnostic. Held-out negative log-likelihood of the dataset action. |
+| `eval_offline/short_context_action_nll` | Positions in the `0`–`0.5x` context range. |
+| `eval_offline/standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
 
-Rank and select with `offline_eval/checkpoint_score`, and score the bundles in
+Rank and select with `eval_offline/checkpoint_score`, and score the bundles in
 your own environment for the decision that actually matters. See
 `training/docs/aws/checkpoint-score.md` for what the selection metric measures.
 
@@ -431,7 +432,7 @@ Do not drive early stopping from this feed. See "Which one to score" above.
 
 ## Choosing what to deploy
 
-The canonical bundle is selected by `offline_eval/checkpoint_score` — the best
+The canonical bundle is selected by `eval_offline/checkpoint_score` — the best
 the model scored on the held-out selection criterion. That is not the same as the
 best policy for your task, and the gap can be large.
 

@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking (customer tooling):** renamed the offline-evaluation metric
+  namespace from `offline_eval` to `eval_offline` on every surface — the `/`
+  form in `metrics.json`, `manifest.json`, and checkpoint metadata, and the `:`
+  form registered as a SageMaker metric name. `offline_eval/checkpoint_score`
+  becomes `eval_offline/checkpoint_score`, and so on for all keys in the
+  contract. The old namespace is deliberately **not** kept as an alias:
+  accepting both names would let the trainer and this repository drift and could
+  silently select or display a stale metric. Tooling that reads these keys must
+  be updated in the same release. No serving runtime code reads them, so this is
+  a documentation and downstream-tooling change only.
+- Documented `eval_offline/rollout_advantage_prob`, a new diagnostic key in the
+  metric contract. It is the mean value-relative weight over the evaluated
+  positions, bounded to `[0, 1]`, and distinguishes weight spread broadly across
+  positions from weight concentrated on a few. It is a diagnostic, not a second
+  selection criterion — `eval_offline/checkpoint_score` still selects.
+- Documented `training:raw_grad_norm`, the step's gradient norm before clipping,
+  now reported on the training progress line alongside `training:grad_norm`.
+  **Corrected in the same pass:** `training:grad_norm` was described as the norm
+  *before* clipping. It is the post-clip norm — the size of the update actually
+  applied — and the pre-clip value is the new metric.
+- Documented `eval_offline:checkpoints_saved`, a running count of completed
+  checkpoint saves across `improvements/` and `archive/`, reported as
+  `Checkpoint: step=<step> checkpoints_saved=<count>`. It is job progress rather
+  than a property of a checkpoint, so it is registered as a SageMaker metric but
+  is not written to `metrics.json` or the bundle manifest.
+- Corrected the Forecast metrics documentation. `forecast:step_reward` is now
+  emitted by Marketplace training jobs, on the progress-log cadence as
+  `Forecast: step=<n> step_reward=<value>`; the docs previously said no forecast
+  metric was available. Estimated episode length and episode return are **not**
+  emitted by the current version and are now described as planned, replacing
+  example log output and troubleshooting text that implied a running job
+  produces them.
+
 ## 0.15.0
 
 - Changed the default cached-inference KV retention from `4 × context_length`

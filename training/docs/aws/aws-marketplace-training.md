@@ -24,7 +24,7 @@ A Causal GPT-RL training job takes user-provided offline trajectory datasets and
 1. Upload the training data to S3.
 2. Set `dataset_ids` to the dataset ids you want to train on.
 3. Create a training job with the SageMaker Algorithm ARN.
-4. Monitor training progress in CloudWatch Logs, including the startup validation summary, eval metrics such as Action NLL, and optional Forecast metrics.
+4. Monitor training progress in CloudWatch Logs, including the startup validation summary, eval metrics such as Action NLL, and the Forecast step-reward estimate.
 5. After training finishes, download `model.tar.gz` from the S3 output path.
 6. Extract the archive and load the canonical `bundle/` with the `causal_gpt_rl.inference` runtime.
 
@@ -86,7 +86,7 @@ Action specs: [continuous(size=17)]
 Evaluation mode: offline
 Requested env ID: Humanoid-v5
 Environment source: disabled
-Checkpoint metric: offline_eval/checkpoint_score
+Checkpoint metric: eval_offline/checkpoint_score
 Metric direction: max
 ========================================================
 ================ Checkpoint Schedule ===================
@@ -122,18 +122,43 @@ The original environment action and the model's flattened action shape are shown
 At the configured logging interval the job reports one progress line:
 
 ```text
-Training: step=20000 learning_rate=8.7e-05 grad_norm=0.42 step_time_seconds=0.115
+Training: step=20000 learning_rate=8.7e-05 grad_norm=0.42 raw_grad_norm=0.63 step_time_seconds=0.115
 ```
 
 | SageMaker metric | Description |
 | --- | --- |
 | `training:learning_rate` | Current learning rate, after warmup and decay. |
-| `training:grad_norm` | Gradient norm for the step, before clipping. |
+| `training:grad_norm` | Gradient norm for the step, after clipping — the size of the update actually applied. |
+| `training:raw_grad_norm` | The same norm before clipping. |
 | `training:step_time_seconds` | Average wall-clock seconds per training step over the logging interval. |
+
+The two gradient norms are read together: `training:raw_grad_norm` is what the
+step asked for, `training:grad_norm` is what it got. While they track each other,
+clipping is idle. A persistent gap means clipping is engaging on most steps and
+is the mechanism holding the update size down.
 
 `training:step_time_seconds` is the one to watch for cost. Multiply it by the
 steps remaining to `max_steps` to project how much longer the job will run, and
 compare that against what the run has produced so far.
+
+### Checkpoint Progress
+
+The job also reports how many checkpoints it has written so far, on its own line:
+
+```text
+Checkpoint: step=20000 checkpoints_saved=7
+```
+
+| SageMaker metric | Description |
+| --- | --- |
+| `eval_offline:checkpoints_saved` | Running count of completed checkpoint saves, across `improvements/` and `archive/` together. |
+
+The count increments only after a save has been processed, and the line for a
+step already includes that step's save. Unlike the eval metrics below, this is
+job progress rather than a property of a checkpoint, so it does not appear in
+`metrics.json` or the bundle manifest. Graph it to confirm a long run is still
+producing points. See `training/docs/aws/sagemaker-checkpoints.md` for what the
+two series are and when each is written.
 
 ### Eval Metrics
 
@@ -143,77 +168,69 @@ Action NLL is the negative log likelihood the model assigns to the dataset's gro
 
 | SageMaker metric | Description |
 | --- | --- |
-| `offline_eval:checkpoint_score` | Checkpoint-selection metric. Range `[0, 1]`, higher is better. |
-| `offline_eval:rollout_action_prob` | The action term of the selection metric on its own. |
-| `offline_eval:action_nll` | Representative Action NLL across eval positions within the training context length. |
-| `offline_eval:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
-| `offline_eval:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
+| `eval_offline:checkpoint_score` | Checkpoint-selection metric. Range `[0, 1]`, higher is better. |
+| `eval_offline:rollout_action_prob` | The action term of the selection metric on its own. |
+| `eval_offline:rollout_advantage_prob` | Diagnostic. Mean value-relative weight over the evaluated positions, range `[0, 1]`. |
+| `eval_offline:action_nll` | Representative Action NLL across eval positions within the training context length. |
+| `eval_offline:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
+| `eval_offline:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
 
 The same metrics appear inside delivered bundles with a `/` separator instead of
-`:` — `offline_eval/checkpoint_score`. The `:` form is the SageMaker metric name
+`:` — `eval_offline/checkpoint_score`. The `:` form is the SageMaker metric name
 you select in the console; the `/` form is the key inside `metrics.json` and
 `manifest.json`. Same metric, different surface.
 
 To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required.
 
-`offline_eval:checkpoint_score` is the metric shown in the startup summary (`Checkpoint metric: offline_eval/checkpoint_score`, `Metric direction: max`): higher values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step. See `training/docs/aws/checkpoint-score.md` for what it measures and how to read it.
+`eval_offline:checkpoint_score` is the metric shown in the startup summary (`Checkpoint metric: eval_offline/checkpoint_score`, `Metric direction: max`): higher values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step. See `training/docs/aws/checkpoint-score.md` for what it measures and how to read it.
 
 ### Forecast Metrics
 
-Forecast metrics are not available in the current version yet; they will be enabled soon.
+Forecast metrics give an approximate view of how the current policy may behave
+without running the target simulator, game engine, or environment inside the
+training container. One is emitted today:
 
-In addition to standard offline training metrics, the training job may emit Forecast metrics that provide an approximate view of how the current policy may behave without directly running the target simulator, game engine, or environment inside the training container.
-
-| Metric | Description |
+| SageMaker metric | Description |
 | --- | --- |
-| `Forecast/StepReward` | Estimated average reward per environment step. |
-| `Forecast/EpisodeLength` | Estimated average episode length in environment steps. |
-| `Forecast/EpisodeReturn` | Estimated average episode return, or total episode score. |
+| `forecast:step_reward` | Estimated average reward per environment step. |
 
-Forecast metrics are model-based estimates generated during training. They are not rollout scores measured from the actual simulator or game engine. They can help users roughly understand the training direction when live environment evaluation is unavailable, but the values may be inaccurate.
+It is reported on the same progress cadence as the training line, as a single
+`Forecast:` entry:
+
+```text
+Forecast: step=20000 step_reward=1.24
+```
+
+Estimated episode length and estimated episode return are planned. Neither is
+emitted by the current version, and no `forecast:` metric other than the one
+above appears in a job's logs or dashboard.
+
+`forecast:step_reward` is a model-based estimate computed from reward
+information in the training dataset. It is not a rollout score measured in your
+simulator or game engine. A rising trend may indicate the policy is learning
+better actions, but the value is not an absolute environment score, and
+improving it does not guarantee improved real-environment performance.
 
 Final performance should be validated by running the exported `bundle/` in the customer’s actual simulator, game engine, or evaluation environment.
 
-### Interpreting Forecast Metrics
-
-`Forecast/StepReward` estimates the average reward the current policy may receive at each step, based on reward information in the training dataset. If the value trends upward, it may indicate that the policy is learning better actions. However, it should not be interpreted as an absolute environment score.
-
-`Forecast/EpisodeLength` estimates how many steps the current policy may continue within an episode. This value is estimated using the model’s EOS, or episode termination, output. Depending on the task, a longer episode may or may not be better. For example, in control tasks with early failure conditions, longer episodes may be a positive signal. In tasks where shorter completion is preferred, the value should be interpreted differently.
-
-`Forecast/EpisodeReturn` combines the estimated step reward and estimated episode length into a reference total score. It is useful for quickly checking the current model state during training, but it should not be used as a leaderboard score or guaranteed performance value.
-
-### How to View Forecast Metrics
-
-Open the training job in the SageMaker Console and choose `View logs`, or open the associated CloudWatch log stream directly. If metrics beginning with `Forecast/` appear in the log or dashboard, those entries are Forecast metrics.
-
-Example:
-
-```text
-Forecast/StepReward: 1.24
-Forecast/EpisodeLength: 730
-Forecast/EpisodeReturn: 905.2
-```
-
-This example means that the model currently estimates an episode length of approximately 730 steps and an episode return of approximately 905 for the current policy. The actual result may differ when the policy is run in the real environment.
-
 ### Notes and Limitations
 
-Forecast metrics can be unstable early in training. Before the model and dataset statistics become stable, the values may fluctuate sharply or may not appear.
+The forecast can be unstable early in training. Before the model and dataset
+statistics settle, the value may fluctuate sharply or may not appear at all.
 
-Forecast metrics are difficult to compare directly across different datasets, reward scales, or environment settings. They are safest to use for comparing trends across repeated runs with the same configuration.
+It is difficult to compare directly across different datasets, reward scales, or
+environment settings. It is safest for comparing trends across repeated runs with
+the same configuration.
 
-Improving Forecast metrics does not guarantee improved real environment performance. Final evaluation should be based on the exported `bundle/` running in the actual target environment.
+### If the Forecast Metric Does Not Appear
 
-### If Forecast Metrics Do Not Appear
-
-Forecast metrics may not appear in the following cases:
+`forecast:step_reward` may be absent in the following cases:
 
 - The training job has not yet initialized the required data statistics.
-- The model does not provide the output needed for termination or episode length estimation.
 - The current batch does not contain valid prediction positions.
 - Invalid or non-finite values are detected and the metric is skipped from logging.
 
-If Forecast metrics do not appear, continue training and check the training logs for warnings or errors.
+If it does not appear, continue training and check the training logs for warnings or errors.
 
 ## Recommended Instance
 
