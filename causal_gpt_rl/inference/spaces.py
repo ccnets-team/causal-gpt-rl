@@ -182,6 +182,17 @@ def _decode_bounds(values, shape) -> np.ndarray:
     return np.asarray(flat, dtype=np.float64).reshape(shape)
 
 
+def _fits_dtype(arr: np.ndarray, dtype) -> bool:
+    """True when every finite entry of `arr` survives a cast to `dtype`.
+
+    Guards the down-cast in `deserialize_space`: a bound past the target's
+    range would overflow to inf on the way, which reads as "unbounded" instead
+    of raising.
+    """
+    finite = arr[np.isfinite(arr)]
+    return bool(finite.size == 0 or np.all(np.abs(finite) <= np.finfo(dtype).max))
+
+
 def serialize_space(space: gym.spaces.Space) -> dict:
     """Serialize a gymnasium space to a JSON-safe dict (lossless schema).
 
@@ -243,12 +254,21 @@ def deserialize_space(payload: dict) -> gym.spaces.Space:
     kind = payload["type"]
     if kind == "Box":
         shape = tuple(payload["shape"])
-        return gym.spaces.Box(
-            low=_decode_bounds(payload["low"], shape),
-            high=_decode_bounds(payload["high"], shape),
-            shape=shape,
-            dtype=np.dtype(payload["dtype"]),
-        )
+        dtype = np.dtype(payload["dtype"])
+        low = _decode_bounds(payload["low"], shape)
+        high = _decode_bounds(payload["high"], shape)
+        # Hand gymnasium bounds already in the target dtype so it has nothing to
+        # down-cast — it warns once per array when it does. Only where the cast
+        # is invisible: integer dtypes cannot hold ±inf, and a bound past the
+        # target's range would overflow to inf here, which Box accepts as
+        # unbounded where it rejects the payload today.
+        if (
+            np.issubdtype(dtype, np.floating)
+            and _fits_dtype(low, dtype)
+            and _fits_dtype(high, dtype)
+        ):
+            low, high = low.astype(dtype), high.astype(dtype)
+        return gym.spaces.Box(low=low, high=high, shape=shape, dtype=dtype)
     if kind == "Discrete":
         return gym.spaces.Discrete(
             n=int(payload["n"]), start=int(payload.get("start", 0))
