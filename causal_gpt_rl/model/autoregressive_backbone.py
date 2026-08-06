@@ -90,8 +90,12 @@ class GPTBackbone(nn.Module):
                 embd_pdrop=dropout,
                 attn_pdrop=dropout,
                 use_cache=False,
-                bos_token_id=1,
-                eos_token_id=2,
+                # No text vocabulary here — inputs arrive as continuous
+                # state/action vectors through the adapters, so nothing reads
+                # these. Leaving them set puts ids outside `vocab_size=1` and
+                # transformers 5.x logs a range warning for each.
+                bos_token_id=None,
+                eos_token_id=None,
             )
             self.net = GPT2Model(model_config)
         else:
@@ -106,8 +110,10 @@ class GPTBackbone(nn.Module):
                 rms_norm_eps=1e-6,
                 use_cache=False,
                 pad_token_id=0,
-                bos_token_id=1,
-                eos_token_id=2,
+                # Unused ids, and out of range for `vocab_size=1` — see the
+                # GPT2 branch above.
+                bos_token_id=None,
+                eos_token_id=None,
                 attention_dropout=dropout,
                 **_llama_rope_kwargs(rope_theta),
             )
