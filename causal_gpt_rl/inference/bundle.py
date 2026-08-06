@@ -19,6 +19,7 @@ Format versions:
 
     {
       "bundle_format_version": 1 | 2,   # 2 when the sidecar is omitted
+      "package": "causal-gpt-rl",       # what opens this bundle; never validated
       "package_version": "<causal-gpt-rl version that exported this>",  # optional, added 0.1.0+
       "model_config":    { ... ModelConfig.to_dict() ... },
       "state_specs":     [ ... SpaceSpec.to_json_dict() ... ],
@@ -292,6 +293,10 @@ def export_bundle(
 
     config_payload = {
         "bundle_format_version": bundle_format_version,
+        # Names what reads this file, so `package_version` below says what it
+        # is the version *of*. Purely descriptive — the loader never reads it,
+        # since bundles written before this key exist and must keep loading.
+        "package": "causal-gpt-rl",
         "package_version": _PACKAGE_VERSION,
         "model_config": model_config.to_dict(),
         "state_specs": [s.to_json_dict() for s in state_specs],
