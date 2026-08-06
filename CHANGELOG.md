@@ -1,7 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
+- Loading a bundle no longer prints warnings. Two unrelated causes produced four
+  lines between them before a gym environment even existed. The backbone built
+  its transformers config with `vocab_size=1` while setting `bos_token_id=1` and
+  `eos_token_id=2`, ids outside the only valid value; transformers 5.x
+  range-checks these and logs one warning each. Nothing read them — there is no
+  text vocabulary, and inputs arrive as continuous vectors through the adapters
+  — so both are now unset. Separately, `deserialize_space` decoded Box bounds as
+  float64 and handed them to a narrower `dtype`, so gymnasium down-cast them and
+  warned once per array; the bounds are now built in the target dtype. Neither
+  change affects inference: bundles produce byte-identical actions before and
+  after.
+- Kept `gym.spaces.Box`'s rejection of a finite bound past its dtype's range.
+  The bounds down-cast above is skipped for those payloads (and for integer
+  dtypes, which cannot hold ±inf), since casting first would overflow the bound
+  to infinity and turn a clear error into a silently unbounded space.
+- Added a `package` key to a bundle's `config.json`, naming what reads the file
+  so the adjacent `package_version` says what it is the version of. It is
+  descriptive only — the loader never reads it, because bundles written before
+  this key exist and must keep loading. Bundles already delivered are
+  unaffected; the key appears on the next export.
 - **Breaking (customer tooling):** renamed the offline-evaluation metric
   namespace from `offline_eval` to `eval_offline` on every surface — the `/`
   form in `metrics.json`, `manifest.json`, and checkpoint metadata, and the `:`
