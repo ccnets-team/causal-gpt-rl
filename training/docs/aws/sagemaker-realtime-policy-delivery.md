@@ -158,7 +158,6 @@ The same keys at every point, in both manifests and in each bundle's
 | --- | --- |
 | `eval_offline/checkpoint_score` | Selection metric. Range `[0, 1]`, higher is better. |
 | `eval_offline/rollout_action_prob` | The action term of the selection metric on its own. |
-| `eval_offline/rollout_advantage_prob` | Diagnostic. Mean value-relative weight over the evaluated positions, range `[0, 1]`. |
 | `eval_offline/action_nll` | Diagnostic. Held-out negative log-likelihood of the dataset action. |
 | `eval_offline/short_context_action_nll` | Positions in the `0`–`0.5x` context range. |
 | `eval_offline/standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |

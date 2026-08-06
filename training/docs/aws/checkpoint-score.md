@@ -23,7 +23,6 @@ stream. That set is the contract, and only one key in it selects.
 |---|---|
 | `eval_offline/checkpoint_score` | **Selection criterion.** Direction `max` |
 | `eval_offline/rollout_action_prob` | Component: the action term on its own |
-| `eval_offline/rollout_advantage_prob` | Diagnostic: the mean value-relative weight, range `[0, 1]` |
 | `eval_offline/action_nll` | **Diagnostic, not the criterion.** Held-out negative log-likelihood of the dataset action |
 | `eval_offline/short_context_action_nll`, `eval_offline/standard_context_action_nll` | The same NLL split by position bucket within the training context length |
 
@@ -145,12 +144,6 @@ Two properties matter.
   be drawn together, so a position's weight is the same in every evaluation.
   There is nothing to configure here: the offline ceiling is what defines "caught
   up", and moving the anchor off zero would move that definition arbitrarily.
-
-The weight level is published on its own as `eval_offline/rollout_advantage_prob`,
-the mean advantage weight over the evaluated positions. It is bounded to `[0, 1]`
-and is a diagnostic, not a second selection criterion: read it to tell a run whose
-weight is spread broadly across positions from one whose weight is concentrated on
-a small number of them.
 
 ## How to read it
 

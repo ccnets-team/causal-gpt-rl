@@ -170,7 +170,6 @@ Action NLL is the negative log likelihood the model assigns to the dataset's gro
 | --- | --- |
 | `eval_offline:checkpoint_score` | Checkpoint-selection metric. Range `[0, 1]`, higher is better. |
 | `eval_offline:rollout_action_prob` | The action term of the selection metric on its own. |
-| `eval_offline:rollout_advantage_prob` | Diagnostic. Mean value-relative weight over the evaluated positions, range `[0, 1]`. |
 | `eval_offline:action_nll` | Representative Action NLL across eval positions within the training context length. |
 | `eval_offline:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
 | `eval_offline:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |

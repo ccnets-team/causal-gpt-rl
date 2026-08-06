@@ -32,11 +32,6 @@
   silently select or display a stale metric. Tooling that reads these keys must
   be updated in the same release. No serving runtime code reads them, so this is
   a documentation and downstream-tooling change only.
-- Documented `eval_offline/rollout_advantage_prob`, a new diagnostic key in the
-  metric contract. It is the mean value-relative weight over the evaluated
-  positions, bounded to `[0, 1]`, and distinguishes weight spread broadly across
-  positions from weight concentrated on a few. It is a diagnostic, not a second
-  selection criterion — `eval_offline/checkpoint_score` still selects.
 - Documented `training:raw_grad_norm`, the step's gradient norm before clipping,
   now reported on the training progress line alongside `training:grad_norm`.
   **Corrected in the same pass:** `training:grad_norm` was described as the norm
