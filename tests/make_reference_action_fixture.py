@@ -16,7 +16,7 @@ This also doubles as an integration check for the (D) buffer-alias fix: it expor
 a bounded-tanh continuous action from float32 numpy specs, which safetensors
 refused to save before that fix.
 
-Run: ``python scripts/make_reference_action_fixture.py``
+Run: ``python tests/make_reference_action_fixture.py``
 
 Author:
     PARK, Jun-Ho, junho@ccnets.org
@@ -142,7 +142,7 @@ def main() -> None:
         "hybrid-action-bundle",
         (
             "REFERENCE/self-test fixture produced by serving "
-            "(scripts/make_reference_action_fixture.py). model_action = RAW model "
+            "(tests/make_reference_action_fixture.py). model_action = RAW model "
             "head output (continuous values then categorical LOGITS, head order). "
             "expected_container = declared container with continuous clipped to "
             "bounds and categorical argmax + Discrete start, computed INDEPENDENTLY "
@@ -165,7 +165,7 @@ def main() -> None:
         "hybrid-action-multibinary",
         (
             "REFERENCE/self-test fixture produced by serving "
-            "(scripts/make_reference_action_fixture.py). model_action = RAW model "
+            "(tests/make_reference_action_fixture.py). model_action = RAW model "
             "head output (continuous values then MultiBinary LOGITS, head order). "
             "expected_container = declared container with continuous clipped to "
             "bounds and MultiBinary logits thresholded at 0 to {0,1}, computed "

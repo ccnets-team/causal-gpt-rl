@@ -9,7 +9,7 @@ match the oracle.
 
 Fixtures are discovered by glob (not a hardcoded name) so a trainer-delivered
 bundle (e.g. ``hybrid-bundle-dict-action-box2-disc3``) and serving's own
-reference (``hybrid-action-bundle`` from ``scripts/make_reference_action_fixture.py``)
+reference (``hybrid-action-bundle`` from ``tests/make_reference_action_fixture.py``)
 are both validated.
 
 ``meta.json`` schema (the contract the trainer's fixture satisfies):
