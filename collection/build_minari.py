@@ -129,7 +129,7 @@ def _wrap_ego_value(value, ego_agent):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--raw", required=True, help="Dir of ep_*.npz files from collect.py.")
+    ap.add_argument("--raw", required=True, help="Directory containing ep_*.npz files.")
     ap.add_argument("--dataset-id", required=True, help="Minari id, e.g. 'unity/crawler/expert-v0'.")
     ap.add_argument("--author", default=None)
     ap.add_argument("--author-email", default=None)
