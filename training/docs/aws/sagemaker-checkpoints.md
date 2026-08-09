@@ -185,8 +185,10 @@ model.tar.gz
 - `model.safetensors`: Policy model weights.
 - `config.json`: Model architecture, observation/action specs, and context settings.
 - `metrics.json`: The evaluation metrics for that point.
-- `state_normalizer.safetensors`: Optional legacy sidecar. Current bundle format
-  v2 embeds state normalization statistics in `model.safetensors`.
+
+The first two are the bundle format itself, which the public runtime defines —
+see [Bundle Format](../../../README.md#bundle-format). `metrics.json` is added by
+training and is not read at inference.
 
 ```python
 runner = load_runner("path/to/bundle")

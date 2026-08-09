@@ -14,7 +14,15 @@ tags:
 
 # Causal GPT-RL
 
+[![PyPI](https://img.shields.io/pypi/v/causal-gpt-rl)](https://pypi.org/project/causal-gpt-rl/)
+[![Python](https://img.shields.io/pypi/pyversions/causal-gpt-rl)](https://pypi.org/project/causal-gpt-rl/)
+[![License: PolyForm NC 1.0.0](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-blue)](https://polyformproject.org/licenses/noncommercial/1.0.0)
+
 GPT-style transformers (GPT-2, Llama) running as RL policies in continuous-control environments.
+
+**Here to run a policy?** → [Quick Start](#quick-start).
+**Evaluating the product?** → [Available Policies](#available-policies) for what
+is published and how it scores.
 
 Both LLM generation and RL interaction are autoregressive:
 
@@ -37,24 +45,15 @@ This repository is the public inference runtime. It loads policy bundles, runs G
 
 Released under PolyForm Noncommercial 1.0.0. For commercial licensing, contact the maintainers via ccnets.org.
 
-## Product Overview
+## What Is Here
 
-Causal GPT-RL is a GPT-based reinforcement learning product that turns offline trajectory data into deployable decision-making agents.
-
-The system is designed for users who have recorded interaction data, simulation logs, or control trajectories and want to train policies that can act in sequential decision-making environments.
-
-At the public package level, causal-gpt-rl provides the inference runtime for loading and evaluating trained policy bundles. These bundles can be executed in Gymnasium / MuJoCo environments and used to reproduce rollout behavior, benchmark performance, and demonstrate GPT-style reinforcement learning agents.
-
-For commercial use, Causal GPT-RL is intended to support custom training from private offline datasets, cloud-based training workflows, and deployment of trained policy bundles through managed infrastructure.
-
-In short:
-
-- Public PyPI package: provides the inference runtime for loading Hugging Face or local policy bundles
-- Hugging Face Hub: provides public pretrained policy bundles for testing, evaluation, and demos
-- Commercial product: trains custom GPT-style RL agents from user-provided offline datasets
-- Future direction: managed cloud training and SaaS-based decision-agent deployment
-
-Causal GPT-RL is positioned as a bridge between offline reinforcement learning research and deployable AI agents for real-world sequential decision-making.
+- **This package** — the inference runtime. Load a policy bundle from Hugging
+  Face or disk, roll it out, evaluate it.
+- **Hugging Face** — pretrained bundles to run, with their environments and
+  recorded datasets.
+- **Not here** — training. Causal GPT-RL trains custom agents from private
+  offline datasets as a commercial product; the trainer is not part of this
+  repository.
 
 ## Install
 
@@ -109,20 +108,6 @@ print(stats["return_mean"], stats["return_std"])
 
 Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team/causal-gpt-rl/blob/main/examples/hub_quickstart.ipynb)
 
-## Observation & Action Spaces
-
-A policy bundle carries its declared Gymnasium `observation_space` and
-`action_space`; you interact with the runtime in those native spaces and it
-adapts the rest. Supported: `Box` (1-D), `Discrete`, `MultiDiscrete`,
-`MultiBinary`, and arbitrary `Dict` / `Tuple` nesting of them. Pass observations
-exactly as your env produces them; the action you get back is always a valid
-sample of the declared `action_space`.
-
-See **[docs/spaces.md](docs/spaces.md)** for the full table, the rollout loop,
-and a structured-space (`Dict` / `Tuple`) example. `docs/` holds the runtime
-references for this package — the space contract and
-[ONNX export](docs/export-onnx.md).
-
 ## Available Policies
 
 Policy bundles, the environments they run in, and the trajectory datasets are
@@ -142,6 +127,20 @@ walkthroughs are in [examples/unity/](examples/unity/).
 The runs behind the MuJoCo bundles are public at
 [wandb.ai/causal-gpt-rl/mujoco](https://wandb.ai/causal-gpt-rl/mujoco) — the
 learning curves and per-run configuration, alongside the reported returns.
+
+## Observation & Action Spaces
+
+**Every fixed-shape Gymnasium space, and any `Dict` / `Tuple` nesting of them.**
+Variable-length and structural spaces — raw images, `Text`, `Sequence`, `Graph`,
+`OneOf` — are out of scope; encode those into vectors on your side.
+
+A bundle carries its declared `observation_space` and `action_space`, so you work
+in your environment's own spaces: pass observations exactly as your env produces
+them, and the action you get back is always a valid sample of the action space.
+
+See **[docs/spaces.md](docs/spaces.md)** for the per-space contract, the rollout
+loop, and a structured-space example. `docs/` holds the runtime references for
+this package — that contract and [ONNX export](docs/export-onnx.md).
 
 ## Context Window and KV Cache
 
@@ -164,45 +163,21 @@ choice; measure before raising it.
 
 ## Bundle Format
 
-Public bundles use `bundle_format_version=2`:
+A bundle is a directory of two files, and it is the same directory whether it
+came from Hugging Face, from local export, or from a training run. On the Hub
+each bundle is one subfolder of a repo, which is what `subfolder=` selects;
+locally, pass the directory to `load_runner("path/to/bundle")`.
 
 ```text
 bundle/
-  model.safetensors
-  config.json
+  model.safetensors    # inference weights, state normalization embedded
+  config.json          # model config, observation/action specs, context length
 ```
 
-- `model.safetensors` — model state dict for inference, with state
-  normalization statistics embedded in the weights.
-- `config.json` — model config, observation specs, action specs, context length,
-  a `state_normalization` block, and optional `env_id`.
-
-Older bundles (`bundle_format_version=1`) shipped a separate
-`state_normalizer.safetensors` sidecar. They still load with current releases.
-If you are pinned to `causal-gpt-rl <= 0.2.x`, use the sidecar bundles preserved
-at the `bundles-v1` tag:
-
-```python
-runner = load_runner_from_hub(
-    repo_id="ccnets/causal-gpt-rl",
-    subfolder="ant-v5",
-    revision="bundles-v1",
-)
-```
-
-## Hugging Face Layout
-
-Recommended layout:
-
-```text
-ccnets/causal-gpt-rl/
-  ant-v5/
-    model.safetensors
-    config.json
-    README.md
-```
-
-For local bundles, use `load_runner("path/to/bundle")`.
+Public bundles are `bundle_format_version=2`. Version 1 shipped a separate
+`state_normalizer.safetensors` sidecar and still loads with current releases; if
+you are pinned to `causal-gpt-rl <= 0.2.x`, the sidecar bundles are preserved at
+the `bundles-v1` tag, loadable with `revision="bundles-v1"`.
 
 ## API
 
