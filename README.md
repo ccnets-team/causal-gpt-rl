@@ -119,7 +119,9 @@ exactly as your env produces them; the action you get back is always a valid
 sample of the declared `action_space`.
 
 See **[docs/spaces.md](docs/spaces.md)** for the full table, the rollout loop,
-and a structured-space (`Dict` / `Tuple`) example.
+and a structured-space (`Dict` / `Tuple`) example. `docs/` holds the runtime
+references for this package — the space contract and
+[ONNX export](docs/export-onnx.md).
 
 ## Available Policies
 
