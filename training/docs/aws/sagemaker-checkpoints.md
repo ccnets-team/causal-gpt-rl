@@ -125,47 +125,32 @@ runner = load_runner("./step_0020000")
 ```
 
 From here it is the same `PolicyRunner` you would get from the final artifact or
-from Hugging Face. Roll it out and score it however you already score policies.
+from Hugging Face: `reset(obs)`, then `act()` and `observe(obs)` each step, in
+your environment's own observation and action spaces. `run_episodes(env, runner,
+num_episodes=...)` does that loop for a Gymnasium env and returns return
+statistics.
 
-Delivered bundles are not individually verified before delivery. A save can fail,
-and the failure is logged to CloudWatch while training continues to the next
-checkpoint. Treat a failed load as a skip — the next delivery is unaffected. A
-point that is listed but still syncing will load on a later pass, so retry before
-giving up on it. If **every** bundle fails the same way, check the reported reason
-rather than waiting for more.
+See the [Quick Start](../../../README.md#quick-start) and
+[docs/spaces.md](../../../docs/spaces.md) for the rollout loop and structured
+spaces.
 
-One failure is worth recognizing on sight. A bundle needing a newer runtime than
-you have installed is refused by name rather than mis-decoded:
-
-```text
-Bundle requires capabilities this causal-gpt-rl <version> build does not support:
-  - <capability>
-Upgrade causal-gpt-rl to a build that advertises them.
-```
+Treat a bundle that does not load as a skip: it may still be syncing, so retry it,
+and the next delivery is unaffected either way. A bundle needing a newer runtime
+than you have installed is refused by name rather than mis-decoded — upgrade the
+package and the same bundle loads.
 
 ## Early Stopping
 
-The workflow this is built for:
+Poll `archive/bundles/manifest.json`, diff `points` against the steps you have
+already scored, roll each new bundle out in your environment, and track your own
+score against `step`. If the score is flat or falling, stop the job — you stop
+paying at that point rather than at `max_steps`. A point carrying `final` is the
+run ending on its own, not a reason to call `StopTrainingJob`.
 
-1. Poll `archive/bundles/manifest.json` and diff `points` against the steps you
-   have already scored. Steps are permanent and unique, so a set of steps is
-   enough state.
-2. Load each new bundle and roll it out in your environment.
-3. Track your own score against `step`.
-4. If the score is flat or falling, stop the job. You stop paying at that point
-   rather than at `max_steps`.
-
-A point carrying `final` in its `reasons` is the run ending on its own, not a
-reason to call `StopTrainingJob`.
-
-The default schedule gives 4 opportunities to stop before the run ends, and a
-decision becomes possible at the third point. For a finer trend, add up to 10
-steps with `archive_steps`, chosen before the run starts; each added point costs
-permanent disk, so see the sizing table in
+The default schedule gives 4 opportunities to stop before the run ends. For a
+finer trend, add up to 10 steps with `archive_steps`, chosen before the run
+starts; each added point costs permanent disk, so see the sizing table in
 `training/docs/aws/sagemaker-inputs.md`.
-
-Polling every few minutes is plenty — reading a manifest is one small object
-fetch, and the useful lower bound is set by how long your own rollout takes.
 
 ## The Final Artifact
 
@@ -229,30 +214,18 @@ Records how the canonical bundle was selected.
 }
 ```
 
-- `best_metric_value` ranks points inside one run. The offline criterion is
-  revised as it is tuned, so do not compare it across runs.
-- `best_metric_direction` is carried as its own field because the direction is
-  not part of the metric name. Use it when comparing checkpoints selected under
-  the same run and metric definition — sorting the wrong way picks the worse
-  model.
-- `best_return` is filled in only when the selection metric is an actual episode
-  return, which requires environment evaluation during training. On an
-  offline-selected run it is `null` — absent, not zero.
+- `best_metric_value` ranks points inside one run. Do not compare it across runs.
+- `best_metric_direction` is a separate field because the direction is not part
+  of the metric name. Use it when comparing checkpoints selected under the same
+  run and metric definition — sorting the wrong way picks the worse model.
+- `best_return` is `null` on an offline-selected run — absent, not zero. It is
+  filled in only when the selection metric is an actual episode return.
 
 ## Choosing What to Deploy
 
-The startup log reports what `improvements/` means by "better" and what selects
-the canonical bundle:
-
-```text
-Checkpoint metric: eval_offline/checkpoint_score
-Metric direction: max
-```
-
-That metric is measured on a held-out split of your dataset, not against your
-environment. It ranks checkpoints of one run against each other; it does not tell
-you how the policy performs at your task, and the gap can be large. See
-`training/docs/aws/checkpoint-score.md`.
+The selection metric is measured on a held-out split of your dataset, not against
+your environment. It does not tell you how the policy performs at your task, and
+the gap can be large. See `training/docs/aws/checkpoint-score.md`.
 
 So **treat the canonical bundle as a default, not as a verdict.** The archive
 points are preserved precisely so you can score them yourself and pick the one

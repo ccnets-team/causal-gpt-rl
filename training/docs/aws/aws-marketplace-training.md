@@ -17,14 +17,14 @@ A Causal GPT-RL training job takes user-provided offline trajectory datasets and
 - S3 prefix containing the training data
 - S3 output prefix for the model artifact
 - SageMaker Algorithm ARN provided through Marketplace
-- Checkpoint S3 prefix, if you want policy bundles delivered while the job runs. The execution role must be able to write to it.
+- Checkpoint S3 prefix, if you want policy bundles delivered while the job runs. It must be in the same region as the training job, and the execution role must be able to write to it.
 
 ## Basic Flow
 
 1. Upload the training data to S3.
 2. Set `dataset_ids` to the dataset ids you want to train on.
 3. Create a training job with the SageMaker Algorithm ARN.
-4. Monitor training progress in CloudWatch Logs, including the startup validation summary, eval metrics such as Action NLL, and checkpoint save progress.
+4. Monitor training progress in CloudWatch Logs, including the startup validation summary, eval metrics, and checkpoint save progress.
 5. After training finishes, download `model.tar.gz` from the S3 output path.
 6. Extract the archive and load the canonical `bundle/` with the `causal_gpt_rl.inference` runtime.
 
@@ -96,26 +96,17 @@ Archive disk estimate: 410.1 MB for 5 point(s) (free: 867.3 GB)
 ========================================================
 ```
 
-Key items to confirm:
+The line to check is the flattened action shape against your action space, because
+that is where an encoding mistake shows. They match for a continuous `Box` action
+like the one above. They do not match for categorical actions: `MultiDiscrete([3, 3, 3])`
+is three environment indices, but the flattened shape is `(9,)` — the sum of the
+one-hot blocks.
 
-**Dataset Configuration**
-
-- Original observation/action space read from the dataset.
-- Flattened observation/action shape the model actually consumes.
-- Type, size, and order of the flattened state/action heads.
-- Dataset, episode, and transition counts.
-- Dataset validation result.
-
-**Evaluation Configuration**
-
-- Evaluation mode and the checkpoint-selection metric.
-- `Environment source` — `disabled` for offline training. `Requested env ID` records the environment the dataset was recorded against; it is metadata, not something the training job launches.
-
-**Checkpoint Schedule**
-
-- Which steps are preserved for the whole run, including any you requested with `archive_steps`, and what they cost on disk. `Archive periodic` is derived from `max_steps` at 20, 40, 60, 80, and 100 percent.
-
-The original environment action and the model's flattened action shape are shown together so that action-encoding mistakes are easy to spot. They match for a continuous `Box` action like the one above. They do not match for categorical actions: a `MultiDiscrete([3, 3, 3])` action is three environment indices, but the model's flattened action shape is `(9,)` — the sum of the one-hot blocks. Seeing both values makes an incorrect encoding obvious.
+`Archive periodic` lists the steps preserved for the whole run, derived from
+`max_steps` at 20, 40, 60, 80, and 100 percent, plus anything you requested with
+`archive_steps`. `Environment source: disabled` is expected for offline training —
+`Requested env ID` is metadata about how the dataset was recorded, not an
+environment the job launches.
 
 ### Training Progress
 
@@ -132,14 +123,8 @@ Training: step=20000 learning_rate=8.7e-05 grad_norm=0.42 raw_grad_norm=0.63 ste
 | `training:raw_grad_norm` | The same norm before clipping. |
 | `training:step_time_seconds` | Average wall-clock seconds per training step over the logging interval. |
 
-The two gradient norms are read together: `training:raw_grad_norm` is what the
-step asked for, `training:grad_norm` is what it got. While they track each other,
-clipping is idle. A persistent gap means clipping is engaging on most steps and
-is the mechanism holding the update size down.
-
-`training:step_time_seconds` is the one to watch for cost. Multiply it by the
-steps remaining to `max_steps` to project how much longer the job will run, and
-compare that against what the run has produced so far.
+`training:step_time_seconds` is the one to watch for cost: multiply it by the
+steps remaining to `max_steps` to project how much longer the job will run.
 
 ### Checkpoint Progress
 
@@ -153,12 +138,9 @@ Checkpoint: step=20000 checkpoints_saved=7
 | --- | --- |
 | `eval_offline:checkpoints_saved` | Running count of completed checkpoint saves, across `improvements/` and `archive/` together. |
 
-The count increments only after a save has been processed, and the line for a
-step already includes that step's save. Unlike the eval metrics below, this is
-job progress rather than a property of a checkpoint, so it does not appear in
-`metrics.json` or the bundle manifest. Graph it to confirm a long run is still
-producing points. See `training/docs/aws/sagemaker-checkpoints.md` for what the
-two series are and when each is written.
+Graph it to confirm a long run is still producing points. This is job progress
+rather than a property of a checkpoint, so it does not appear in `metrics.json`
+or the bundle manifest.
 
 ### Eval Metrics
 
@@ -174,47 +156,17 @@ Action NLL is the negative log likelihood the model assigns to the dataset's gro
 | `eval_offline:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
 | `eval_offline:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
 
-The same metrics appear inside delivered bundles with a `/` separator instead of
-`:` — `eval_offline/checkpoint_score`. The `:` form is the SageMaker metric name
-you select in the console; the `/` form is the key inside `metrics.json` and
-`manifest.json`. Same metric, different surface.
+`eval_offline:checkpoint_score` is the metric shown in the startup summary. It
+decides which checkpoints land in the `improvements/` series and which one
+becomes the canonical bundle; it does not affect the archive schedule, which is
+fixed by step. See `training/docs/aws/checkpoint-score.md`.
 
-To keep results comparable across runs, the service evaluates at a standard Short `0.5x` and Long `2.0x` context; no user configuration is required.
+These are the same keys carried inside delivered bundles, written there with a
+`/` separator instead of `:`.
 
-`eval_offline:checkpoint_score` is the metric shown in the startup summary (`Checkpoint metric: eval_offline/checkpoint_score`, `Metric direction: max`): higher values rank as better checkpoints. It decides which checkpoints land in the `improvements/` series and which one becomes the canonical bundle. It does not affect the archive schedule, which is fixed by step. See `training/docs/aws/checkpoint-score.md` for what it measures and how to read it.
-
-### Forecast Metrics (Planned)
-
-Forecast metrics would give an approximate view of how the current policy may
-behave without running the target simulator, game engine, or environment inside
-the training container. Three are planned:
-
-| Planned metric | Description |
-| --- | --- |
-| Estimated step reward | Average reward per environment step. |
-| Estimated episode length | Average episode length in environment steps. |
-| Estimated episode return | Average episode return, or total episode score. |
-
-**None of them is emitted by the current version.** No `forecast:` metric is
-registered with SageMaker, and no forecast line appears in a job's logs or
-dashboard. They are experimental and are not exposed until validated; there is
-nothing here to configure, watch for, or build tooling against.
-
-When they do arrive, they will be model-based estimates rather than rollout
-scores measured in your simulator or game engine, and improving one will not by
-itself guarantee improved real-environment performance.
-
-Until then, real task performance comes from running a delivered `bundle/` in
-your own environment while the job runs — see
-`training/docs/aws/sagemaker-checkpoints.md`. Final performance
-should be validated the same way, in the customer’s actual simulator, game
-engine, or evaluation environment.
-
-## Recommended Instance
-
-The current Marketplace training example uses a single training instance type:
-
-- Training: `ml.g5.xlarge`
+None of these metrics is episode return — the job has no environment to measure
+it in. Real task performance comes from running a delivered `bundle/` in your own
+simulator or game engine, both during the run and to validate the final model.
 
 ## Output Bundles
 
@@ -222,19 +174,11 @@ The final `model.tar.gz` contains the canonical `bundle/` for normal inference,
 alongside `archive/bundles/` — the run's preserved points, so its candidates can
 be compared after the job ends.
 
-Training does not make you wait for it. Policy bundles are exported while the
-job runs and synced to the configured checkpoint S3 prefix, so you can load an
-in-progress policy with the public runtime and roll it out in your own
-environment. Because the job cannot measure episode return offline, this is the
-only way to see real task performance before a run finishes — and the way to
-stop a run that is not learning.
-
-Bundles arrive in two series. `archive/` holds an even sample of the run plus
-any steps you requested, kept permanently; it is the series to score when you
-are deciding whether to let a run continue. `improvements/` holds the best-so-far
-track by the offline metric, in 5 rotating slots.
-
-See `training/docs/aws/sagemaker-checkpoints.md`.
+Training does not make you wait for it. Policy bundles are exported while the job
+runs and synced to the configured checkpoint S3 prefix, so you can load an
+in-progress policy with the public runtime, roll it out in your own environment,
+and stop a run that is not learning. See
+`training/docs/aws/sagemaker-checkpoints.md`.
 
 ## More Details
 
