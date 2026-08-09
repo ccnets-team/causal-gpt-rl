@@ -1,8 +1,40 @@
-# SageMaker Hyperparameters
+# SageMaker Training Inputs
 
-This document is the contract for passing hyperparameters to a SageMaker training job: what you can set, what the job adjusts for you, and what it refuses to start with.
+Everything you configure before a training job starts: the dataset channel and
+the hyperparameters — what you can set, what the job adjusts for you, and what it
+refuses to start with.
 
 `training/hyperparameters.py` is the canonical field list and carries the defaults. Submitting it is the supported path. A managed job also accepts a number of older names so that existing payloads keep working; those are listed under "Other Accepted Keys" below.
+
+## Dataset Input
+
+Training input is Minari-based. Upload Minari dataset directories to S3 and pass
+that root as the single input channel, named `training`.
+
+```python
+estimator.fit({
+    "training": "s3://my-bucket/cgrl/datasets/minari/farama/"
+})
+```
+
+That prefix is the dataset root, and `dataset_ids` are resolved relative to it.
+With this layout:
+
+```text
+s3://my-bucket/cgrl/datasets/minari/farama/
+  mujoco/
+    humanoid/
+      simple-v0/
+      medium-v0/
+```
+
+`dataset_ids = mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0` resolves to
+those two directories under the root.
+
+At startup the job prints a validation summary to CloudWatch Logs showing how
+each dataset resolved and the observation/action schema the model will use. Check
+it before letting the run continue — see
+`training/docs/aws/aws-marketplace-training.md`.
 
 ## Rules
 
@@ -16,7 +48,7 @@ This document is the contract for passing hyperparameters to a SageMaker trainin
 
 | Name | Description | Example |
 | --- | --- | --- |
-| `dataset_ids` | Minari dataset ids to train on. Pass multiple ids as a comma-separated string. | `mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0` |
+| `dataset_ids` | Minari dataset ids to train on, relative to the `training` channel root. Pass multiple ids as a comma-separated string. | `mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0` |
 
 ## What You Can Set
 

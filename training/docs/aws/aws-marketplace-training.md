@@ -206,7 +206,7 @@ itself guarantee improved real-environment performance.
 
 Until then, real task performance comes from running a delivered `bundle/` in
 your own environment while the job runs — see
-`training/docs/aws/sagemaker-realtime-policy-delivery.md`. Final performance
+`training/docs/aws/sagemaker-checkpoints.md`. Final performance
 should be validated the same way, in the customer’s actual simulator, game
 engine, or evaluation environment.
 
@@ -218,8 +218,9 @@ The current Marketplace training example uses a single training instance type:
 
 ## Output Bundles
 
-The final `model.tar.gz` contains a canonical `<namespace>/bundle/` for normal
-inference.
+The final `model.tar.gz` contains the canonical `bundle/` for normal inference,
+alongside `archive/bundles/` — the run's preserved points, so its candidates can
+be compared after the job ends.
 
 Training does not make you wait for it. Policy bundles are exported while the
 job runs and synced to the configured checkpoint S3 prefix, so you can load an
@@ -231,16 +232,14 @@ stop a run that is not learning.
 Bundles arrive in two series. `archive/` holds an even sample of the run plus
 any steps you requested, kept permanently; it is the series to score when you
 are deciding whether to let a run continue. `improvements/` holds the best-so-far
-track by the offline metric, in 10 rotating slots.
+track by the offline metric, in 5 rotating slots.
 
-See `training/docs/aws/sagemaker-realtime-policy-delivery.md`.
+See `training/docs/aws/sagemaker-checkpoints.md`.
 
 ## More Details
 
-- Input datasets: `training/docs/aws/sagemaker-input-datasets.md`
-- Hyperparameters: `training/docs/aws/sagemaker-hyperparameters.md`
-- Output artifact: `training/docs/aws/sagemaker-output-artifacts.md`
-- Real-time policy delivery: `training/docs/aws/sagemaker-realtime-policy-delivery.md`
-- Checkpoints: `training/docs/aws/sagemaker-checkpoints.md`
+- Datasets and hyperparameters: `training/docs/aws/sagemaker-inputs.md`
+- Checkpoints, delivered bundles, and the output artifact: `training/docs/aws/sagemaker-checkpoints.md`
+- Checkpoint Score: `training/docs/aws/checkpoint-score.md`
 - Retraining: `training/docs/aws/sagemaker-retraining.md`
-    
+

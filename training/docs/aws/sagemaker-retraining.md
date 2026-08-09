@@ -33,8 +33,8 @@ left instead of replacing it.
 - The evenly spaced schedule is recomputed at startup from the new `max_steps`,
   so a resumed run's points do not line up with the previous run's. Both sets
   are kept.
-- `final` therefore appears more than once. **The point with the largest step is
-  the one the latest run ended on.**
+- `final` can therefore appear more than once. **The largest `final` step is the
+  latest run's final saved weights.**
 
 That last rule holds because `max_steps` is the cumulative total for the whole
 run, not the additional steps — see Notes below.
@@ -68,5 +68,5 @@ checkpoint path:
 
 - The input dataset layout must still match the requested `dataset_ids`.
 - `max_steps` should be set for the total intended training run, not just the additional steps.
-- `improvements/` slots are bounded to 10 files and rotate by overwriting older slots. Archive points are permanent and are never overwritten.
+- `improvements/` slots are bounded to 5 files and rotate by overwriting older slots. Archive points are permanent and are never overwritten.
 - Inference bundles are live-synced beside each series' `.pt` files under the same checkpoint namespace.

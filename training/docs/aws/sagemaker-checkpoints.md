@@ -1,204 +1,259 @@
-# SageMaker Checkpoints
+# Checkpoints and Policy Bundles
 
-Causal GPT-RL training can save intermediate training state while a SageMaker training job is running. The SageMaker setting is a checkpoint S3 prefix, so this document uses the term checkpoint.
+Everything a Causal GPT-RL training job produces: the policy bundles it exports
+while running, and the model artifact it writes when it finishes.
 
-## What Is Saved Where
+## Real-Time Policy Delivery
 
-There are two related outputs:
+Training runs offline. There is no simulator or game engine inside the training
+container, so the job cannot measure episode return — the thing you actually care
+about. What it can measure is `eval_offline/checkpoint_score`, which says how
+well the policy tracks your dataset, not how well it performs at your task.
 
-- Checkpoint S3 prefix: resume/retraining state and intermediate inference bundles synced by SageMaker during training.
-- SageMaker output artifact: final `model.tar.gz`, which contains the canonical inference bundle.
+That leaves one trustworthy check: **run the policy in your own environment.**
 
-## Two Checkpoint Series
+So the job does not make you wait for the final artifact. It exports runnable
+policy bundles as it goes and SageMaker syncs them to the checkpoint S3 prefix
+continuously, so you can load an in-progress policy with the public runtime,
+score it yourself, and stop a run that is not learning.
 
-Set a SageMaker checkpoint S3 prefix when creating the training job.
+## Two Destinations
+
+| | Set by | Holds |
+| --- | --- | --- |
+| Checkpoint S3 prefix | `checkpoint_s3_uri` on the training job | Bundles synced while the job runs, plus `.pt` training state for resume |
+| Output artifact | `output_path` on the training job | Final `model.tar.gz` |
+
+Without a checkpoint prefix the job still produces the final artifact — you just
+do not see anything until it finishes.
+
+## During the Run
 
 ```text
 s3://my-bucket/cgrl/checkpoints/<training-job-name>/
-```
-
-Checkpoints are written into two series under that prefix. They differ in why a
-checkpoint is written and how long it survives.
-
-| Series | Written when | Identified by | Retention |
-| --- | --- | --- | --- |
-| `improvements/` | the evaluation metric reaches a new best | slot | 10 slots, rotating |
-| `archive/` | a scheduled or requested step is reached | step | permanent |
-
-```text
-<checkpoint-prefix>/
   <namespace>/
-    improvements/
-      model_checkpoint_slot_000.pt
-      ...
-      model_checkpoint_slot_009.pt
-      bundles/
-        manifest.json
-        slot_000/
-          model.safetensors
-          config.json
-          metrics.json
-        ...
-        slot_009/
     archive/
       model_checkpoint_step_0020000.pt
-      model_checkpoint_step_0025000.pt
-      ...
       bundles/
         manifest.json
         step_0020000/
-          model.safetensors
           config.json
           metrics.json
-        ...
+          model.safetensors
+    improvements/
+      model_checkpoint_slot_000.pt
+      bundles/
+        manifest.json
+        slot_000/
 ```
 
-In both series the `*.pt` files hold training state for resume/retraining,
-including model state and optimizer/scheduler state. `bundles/` holds a complete
-inference bundle for the same point. Every `.pt` pairs with the bundle carrying
-the same identity token:
+Any `bundles/*/` directory is a complete inference bundle and loads with the
+public `causal-gpt-rl` runtime directly. The `*.pt` files beside them are
+training state for resume — see `training/docs/aws/sagemaker-retraining.md`.
+
+`<namespace>` is derived from the run's dataset identity. Read it from
+CloudWatch Logs; every export logs its full path.
 
 ```text
-improvements/model_checkpoint_slot_003.pt   <->  improvements/bundles/slot_003/
-archive/model_checkpoint_step_0025000.pt    <->  archive/bundles/step_0025000/
+Checkpoint artifact exported: artifact=archive_bundle path=<ckpt>/<ns>/archive/bundles/step_0020000 step=20000 reasons=periodic
 ```
 
-SageMaker live-syncs both series to the configured checkpoint S3 prefix while
-training runs.
+| Series | Written when | Named by | Retention |
+| --- | --- | --- | --- |
+| `archive/` | a scheduled or requested step is reached | step | permanent |
+| `improvements/` | when a selected checkpoint is published | slot | 5 slots, rotating |
 
-## `improvements/` — Best So Far
-
-A checkpoint is written here whenever the evaluation metric reaches a new best.
-That save also updates the canonical bundle.
-
-At most 10 slots are kept. After `model_checkpoint_slot_009.pt`, training
-rotates back to `model_checkpoint_slot_000.pt` and overwrites older slots. A
-slot is overwritten after 10 further improvements, so **slot names are not
-stable identities** — read `step` alongside the slot name.
-
-There is no fixed interval between improvements and no minimum spacing. They
-tend to be frequent early in a run and sparser later, as improvements become
-harder to find.
-
-## `archive/` — Preserved Points
+### `archive/` — the series to score
 
 Points here are never rotated away and are named by step, so `step_0020000/` is
-step 20000 for the life of the prefix.
+step 20000 for the life of the prefix. They are evenly spaced across the run and
+announced before it starts, which is what makes them a basis for a decision.
 
-Two things put a point in the archive:
+Two things put a point in the archive: the periodic schedule — 5 evenly spaced
+steps computed from `max_steps` at startup, at 20/40/60/80/100% — and the steps
+you list in `archive_steps`. Both are reported in the startup log before the run
+produces anything. A point is written the moment its step is reached.
 
-| Reason | When |
-| --- | --- |
-| `periodic` | 5 evenly spaced steps across the run, computed from `max_steps` at startup. |
-| `requested` | The steps you list in `archive_steps`. Up to 10. |
+The last archive point a run saves carries the reason `final`.
 
-A point is written the moment its step is reached, not at the end of the job.
+### `improvements/` — best so far
 
-Both schedules are reported at startup, so you know the steps before the run
-produces anything:
+Slots rotate from `slot_000` through `slot_004`, so a slot name is a reusable
+location rather than a model identity — read the associated `step`, and copy
+anything you intend to keep out of the prefix.
 
-```text
-Archive periodic: 20000, 40000, 60000, 80000, 100000
-Archive steps: 25000, 75000
-Archive disk estimate: 700 MB for 7 point(s) (free: 24.3 GB)
+This series answers "what is the best the offline metric has seen so far". It is
+not a trend signal and not the series to drive early stopping from.
+
+### Manifests
+
+Each series has a `bundles/manifest.json`. Read the list from it rather than
+hardcoding a count — early stopping and requested steps both change it.
+
+```json
+{
+  "points": [
+    { "step": 20000, "reasons": ["periodic"],
+      "metrics": { "eval_offline/checkpoint_score": 0.3812 } }
+  ]
+}
 ```
 
-Preserved points are never reclaimed, so the schedule costs disk for the whole
-run. See `training/docs/aws/sagemaker-hyperparameters.md` for the sizing table.
+- `archive/` lists `points`, keyed by `step`, with `reasons` — `periodic`,
+  `requested`, `final`, `stopped`. The largest `final` step is the run's final
+  saved weights.
+- `improvements/` lists `slots`, each with its `step`, plus `canonical_source`:
+  the slot and step whose weights match the canonical bundle. It can be `null`
+  once rotation overwrites that slot; the canonical bundle is still valid at its
+  own location.
 
-### The Point a Run Ended On
+S3 synchronization order is not guaranteed. Treat the manifest as an index,
+verify the referenced directory, and retry entries that are not yet complete.
 
-The last point of a run always carries the reason `final`, so a single token
-finds the model a run ended on.
+## Loading a Bundle
 
-| Situation | Reasons |
-| --- | --- |
-| Reached `max_steps` | `periodic`, `final` |
-| Stopped with `StopTrainingJob` | `final`, `stopped` |
-| Stopped on a scheduled step | `periodic`, `final`, `stopped` |
-
-Stopping a job writes this point at the next step boundary. It is usually
-present, but it is not guaranteed — the save and its sync have to finish inside
-the stop grace period. **If you need the model a run ended on, copy the latest
-archive point out before you stop the job.** A job killed outright, by an
-out-of-memory condition or a host failure, has no `final` point at all.
-
-## Watching Saves Happen
-
-Whether anything is being written at all is a separate question from which point
-is best. The job reports a running count of completed saves:
-
-```text
-Checkpoint: step=<step> checkpoints_saved=<count>
+```bash
+aws s3 cp --recursive \
+  s3://my-bucket/cgrl/checkpoints/<job>/<ns>/archive/bundles/step_0020000/ \
+  ./step_0020000/
 ```
 
-It is registered as the SageMaker metric `eval_offline:checkpoints_saved`. The
-count covers `improvements/` and `archive/` together, and it increments only
-after a save has actually been processed — a step whose save completed is
-already included in the line printed for that step. Graph it to confirm a long
-run is still producing points, or to see when it stopped.
+```python
+from causal_gpt_rl.inference import load_runner
 
-This counter is job progress, not a property of any one checkpoint, so it is not
-recorded in `metrics.json` or the bundle manifest.
+runner = load_runner("./step_0020000")
+```
 
-## Checkpoint Selection Metric
+From here it is the same `PolicyRunner` you would get from the final artifact or
+from Hugging Face. Roll it out and score it however you already score policies.
 
-The training job tracks an evaluation metric and direction. This metric is what
-`improvements/` means by "better", and it is what selects the canonical bundle.
-The startup log reports both:
+Delivered bundles are not individually verified before delivery. A save can fail,
+and the failure is logged to CloudWatch while training continues to the next
+checkpoint. Treat a failed load as a skip — the next delivery is unaffected. A
+point that is listed but still syncing will load on a later pass, so retry before
+giving up on it. If **every** bundle fails the same way, check the reported reason
+rather than waiting for more.
+
+One failure is worth recognizing on sight. A bundle needing a newer runtime than
+you have installed is refused by name rather than mis-decoded:
+
+```text
+Bundle requires capabilities this causal-gpt-rl <version> build does not support:
+  - <capability>
+Upgrade causal-gpt-rl to a build that advertises them.
+```
+
+## Early Stopping
+
+The workflow this is built for:
+
+1. Poll `archive/bundles/manifest.json` and diff `points` against the steps you
+   have already scored. Steps are permanent and unique, so a set of steps is
+   enough state.
+2. Load each new bundle and roll it out in your environment.
+3. Track your own score against `step`.
+4. If the score is flat or falling, stop the job. You stop paying at that point
+   rather than at `max_steps`.
+
+A point carrying `final` in its `reasons` is the run ending on its own, not a
+reason to call `StopTrainingJob`.
+
+The default schedule gives 4 opportunities to stop before the run ends, and a
+decision becomes possible at the third point. For a finer trend, add up to 10
+steps with `archive_steps`, chosen before the run starts; each added point costs
+permanent disk, so see the sizing table in
+`training/docs/aws/sagemaker-inputs.md`.
+
+Polling every few minutes is plenty — reading a manifest is one small object
+fetch, and the useful lower bound is set by how long your own rollout takes.
+
+## The Final Artifact
+
+```text
+s3://my-bucket/cgrl/output/<training-job-name>/output/model.tar.gz
+```
+
+```text
+model.tar.gz
+  bundle/
+    config.json
+    metrics.json
+    model.safetensors
+  archive/bundles/
+    manifest.json
+    step_NNNNNNN/
+  reports/
+    summary.json
+```
+
+- `bundle/` is the canonical bundle, selected by the checkpoint metric. Load this
+  by default.
+- `archive/bundles/` is the same preserved series as above, included so the run's
+  candidates can be compared after the job ends without going back to the
+  checkpoint prefix.
+- `improvements/` and the `.pt` files are not included.
+- There is no namespace level and no root `config.json`. The namespace applies to
+  the checkpoint prefix only.
+
+### Bundle files
+
+- `model.safetensors`: Policy model weights.
+- `config.json`: Model architecture, observation/action specs, and context settings.
+- `metrics.json`: The evaluation metrics for that point.
+- `state_normalizer.safetensors`: Optional legacy sidecar. Current bundle format
+  v2 embeds state normalization statistics in `model.safetensors`.
+
+```python
+runner = load_runner("path/to/bundle")
+```
+
+To try an archive candidate instead, point the runtime at its directory. The path
+and the bundle format are the same runtime contract, so nothing else changes.
+
+```text
+MODEL_PATH=/opt/ml/model/archive/bundles/step_NNNNNNN
+```
+
+### `reports/summary.json`
+
+Records how the canonical bundle was selected.
+
+```json
+{
+  "evaluation": {
+    "best_metric_name": "eval_offline/checkpoint_score",
+    "best_metric_value": 0.418732,
+    "best_metric_direction": "max",
+    "best_return": null
+  }
+}
+```
+
+- `best_metric_value` ranks points inside one run. The offline criterion is
+  revised as it is tuned, so do not compare it across runs.
+- `best_metric_direction` is carried as its own field because the direction is
+  not part of the metric name. Use it when comparing checkpoints selected under
+  the same run and metric definition — sorting the wrong way picks the worse
+  model.
+- `best_return` is filled in only when the selection metric is an actual episode
+  return, which requires environment evaluation during training. On an
+  offline-selected run it is `null` — absent, not zero.
+
+## Choosing What to Deploy
+
+The startup log reports what `improvements/` means by "better" and what selects
+the canonical bundle:
 
 ```text
 Checkpoint metric: eval_offline/checkpoint_score
 Metric direction: max
 ```
 
-`eval_offline/checkpoint_score` is Checkpoint Score, a bounded `[0, 1]` statistic
-measured on a held-out split of your dataset — higher is better. Each
-`bundles/*/metrics.json` records the evaluation metrics for its point, of which
-this one is the selection metric. See `training/docs/aws/checkpoint-score.md` for
-what it measures and how to read it, the eval metrics in
-`training/docs/aws/aws-marketplace-training.md` for the full list, and
-`training/docs/aws/sagemaker-realtime-policy-delivery.md` for what each key
-means.
+That metric is measured on a held-out split of your dataset, not against your
+environment. It ranks checkpoints of one run against each other; it does not tell
+you how the policy performs at your task, and the gap can be large. See
+`training/docs/aws/checkpoint-score.md`.
 
-The metric is measured against your dataset, not against your environment. It
-ranks checkpoints by how well the policy tracks your dataset while running on
-its own rollout, which is not the same as how well the resulting policy performs
-at your task.
-
-## Canonical Bundle and Live Bundles
-
-The final SageMaker output artifact is separate from the checkpoint prefix.
-After training finishes, `model.tar.gz` contains the canonical bundle but does
-not duplicate the live bundles:
-
-```text
-model.tar.gz
-  reports/
-    summary.json
-  <namespace>/
-    bundle/
-      model.safetensors
-      config.json
-```
-
-- `bundle/` is the canonical inference bundle to load by default.
-- `<checkpoint-prefix>/<namespace>/improvements/bundles/` and
-  `.../archive/bundles/` are policy bundles delivered while training runs. They
-  load with the public inference runtime without restoring a training
-  checkpoint. See `training/docs/aws/sagemaker-realtime-policy-delivery.md`.
-- The `*.pt` files in both series are for resume/retraining, not normal
-  inference. See `training/docs/aws/sagemaker-retraining.md`.
-
-## Why Bundles Exist
-
-The `.pt` files contain optimizer and scheduler state and are meant for training
-resume. The bundles are a different thing: they are the product's real-time
-policy delivery path. Each one is a complete inference bundle, synced out while
-the job runs, so a policy can be evaluated in your own environment before
-training finishes.
-
-This document covers the checkpoint plumbing. For what the delivered bundles are
-for and how to consume them — finding them, reading the manifests, polling for
-new ones, and stopping a run early — see
-`training/docs/aws/sagemaker-realtime-policy-delivery.md`.
+So **treat the canonical bundle as a default, not as a verdict.** The archive
+points are preserved precisely so you can score them yourself and pick the one
+your environment prefers.
