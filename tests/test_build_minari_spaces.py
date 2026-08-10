@@ -32,7 +32,9 @@ def build_minari(monkeypatch):
     monkeypatch.setitem(sys.modules, "minari", minari)
     monkeypatch.setitem(sys.modules, "minari.data_collector", data_collector)
 
-    spec = importlib.util.spec_from_file_location("build_minari_test", BUILD_MINARI)
+    spec = importlib.util.spec_from_file_location(
+        "collection.build_minari_test", BUILD_MINARI
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -62,7 +64,7 @@ def test_ego_wrap_matches_published_soccer_twos_schema(build_minari):
         build_minari._build_observation_space([264, 72]), "agent_0"
     )
     act = build_minari._wrap_ego_space(
-        build_minari._build_action_space("discrete", {"branches": [3, 3, 3]}, None),
+        build_minari._build_action_space("discrete", {"branches": [3, 3, 3]}),
         "agent_0",
     )
     assert str(obs) == (
@@ -78,7 +80,7 @@ def test_ego_wrap_matches_published_dungeon_escape_schema(build_minari):
         build_minari._build_observation_space([10, 360, 1]), "agent_0"
     )
     act = build_minari._wrap_ego_space(
-        build_minari._build_action_space("discrete", {"branches": [7]}, None),
+        build_minari._build_action_space("discrete", {"branches": [7]}),
         "agent_0",
     )
     assert str(obs) == (
@@ -91,10 +93,19 @@ def test_ego_wrap_matches_published_dungeon_escape_schema(build_minari):
 @pytest.mark.parametrize(
     "action_kind, spec, expected",
     [
-        ("continuous", {"act_dim": 20}, "Box(-1.0, 1.0, (20,), float32)"),
+        (
+            "continuous",
+            {"act_dim": 20, "act_low": -1.0, "act_high": 1.0},
+            "Box(-1.0, 1.0, (20,), float32)",
+        ),
         (
             "hybrid",
-            {"continuous_size": 3, "branches": [2]},
+            {
+                "continuous_size": 3,
+                "branches": [2],
+                "act_low": -1.0,
+                "act_high": 1.0,
+            },
             "Tuple(Box(-1.0, 1.0, (3,), float32), Discrete(2))",
         ),
     ],
@@ -104,9 +115,23 @@ def test_ego_wrap_covers_continuous_and_hybrid(
 ):
     """The wrapper is orthogonal to action kind, not discrete-only."""
     act = build_minari._wrap_ego_space(
-        build_minari._build_action_space(action_kind, spec, None), "agent_0"
+        build_minari._build_action_space(action_kind, spec), "agent_0"
     )
     assert str(act) == f"Dict('agents': Dict('agent_0': {expected}))"
+
+
+def test_continuous_space_uses_declared_per_dimension_bounds(build_minari):
+    space = build_minari._build_action_space(
+        "continuous",
+        {
+            "act_dim": 2,
+            "act_low": np.asarray([-2.0, 10.0], dtype=np.float32),
+            "act_high": np.asarray([2.0, 30.0], dtype=np.float32),
+        },
+    )
+
+    np.testing.assert_array_equal(space.low, [-2.0, 10.0])
+    np.testing.assert_array_equal(space.high, [2.0, 30.0])
 
 
 def test_ego_wrap_nests_the_episode_payload_to_match_the_space(build_minari):

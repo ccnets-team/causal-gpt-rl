@@ -1,6 +1,9 @@
 # collection
 
-Turn recorded episodes into a [Minari](https://minari.farama.org) dataset.
+Turn your recorded typed-vector episodes into the
+[Minari](https://minari.farama.org) dataset that declares the observation and
+action spaces your model will use. You own the encoding and choose those spaces;
+this directory records, checks, and packages that interface.
 
 `build_minari.py` is **source-agnostic**: it packages per-episode `.npz` files
 into an **env-less** Minari dataset: the observation and action spaces are
@@ -10,8 +13,9 @@ datasets follow; `spec.json` preserves multi-sensor and discrete/hybrid
 structure where you have it.
 
 Whatever produced the episodes — a simulator, a game build, a logged control
-system, a replayed production trace — if you can write the arrays below, you can
-package it.
+system, a replayed production trace — if its fixed-shape numeric trajectories fit
+the arrays below, you can package it. Raw pixels, audio, and text are encoded on
+your side before this boundary.
 
 ## The input contract
 
@@ -34,7 +38,7 @@ Files are read in sorted order and the episode id is their position.
 
 | `action_kind` | `actions` columns | Becomes |
 |---|---|---|
-| `continuous` | `act_dim` floats | `Box(-1, 1, (act_dim,))` |
+| `continuous` | `act_dim` floats | `Box(act_low, act_high, (act_dim,))` |
 | `discrete` | one **index** per branch — not one-hot | `Discrete(n)` or `MultiDiscrete([...])` |
 | `hybrid` | `continuous_size` floats, then one index per branch | `Tuple(Box, Discrete/MultiDiscrete)` |
 
@@ -59,6 +63,7 @@ how you say something else.
 | `act_dim` | continuous | Action width. Omit to take it from the array |
 | `branches` | discrete, hybrid | Category count per branch, e.g. `[3, 3, 3]` |
 | `continuous_size` | hybrid | Width of the continuous part |
+| `act_low`, `act_high` | continuous, hybrid | Scalar or per-dimension continuous bounds. Default `-1`, `1` |
 
 Omit the file entirely and you get a single continuous `Box` over the full
 observation width — the common case for a plain sensor vector.
@@ -68,6 +73,12 @@ observation width — the common case for a plain sensor vector.
 meaning. `[126, 32]` becomes `Tuple(Box(126), Box(32))`; a consumer that wants
 them joined does that itself. Any extra keys in `spec.json` are ignored, so it is
 a fine place to keep provenance.
+
+The helper covers the common flat-vector forms above: a bare observation `Box`,
+a positional `Tuple` of observation channels, continuous/discrete/hybrid
+actions, and the optional ego-agent `Dict` wrapper. The runtime supports broader
+`Dict` / `Tuple` nesting; this packager does not invent a general schema language
+for it.
 
 ## Writing episodes
 
@@ -115,14 +126,20 @@ actions=np.asarray(actions, dtype=np.int64).reshape(T, 1)
 ```bash
 python collection/build_minari.py \
     --raw raw/ \
-    --dataset-id <namespace>/<name>/<version>
+    --dataset-id <namespace>/<name>-v0
 ```
 
-The id is also the path, so `mujoco/humanoid/simple-v0` is written to
-`~/.minari/datasets/mujoco/humanoid/simple-v0/`. That directory is the unit you
-publish or upload — see
-[`training/docs/aws/sagemaker-inputs.md`](../training/docs/aws/sagemaker-inputs.md)
-for the layout a training job expects.
+The final segment must end in `-v<integer>`; `review/badinput-v0` is valid while
+`review/badinput/v0` is not. The id is also the path, so
+`mujoco/humanoid/simple-v0` is written to
+`~/.minari/datasets/mujoco/humanoid/simple-v0/`.
+
+Before creating that directory, the command checks every episode for required
+arrays, aligned lengths, finite observations/actions/rewards, consistent widths,
+declared continuous bounds or discrete branches, and a final episode boundary.
+The final step must set termination, truncation, or both. Only after the full
+preflight succeeds does it write Minari, then it loads the result back and
+verifies its counts and spaces.
 
 Useful flags:
 
@@ -141,7 +158,7 @@ spaces under an ego key, so a consumer reads
 ```bash
 python collection/build_minari.py \
     --raw raw/ \
-    --dataset-id <namespace>/<name>/<version> \
+    --dataset-id <namespace>/<name>-v0 \
     --ego-agent agent_0
 ```
 
@@ -223,3 +240,8 @@ tiers synthesized by degrading a stock policy. The published datasets at
 [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets)
 were made that way, from the builds at
 [ccnets/causal-gpt-rl-unity-envs](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs).
+
+[`../examples/sumo_traffic_light/`](../examples/sumo_traffic_light/) is reserved
+for the next worked external-source example. SUMO remains the environment in
+that example; it only has to produce the same typed-vector episode contract
+described here.

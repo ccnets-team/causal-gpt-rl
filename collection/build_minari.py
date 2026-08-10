@@ -18,8 +18,9 @@ Spaces follow the declared structure, not a forced flat layout:
     stays a bare `Box` (the flat MuJoCo-Minari convention). A consumer that wants
     one flat vector just concatenates the leaves, so the `Tuple` loses nothing —
     it is simply the honest, per-sensor form.
-  - **action** — `Box[-1, 1]` (continuous), `Discrete`/`MultiDiscrete`
-    (discrete), or `Tuple(Box, Discrete/MultiDiscrete)` (hybrid).
+  - **action** — a declared `Box` (continuous; defaults to `[-1, 1]`),
+    `Discrete`/`MultiDiscrete` (discrete), or
+    `Tuple(Box, Discrete/MultiDiscrete)` (hybrid).
   - **ego-agent wrapper** (`--ego-agent`) — for multi-agent recordings, both of
     the above are nested under `Dict{"agents": {<key>: ...}}`, so a consumer
     reads `observations["agents"]["agent_0"]`. One ego episode per physical
@@ -30,12 +31,16 @@ dims into the structured leaf arrays Minari stores. Older raw dirs without
 `obs_channels` fall back to a single flat `Box` observation.
 """
 import argparse
-import json
-from pathlib import Path
 import numpy as np
 import gymnasium as gym
+import minari
 from minari import create_dataset_from_buffers
 from minari.data_collector import EpisodeBuffer
+
+try:  # Supports both ``python -m collection.build_minari`` and the documented path.
+    from ._contract import ContractError, validate_dataset_id, validate_raw_directory
+except ImportError:  # pragma: no cover - exercised by CLI subprocess tests
+    from _contract import ContractError, validate_dataset_id, validate_raw_directory
 
 
 def _build_observation_space(obs_channels):
@@ -59,10 +64,12 @@ def _split_obs(flat, obs_channels):
     return tuple(out)
 
 
-def _build_action_space(action_kind, spec, first):
+def _build_action_space(action_kind, spec):
     if action_kind == "continuous":
-        act_dim = int(spec.get("act_dim") or first["actions"].shape[1])
-        return gym.spaces.Box(-1.0, 1.0, shape=(act_dim,), dtype=np.float32)
+        act_dim = int(spec["act_dim"])
+        low = spec["act_low"]
+        high = spec["act_high"]
+        return gym.spaces.Box(low, high, shape=(act_dim,), dtype=np.float32)
     if action_kind == "discrete":
         branches = [int(b) for b in spec["branches"]]
         return (
@@ -80,8 +87,10 @@ def _build_action_space(action_kind, spec, first):
         )
         # Tuple order (Box, Discrete) mirrors ML-Agents' (continuous, discrete)
         # ActionTuple and the ONNX (continuous_actions, discrete_actions) outputs.
+        low = spec["act_low"]
+        high = spec["act_high"]
         return gym.spaces.Tuple(
-            (gym.spaces.Box(-1.0, 1.0, shape=(cont,), dtype=np.float32), disc)
+            (gym.spaces.Box(low, high, shape=(cont,), dtype=np.float32), disc)
         )
     raise SystemExit(f"Unknown action_kind {action_kind!r}")
 
@@ -150,35 +159,30 @@ def main():
     )
     args = ap.parse_args()
 
-    if args.batch_episodes < 1:
-        raise SystemExit("--batch-episodes must be at least 1")
+    try:
+        if args.batch_episodes < 1:
+            raise ContractError("--batch-episodes must be at least 1")
+        if args.ego_agent is not None and not args.ego_agent.strip():
+            raise ContractError("--ego-agent must be a non-empty key (e.g. 'agent_0')")
+        validate_dataset_id(args.dataset_id)
+        if args.dataset_id in minari.list_local_datasets():
+            raise ContractError(
+                f"Dataset {args.dataset_id!r} already exists; choose a new id"
+            )
+        # Validate every file before Minari creates an output directory. This
+        # deliberately makes a second, bounded-memory pass when writing.
+        files, spec = validate_raw_directory(args.raw)
+    except ContractError as exc:
+        raise SystemExit(f"collection input error: {exc}") from exc
 
-    if args.ego_agent is not None and not args.ego_agent.strip():
-        raise SystemExit("--ego-agent must be a non-empty key (e.g. 'agent_0')")
-
-    files = sorted(Path(args.raw).glob("ep_*.npz"))
-    if not files:
-        raise SystemExit(f"No ep_*.npz found in {args.raw}")
-
-    # Obs/action spec written by the collector; fall back to a single flat
-    # continuous Box for older runs recorded before spec.json carried structure.
-    spec_path = Path(args.raw) / "spec.json"
-    spec = json.loads(spec_path.read_text()) if spec_path.is_file() else {"action_kind": "continuous"}
-    action_kind = spec.get("action_kind", "continuous")
-
-    first = np.load(files[0])
-    flat_obs_dim = int(first["observations"].shape[1])
-    obs_channels = [int(c) for c in spec.get("obs_channels", [])] or [flat_obs_dim]
-    if sum(obs_channels) != flat_obs_dim:
-        raise SystemExit(
-            f"obs_channels {obs_channels} (sum={sum(obs_channels)}) != stored obs dim {flat_obs_dim}."
-        )
+    action_kind = spec["action_kind"]
+    obs_channels = spec["obs_channels"]
 
     observation_space = _wrap_ego_space(
         _build_observation_space(obs_channels), args.ego_agent
     )
     action_space = _wrap_ego_space(
-        _build_action_space(action_kind, spec, first), args.ego_agent
+        _build_action_space(action_kind, spec), args.ego_agent
     )
 
     buffers = []
@@ -205,15 +209,13 @@ def main():
         buffers = []
 
     for i, f in enumerate(files):
-        d = np.load(f)
-        obs = _split_obs(d["observations"].astype(np.float32), obs_channels)
-        act = _split_actions(d["actions"], action_kind, spec)
-        rew = d["rewards"].astype(np.float32)
-        term = d["terminations"].astype(bool)
-        trunc = d["truncations"].astype(bool)
+        with np.load(f, allow_pickle=False) as d:
+            obs = _split_obs(d["observations"].astype(np.float32), obs_channels)
+            act = _split_actions(d["actions"], action_kind, spec)
+            rew = d["rewards"].astype(np.float32)
+            term = d["terminations"].astype(bool)
+            trunc = d["truncations"].astype(bool)
         T = len(rew)
-        obs_len = obs[0].shape[0] if isinstance(obs, tuple) else obs.shape[0]
-        assert obs_len == T + 1, (f.name, obs_len, T)
         buffers.append(
             EpisodeBuffer(
                 id=i,
@@ -235,8 +237,23 @@ def main():
     )
 
     flush()
-    assert ds is not None
-    print(f"[done] created Minari dataset '{args.dataset_id}' ({ds.total_episodes} episodes)")
+    if ds is None:  # Defensive; preflight guarantees at least one episode.
+        raise RuntimeError("Minari did not create a dataset")
+    loaded = minari.load_dataset(args.dataset_id)
+    if loaded.total_episodes != len(files) or loaded.total_steps != total:
+        raise RuntimeError(
+            f"Load-back count mismatch: episodes={loaded.total_episodes}/{len(files)} "
+            f"steps={loaded.total_steps}/{total}"
+        )
+    if (
+        loaded.observation_space != observation_space
+        or loaded.action_space != action_space
+    ):
+        raise RuntimeError("Load-back spaces differ from the declared spaces")
+    print(
+        f"[done] created and verified Minari dataset '{args.dataset_id}' "
+        f"({loaded.total_episodes} episodes, {loaded.total_steps} transitions)"
+    )
 
 
 if __name__ == "__main__":
