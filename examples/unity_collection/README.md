@@ -52,8 +52,9 @@ The measurement runner (`../unity/evaluate_onnx.py`) uses the same collection en
 
 The recipe ends at the Minari dataset — a portable, env-less trajectory set whose
 observation and action spaces mirror the build's sensors and action spec (see
-[Observation & action spaces](#observation--action-spaces) below). Single-`Box`
-spaces follow the same convention as the Gymnasium / MuJoCo Minari datasets.
+[Observation & action spaces](#observation--action-spaces) below). What the
+packager expects on its input side, and how to check what came out, is the
+[`collection/` README](../../collection/README.md).
 
 The same two commands collect **any** build — point `--build`/`--onnx` at it and
 pick a `--dataset-id`. For example the discrete **PushBlock** build (a single
@@ -92,11 +93,9 @@ python ../../collection/build_minari.py \
 
 The collector writes each ego-agent trajectory as one episode and writes match
 relationships (`match_id`, `field_id`, `team_id`, `group_id`) to the adjacent
-`manifest.jsonl`. `--ego-agent` nests both spaces under
-`Dict{"agents": {"agent_0": ...}}`, so a consumer reads
-`observations["agents"]["agent_0"]` and the episode says whose trajectory it is —
-this is the schema the published SoccerTwos and DungeonEscape datasets use. The
-leaf spaces are unchanged by the wrapper.
+`manifest.jsonl`. `--ego-agent` is the packager flag that names whose trajectory
+each episode holds; see
+[Multi-agent recordings](../../collection/README.md#multi-agent-recordings).
 
 The packager consumes the episode arrays, not the `manifest.jsonl` sidecar;
 decentralized shared-policy training therefore sees independent per-agent
@@ -105,25 +104,12 @@ group-aware processing.
 
 ## Observation & action spaces
 
-The Minari spaces are derived from the build's ML-Agents behavior spec, so a build
-with different sensors or actions produces the matching dataset with **no code
-change**:
-
-- **Observation** — one `Box` per sensor, kept distinct in a `Tuple` (a
-  single-sensor build stays a bare `Box`). Distinct sensors carry distinct
-  meaning, so they remain separate leaves rather than being flattened into one
-  vector; a consumer that wants them concatenated does so itself.
-- **Action** — `Box[-1, 1]` (continuous), `Discrete` / `MultiDiscrete`
-  (discrete), or `Tuple(Box, Discrete/MultiDiscrete)` (hybrid — continuous and
-  discrete together, e.g. move + jump).
-- **Multi-agent** — `--ego-agent KEY` nests either of the above under
-  `Dict{"agents": {KEY: ...}}`. The leaf spaces are unchanged; the wrapper only
-  names whose trajectory the episode holds.
-
-Whichever shape a build produces, the declared space *is* the interface —
-`causal_gpt_rl` walks `Tuple` / `Dict` nesting down to the same leaf specs, so a
-bare `Box`, a per-sensor `Tuple`, and an ego `Dict` are all ingested the same
-way with no adapter.
+You do not declare these by hand. `collect.py` reads the live ML-Agents behavior
+spec, records the obs channels and actions flat, and writes the `spec.json` that
+`build_minari.py` turns into declared spaces — so a build with different sensors
+or actions produces the matching dataset with **no code change**. What those
+declarations may say, and what each shape means for the model that consumes them,
+is the [input contract](../../collection/README.md#the-input-contract).
 
 Two worked builds:
 
@@ -131,10 +117,6 @@ Two worked builds:
 |---|---|---|
 | Crawler | `Tuple(Box(126), Box(32))` | `Box(20, [-1, 1])` |
 | PushBlock | `Tuple(Box(105), Box(105))` | `Discrete(7)` |
-
-`collect.py` records the raw obs channels and actions flat plus a `spec.json`
-(obs channel dims + action kind); `build_minari.py` reads it and rebuilds the
-declared spaces above, storing each leaf as its own array.
 
 ## Quality tiers (simple / medium)
 

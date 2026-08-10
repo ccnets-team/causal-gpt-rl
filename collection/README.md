@@ -130,11 +130,33 @@ Useful flags:
 - `--batch-episodes N` — episodes appended per HDF5 write (default 1000). Lower
   it if many short episodes strain memory.
 
+Runs with `minari==0.5.3`.
+
+### Multi-agent recordings
+
+For a recording with one episode per physical agent, `--ego-agent` nests both
+spaces under an ego key, so a consumer reads
+`observations["agents"]["agent_0"]`:
+
+```bash
+python collection/build_minari.py \
+    --raw raw/ \
+    --dataset-id <namespace>/<name>/<version> \
+    --ego-agent agent_0
+```
+
+The leaf spaces are identical either way; the wrapper only names whose
+trajectory the episode is. This is the schema the published SoccerTwos and
+DungeonEscape datasets use.
+
 ## Check what you built
 
 Load it back before you publish or upload it. The declared spaces are the part
 worth reading closely — they become the model's interface, and a wrong
-declaration can produce the wrong interface even when packaging succeeds.
+declaration can produce the wrong interface even when packaging succeeds. A bare
+`Box`, a per-sensor `Tuple`, and an ego `Dict` are all walked down to the same
+leaf specs, so no shape here costs you an adapter later; what it does decide is
+which leaves the model sees.
 
 ```python
 import minari
@@ -192,23 +214,6 @@ One directory caveat — the dataset id is stored in the metadata *and* is the
 directory path. Renaming the directory without rebuilding makes Minari warn that
 the namespace location does not match the id. Move the whole tree, do not rename
 parts of it.
-
-For a multi-agent recording — one episode per physical agent — `--ego-agent`
-nests both spaces under an ego key, so a consumer reads
-`observations["agents"]["agent_0"]`:
-
-```bash
-python collection/build_minari.py \
-    --raw raw/ \
-    --dataset-id <namespace>/<name>/<version> \
-    --ego-agent agent_0
-```
-
-The leaf spaces are identical either way; the wrapper only names whose
-trajectory the episode is. This is the schema the published SoccerTwos and
-DungeonEscape datasets use.
-
-Runs with `minari==0.5.3`.
 
 ## A worked source
 

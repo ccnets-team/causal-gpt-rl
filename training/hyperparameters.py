@@ -61,8 +61,9 @@ from typing import Optional
 class Hyperparameters:
 
     # 1) Data - managed jobs are bring-your-own: data arrives via the training
-    # channel, so dataset_ids is required. The target env is read from the
-    # dataset's own Minari metadata (env_spec), so no env_id field is needed.
+    # channel, so dataset_ids is required. The model's I/O schema comes from the
+    # observation/action spaces the dataset itself declares - these datasets are
+    # env-less, with no gym env to recover - so no env_id field is needed.
     dataset_ids: Optional[list[str]] = None                     # required BYO Minari dataset ids
 
     # 2) Training
