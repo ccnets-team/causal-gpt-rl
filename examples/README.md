@@ -12,6 +12,7 @@ Load a bundle, roll it out, read the return.
 | [`hub_quickstart.ipynb`](hub_quickstart.ipynb) | Load from the Hugging Face Hub and evaluate over N episodes. Start here. |
 | [`deploy/mujoco.py`](deploy/mujoco.py) | The same rollout as a script, against a MuJoCo Gymnasium env. |
 | [`deploy/mlagents.py`](deploy/mlagents.py) | The Crawler-specific ML-Agents variant. |
+| [`deploy/survival.py`](deploy/survival.py) | Survival, per-interval hazard, and completer return/step — what to report once a horizon is long enough that a return mean stops describing any real episode. |
 
 ```bash
 python -m examples.deploy.mujoco --env-id Hopper-v5 --bundle path/to/bundle --episodes 5

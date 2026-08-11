@@ -77,6 +77,14 @@ For private bundles, authenticate first:
 hf auth login
 ```
 
+On Windows, the Hub cache uses symlinks, which fail with
+`OSError: [WinError 1314]` unless Developer Mode is on or Python runs as
+administrator. Either enable Developer Mode or disable symlinks for the cache:
+
+```bash
+set HF_HUB_DISABLE_SYMLINKS=1
+```
+
 To convert a delivered bundle (`config.json` + `model.safetensors`) into a
 self-contained ONNX policy:
 
