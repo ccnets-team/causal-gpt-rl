@@ -121,8 +121,9 @@ published on the Hugging Face org:
 | [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets) | Recorded Minari trajectories |
 
 Per-bundle returns, the evaluation protocol, and the runtime versions each score
-was measured on are on the corresponding model card. Unity download-and-measure
-walkthroughs are in [examples/unity/](examples/unity/).
+was measured on are on the corresponding model card. Worked runs — including the
+Unity download-and-measure walkthroughs — are in
+[examples/](examples/README.md).
 
 The runs behind the MuJoCo bundles are public at
 [wandb.ai/causal-gpt-rl/mujoco](https://wandb.ai/causal-gpt-rl/mujoco) — the
