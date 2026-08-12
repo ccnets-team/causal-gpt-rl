@@ -23,14 +23,19 @@ stream. That set is the contract, and only one key in it selects.
 | Key | Role |
 |---|---|
 | `eval_offline/checkpoint_score` | **Selection criterion.** Range `[0, 1]`, direction `max` |
-| `eval_offline/rollout_action_prob` | A component of the selection criterion, reported on its own |
 | `eval_offline/action_nll` | **Diagnostic, not the criterion.** Held-out negative log-likelihood of the dataset action |
-| `eval_offline/short_context_action_nll`, `eval_offline/standard_context_action_nll` | The same NLL split by position bucket within the training context length |
+
+Those two are the whole set. Read a `metrics` dictionary as sparse: a key absent
+from a given point is not an error, and a key outside this table is not part of
+the contract.
 
 The keys appear under two notations, one per surface. The only difference is the
 separator: `:` for the SageMaker metric name you select in the console,
-`/` in `metrics.json`, `manifest.json`, and checkpoint metadata. The two sets
-coincide, so a key you can read in `metrics.json` is a key you can graph.
+`/` in `metrics.json`, `manifest.json`, and checkpoint metadata. Both keys above
+appear in both forms, so either one is a key you can read and a key you can
+graph. The reverse does not hold for the job's operational metrics:
+`eval_offline:checkpoints_saved` is graphable job progress and is deliberately
+not written to any artifact.
 
 Direction is **not** part of the name. It travels as its own field: artifacts
 record `best_metric_name` and `best_metric_direction` separately. Searching an

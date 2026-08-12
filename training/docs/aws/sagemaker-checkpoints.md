@@ -160,6 +160,7 @@ s3://my-bucket/cgrl/output/<training-job-name>/output/model.tar.gz
 
 ```text
 model.tar.gz
+  canonical.pt
   bundle/
     config.json
     metrics.json
@@ -173,12 +174,32 @@ model.tar.gz
 
 - `bundle/` is the canonical bundle, selected by the checkpoint metric. Load this
   by default.
+- `canonical.pt` is the training state behind that bundle, for resuming rather
+  than for inference — see below.
 - `archive/bundles/` is the same preserved series as above, included so the run's
   candidates can be compared after the job ends without going back to the
   checkpoint prefix.
-- `improvements/` and the `.pt` files are not included.
+- `improvements/` and the per-series `.pt` files are not included.
 - There is no namespace level and no root `config.json`. The namespace applies to
   the checkpoint prefix only.
+
+### `canonical.pt`
+
+The one checkpoint whose weights and training step match `bundle/` exactly,
+copied to the artifact root so a resume finds it without a path. It carries full
+training state — model, optimizer, scheduler, target network and normalizers
+where the run has them, iteration, and metadata — which is what makes it the
+checkpoint to upload when you want to continue from the delivered model. See
+`training/docs/aws/sagemaker-retraining.md`.
+
+It is named `canonical` rather than `best` because it follows the canonical
+bundle, and the canonical bundle is the final checkpoint when a run publishes no
+improvement. In that case it is the last point, not the metric-best one.
+
+**It is not an inference bundle.** `load_runner` reads the bundle layout;
+pointing it at a `.pt` is not a supported call. Artifacts produced before this
+file existed do not contain it, so treat it as optional — check for it rather
+than requiring it.
 
 ### Bundle files
 

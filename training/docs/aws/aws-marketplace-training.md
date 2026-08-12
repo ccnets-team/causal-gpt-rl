@@ -144,17 +144,20 @@ or the bundle manifest.
 
 ### Eval Metrics
 
-The training job evaluates the policy on a held-out portion of the dataset. One of these metrics selects checkpoints — Checkpoint Score — and the rest are diagnostics. All of them are measured directly from held-out data rather than estimated by the model.
+The training job evaluates the policy on a held-out portion of the dataset and reports one line per evaluation:
 
-Action NLL is the negative log likelihood the model assigns to the dataset's ground-truth actions; lower means the model predicts the dataset actions better. It is reported as an overall value and per-context-length values.
+```text
+OfflineEval: step=20000 checkpoint_score=0.3812 action_nll=1.274
+```
+
+One of these two metrics selects checkpoints — Checkpoint Score — and the other is a diagnostic. Both are measured directly from held-out data rather than estimated by the model.
+
+Action NLL is the negative log likelihood the model assigns to the dataset's ground-truth actions; lower means the model predicts the dataset actions better.
 
 | SageMaker metric | Description |
 | --- | --- |
 | `eval_offline:checkpoint_score` | Checkpoint-selection metric. Range `[0, 1]`, higher is better. |
-| `eval_offline:rollout_action_prob` | The action term of the selection metric on its own. |
 | `eval_offline:action_nll` | Representative Action NLL across eval positions within the training context length. |
-| `eval_offline:short_context_action_nll` | Positions in the `0`–`0.5x` range of the training context length. |
-| `eval_offline:standard_context_action_nll` | Positions in the `0.5`–`1.0x` range. |
 
 `eval_offline:checkpoint_score` is the metric shown in the startup summary. It
 decides which checkpoints land in the `improvements/` series and which one
@@ -172,7 +175,8 @@ simulator or game engine, both during the run and to validate the final model.
 
 The final `model.tar.gz` contains the canonical `bundle/` for normal inference,
 alongside `archive/bundles/` — the run's preserved points, so its candidates can
-be compared after the job ends.
+be compared after the job ends. It also carries `canonical.pt`, the training
+state matching the canonical bundle, which is what a later job resumes from.
 
 Training does not make you wait for it. Policy bundles are exported while the job
 runs and synced to the configured checkpoint S3 prefix, so you can load an

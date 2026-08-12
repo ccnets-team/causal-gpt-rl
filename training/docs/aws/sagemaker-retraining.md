@@ -23,6 +23,26 @@ directories beside them hold live-synced inference bundles for inspecting
 intermediate policies; bundles are not the source used to restore optimizer and
 scheduler state.
 
+## Resuming From a Delivered Model
+
+The previous run's checkpoint prefix is not the only starting point. The final
+`model.tar.gz` carries `canonical.pt` at its root — the training state paired
+with the canonical `bundle/`, at the same weights and step — so the model you
+chose to deploy is also the model you can continue from.
+
+Copy it into a fresh checkpoint prefix and start a job against that prefix:
+
+```bash
+tar -xzf model.tar.gz canonical.pt
+aws s3 cp canonical.pt s3://my-bucket/cgrl/checkpoints/<resume-series-name>/
+```
+
+Resume accepts a flat `*.pt` at the top of the prefix, so no namespace or series
+directory is needed around it. Set `max_steps` to the cumulative total, as below.
+
+Artifacts written before this file existed do not contain it; resume from the
+originating checkpoint prefix instead.
+
 ## Resuming and the Archive
 
 Archive points are permanent, so a resumed run adds to what the previous run
