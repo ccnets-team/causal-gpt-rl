@@ -28,6 +28,12 @@ A Causal GPT-RL training job takes user-provided offline trajectory datasets and
 5. After training finishes, download `model.tar.gz` from the S3 output path.
 6. Extract the archive and load the canonical `bundle/` with the `causal_gpt_rl.inference` runtime.
 
+State normalization is handled automatically during training and inference.
+The training job calculates the normalization statistics, and exported bundles
+carry those statistics for the inference runtime and SageMaker serving container
+to apply automatically. You can send raw observation values to the policy, so
+you do not need to normalize them yourself.
+
 ## SageMaker SDK Example
 
 ```python

@@ -50,6 +50,9 @@ curl -X POST http://localhost:8080/invocations \
 
 The container is **stateless**: each request carries the observation history
 for one episode, and the handler returns the action for the latest observation.
+You can send raw observation values; the bundle carries the training-time state
+normalization statistics and the container applies them automatically, so you
+do not need to normalize observations yourself.
 
 Single episode:
 
