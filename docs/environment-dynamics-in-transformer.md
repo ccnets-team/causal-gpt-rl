@@ -17,6 +17,8 @@ Causal GPT-RL — latent environment dynamics in the model
     (state, action) → (next action, next value)
 ```
 
+![Conventional RL takes the next state from the environment; Causal GPT-RL folds that step into the model and emits the next action and value directly](assets/latent-environment-dynamics.jpg)
+
 The model reads a state together with the action taken in it, and emits the next
 action — and the value that goes with it — directly. There is no next-state
 output, and nothing in the calling contract asks you to supply one. What you
@@ -80,6 +82,8 @@ also why the API (`reset` / `act` / `observe`) feeds the model's own emitted
 action back into the context and gives you no way to inject someone else's: the
 loop is closed on purpose, and the action that re-enters has to be the one the
 model actually produced.
+
+![From a reference context the model continues on its own, building a self-constructed context out of its own outputs](assets/self-constructed-context.jpg)
 
 The same self-construction is what makes the training side work without a
 simulator. Offline RL normally means learning from a recorded log and nothing
