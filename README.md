@@ -33,7 +33,9 @@ token           → next token                           (LLM generation)
 
 Causal GPT-RL policies act stably under their own rollouts — long-horizon control without the drift that has historically kept transformers from being usable as RL agents.
 
-A single autoregressive model drives full-episode rollouts via KV cache — no critic, no auxiliary networks at inference.
+A single autoregressive model drives full-episode rollouts via KV cache — no separate critic, no auxiliary networks at inference. The model carries a value head and computes it on every forward pass, but a rollout does not read it: the action alone carries the loop.
+
+The calling contract that follows from this — why the output is one step ahead of the observation you just passed, and why actions keep coming with no environment attached — is [Transformer Model Integrating Environment Dynamics for RL](docs/environment-dynamics-in-transformer.md).
 
 This repository is the public inference runtime. It loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers.
 
@@ -149,7 +151,9 @@ them, and the action you get back is always a valid sample of the action space.
 
 See **[docs/spaces.md](docs/spaces.md)** for the per-space contract, the rollout
 loop, and a structured-space example. `docs/` holds the runtime references for
-this package — that contract and [ONNX export](docs/export-onnx.md).
+this package — that contract, the
+[calling contract](docs/environment-dynamics-in-transformer.md), and
+[ONNX export](docs/export-onnx.md).
 
 ## Context Window and KV Cache
 
@@ -164,11 +168,18 @@ window the policy was measured on:
 runner = load_runner("path/to/bundle", kv_cache_max_len=64)
 ```
 
-Larger values are supported and stay within the backbone's position capacity, but
-retaining more history than the context window is an extrapolation regime, and
-its effect is environment-dependent — across the published MuJoCo bundles it
-ranges from a modest improvement to a large regression. The default is the safe
-choice; measure before raising it.
+Larger values are supported. The trained window is not a ceiling: a token here is
+a state–action pair rather than a word, so the window's length is simply how many
+steps are remembered, and running the same weights over a longer one is the
+familiar territory it is in a language model. Weights trained on a 32-token
+window carry an episode through to the end with a 1000-step KV cache — the
+weights are unchanged; the only thing that grew is the amount of past carried
+along.
+
+So the knob's purpose is not performance tuning but **drift control over long
+rollouts**. A policy conditioning on its own outputs rides on the history it has
+been building, and how much of that history it carries is what governs the ride.
+See [Transformer Model Integrating Environment Dynamics for RL](docs/environment-dynamics-in-transformer.md).
 
 ### Measuring a long horizon
 

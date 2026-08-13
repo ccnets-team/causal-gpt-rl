@@ -61,6 +61,10 @@ action = runner.act()             # a valid sample of your action_space
 For the exact per-space input/output contract at inference — what you pass and what
 you get back for every space type — see [spaces.md](../../../docs/spaces.md).
 
+For why the action that comes back is one step ahead of the observation you just
+passed, and why actions keep arriving with no environment attached at all, see
+[Transformer Model Integrating Environment Dynamics for RL](../../../docs/environment-dynamics-in-transformer.md).
+
 ---
 
 **Next → [Shaping Behavior Through State](03-shaping-behavior-through-state.md)** —
