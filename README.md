@@ -230,10 +230,7 @@ bundle/
   config.json          # model config, observation/action specs, context length
 ```
 
-Public bundles are `bundle_format_version=2`. Version 1 shipped a separate
-`state_normalizer.safetensors` sidecar and still loads with current releases; if
-you are pinned to `causal-gpt-rl <= 0.2.x`, the sidecar bundles are preserved at
-the `bundles-v1` tag, loadable with `revision="bundles-v1"`.
+Public bundles are `bundle_format_version=2`.
 
 ## API
 

@@ -6,7 +6,6 @@ Causal GPT-RL training delivers a complete inference bundle:
 bundle/
   config.json
   model.safetensors
-  state_normalizer.safetensors  # legacy bundle formats only
 ```
 
 Export the directory rather than passing `model.safetensors` alone. The config

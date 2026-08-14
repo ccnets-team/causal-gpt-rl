@@ -26,9 +26,8 @@ docker build -f serving/Dockerfile -t causal-gpt-rl-serving .
 ## Run locally
 
 Mount an exported bundle directory at `/opt/ml/model`, the path SageMaker uses.
-A current (v2) bundle is two files — `config.json` and `model.safetensors`, which
-carries the state-normalization statistics inside it. Older v1 bundles also ship
-a `state_normalizer.safetensors` sidecar and still load.
+A bundle is two files — `config.json` and `model.safetensors`, which carries the
+state-normalization statistics inside it.
 
 ```bash
 docker run --rm -p 8080:8080 \
