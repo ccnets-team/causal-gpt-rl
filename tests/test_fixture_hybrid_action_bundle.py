@@ -1,11 +1,11 @@
 """Byte-oracle check against hybrid-ACTION bundle fixtures (P5 output side).
 
 Mirror of ``test_fixture_hybrid_bundle.py`` on the action side. The trainer ships
-a real exported CONTAINER-action bundle plus a ``meta.json`` oracle under
-``.local/test/fixtures/bundles/<name>/`` (gitignored, hand-delivered). This test discovers any
-such fixture and cross-checks the serving P5 output adapter: the runner decodes a
-per-head flat model action into the declared Dict/Tuple container, and it must
-match the oracle.
+a real exported CONTAINER-action bundle plus a ``meta.json`` oracle, delivered by
+hand and kept out of git; ``CAUSAL_GPT_RL_FIXTURE_BUNDLES`` says where they live.
+This test discovers any such fixture there and cross-checks the serving P5 output
+adapter: the runner decodes a per-head flat model action into the declared
+Dict/Tuple container, and it must match the oracle.
 
 Fixtures are discovered by glob (not a hardcoded name) so a trainer-delivered
 bundle (e.g. ``hybrid-bundle-dict-action-box2-disc3``) and serving's own
@@ -32,7 +32,7 @@ serving path. For in-bounds (tanh-squashed) continuous outputs this equals the
 trainer's stated ``gym.spaces.unflatten(action_space, model_action)`` contract;
 the runner additionally clips continuous heads to their bounds.
 
-Skips cleanly when no fixture is present (CI, fresh clone).
+Skips cleanly when no fixture is present or configured (CI, fresh clone).
 """
 import json
 from pathlib import Path
@@ -42,22 +42,16 @@ import numpy as np
 import pytest
 
 from causal_gpt_rl.inference import bundle
-
-_FIXTURES_BASE = (
-    Path(__file__).resolve().parents[1]
-    / ".local"
-    / "test"
-    / "fixtures"
-    / "bundles"
-)
+from fixture_bundles import ENV_VAR, fixture_bundles_dir
 
 
 def _discover_action_fixtures() -> list[Path]:
     """Fixture dirs whose meta.json carries a Dict/Tuple action oracle."""
     found: list[Path] = []
-    if not _FIXTURES_BASE.is_dir():
+    base = fixture_bundles_dir()
+    if base is None or not base.is_dir():
         return found
-    for meta_path in sorted(_FIXTURES_BASE.glob("*/meta.json")):
+    for meta_path in sorted(base.glob("*/meta.json")):
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -72,7 +66,10 @@ _ACTION_FIXTURES = _discover_action_fixtures()
 
 pytestmark = pytest.mark.skipif(
     not _ACTION_FIXTURES,
-    reason=f"no container-action fixture present under {_FIXTURES_BASE}",
+    reason=(
+        "no container-action fixture found under "
+        f"{fixture_bundles_dir() or ENV_VAR + ' (unset)'}"
+    ),
 )
 
 

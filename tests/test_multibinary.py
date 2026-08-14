@@ -1,6 +1,6 @@
 """MultiBinary action/obs support — serving side (spaces round-trip + decode).
 
-Self-contained (no `.local` fixture): builds tiny bundles in a temp dir, loads
+Self-contained (no delivered fixture): builds tiny bundles in a temp dir, loads
 them, and checks `runner._decode(model_action)` against an oracle computed
 INDEPENDENTLY of the runner. MultiBinary = independent Bernoulli per element:
 the model emits raw logits, the env decode thresholds them at 0 (== prob 0.5),

@@ -1,8 +1,9 @@
 """Byte-oracle check against the trainer's delivered hybrid bundle fixture.
 
-The trainer ships a real exported bundle plus a `meta.json` oracle under
-`.local/test/fixtures/bundles/` (gitignored, hand-delivered). This test cross-checks the
-serving P4 input adapter (and the L2 output primitive) against that oracle:
+The trainer ships a real exported bundle plus a `meta.json` oracle, delivered by
+hand and kept out of git; `CAUSAL_GPT_RL_FIXTURE_BUNDLES` says where they live.
+This test cross-checks the serving P4 input adapter (and the L2 output
+primitive) against that oracle:
 
   * adapter(raw_obs) == expected_flat        (gym.flatten + continuous-first)
   * normalize_once(expected_flat) == expected_norm  (no double-normalize: v2
@@ -10,8 +11,8 @@ serving P4 input adapter (and the L2 output primitive) against that oracle:
   * load_runner + reset/act runs end-to-end on the real bundle
   * unflatten_from_model(model_action) == expected_unflat  (P5 primitive)
 
-Skips cleanly when the fixture is absent (CI, fresh clone) — the fixture lives
-outside git on purpose.
+Skips cleanly when the fixture is absent or unconfigured (CI, fresh clone) — the
+fixture lives outside git on purpose.
 """
 import json
 from pathlib import Path
@@ -24,21 +25,19 @@ import torch
 from causal_gpt_rl.inference import bundle
 from causal_gpt_rl.inference.adapters import StateInputAdapter
 from causal_gpt_rl.inference.spaces import deserialize_space
+from fixture_bundles import require_fixture_bundles
 
-_FIXTURE_DIR = (
-    Path(__file__).resolve().parents[1]
-    / ".local"
-    / "test"
-    / "fixtures"
-    / "bundles"
-    / "hybrid-bundle-dict-box3-disc4"
-)
+_FIXTURE_NAME = "hybrid-bundle-dict-box3-disc4"
+
+
+def _fixture_dir() -> Path:
+    return require_fixture_bundles(pytest) / _FIXTURE_NAME
 
 
 def _load_meta() -> dict:
-    meta_path = _FIXTURE_DIR / "meta.json"
+    meta_path = _fixture_dir() / "meta.json"
     if not meta_path.is_file():
-        pytest.skip(f"hybrid bundle fixture not present at {_FIXTURE_DIR}")
+        pytest.skip(f"hybrid bundle fixture not present at {meta_path.parent}")
     return json.loads(meta_path.read_text(encoding="utf-8"))
 
 
@@ -69,7 +68,7 @@ def test_normalize_once_matches_expected_norm():
     # Guards the double-normalize hazard: applying the bundle's embedded
     # normalization exactly once to expected_flat must reproduce expected_norm.
     meta = _load_meta()
-    runner = bundle.load_runner(_FIXTURE_DIR)
+    runner = bundle.load_runner(_fixture_dir())
     model = runner.model
     assert model.has_embedded_state_normalizer()
 
@@ -85,7 +84,7 @@ def test_normalize_once_matches_expected_norm():
 
 def test_load_and_run_end_to_end():
     meta = _load_meta()
-    runner = bundle.load_runner(_FIXTURE_DIR)
+    runner = bundle.load_runner(_fixture_dir())
     assert runner._input_adapter is not None
 
     first = _to_observation(meta["samples"][0]["raw_obs"])

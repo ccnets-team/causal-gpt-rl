@@ -2,10 +2,11 @@
 
 Serving-side self-test + an exact template for the trainer's real fixture
 (consumed by ``tests/test_fixture_hybrid_action_bundle.py``). Produces a
-container-action bundle ``Tuple(Box(2), Discrete(3))`` under
-``.local/test/fixtures/bundles/hybrid-action-bundle/`` with a ``meta.json`` oracle computed
-INDEPENDENTLY of the runner (continuous clipped to bounds, categorical argmax +
-Discrete start). The runner must reproduce that oracle.
+container-action bundle ``Tuple(Box(2), Discrete(3))`` in a
+``hybrid-action-bundle/`` directory under ``CAUSAL_GPT_RL_FIXTURE_BUNDLES``,
+with a ``meta.json`` oracle computed INDEPENDENTLY of the runner (continuous
+clipped to bounds, categorical argmax + Discrete start). The runner must
+reproduce that oracle.
 
 The trainer's real fixture — same dir, same schema, but exported from a *trained*
 model — supersedes this reference. Because the oracle is derived directly from
@@ -16,7 +17,8 @@ This also doubles as an integration check for the (D) buffer-alias fix: it expor
 a bounded-tanh continuous action from float32 numpy specs, which safetensors
 refused to save before that fix.
 
-Run: ``python tests/make_reference_action_fixture.py``
+Run: ``python tests/make_reference_action_fixture.py`` with
+``CAUSAL_GPT_RL_FIXTURE_BUNDLES`` set to the destination directory.
 
 Author:
     PARK, Jun-Ho, junho@ccnets.org
@@ -39,16 +41,8 @@ from causal_gpt_rl.inference.spaces import (
 )
 from causal_gpt_rl.model.autoregressive_model import AutoregressiveModel
 from causal_gpt_rl.model.schema import ModelConfig, SpaceSpec
+from fixture_bundles import require_output_dir
 
-_FIXTURES = (
-    Path(__file__).resolve().parents[1]
-    / ".local"
-    / "test"
-    / "fixtures"
-    / "bundles"
-)
-_OUT = _FIXTURES / "hybrid-action-bundle"
-_OUT_MB = _FIXTURES / "hybrid-action-multibinary"
 _CFG = ModelConfig(d_model=32, num_heads=4)
 
 
@@ -127,8 +121,9 @@ def _write_fixture(out_dir: Path, action_space, raw_actions, oracle, name, note)
 
 
 def main() -> None:
+    fixtures = require_output_dir()
     _write_fixture(
-        _OUT,
+        fixtures / "hybrid-action-bundle",
         gym.spaces.Tuple(
             (gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32), gym.spaces.Discrete(3))
         ),
@@ -151,7 +146,7 @@ def main() -> None:
         ),
     )
     _write_fixture(
-        _OUT_MB,
+        fixtures / "hybrid-action-multibinary",
         gym.spaces.Tuple(
             (gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32), gym.spaces.MultiBinary(3))
         ),
