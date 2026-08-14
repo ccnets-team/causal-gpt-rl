@@ -154,8 +154,8 @@ them, and the action you get back is always a valid sample of the action space.
 See **[docs/spaces.md](docs/spaces.md)** for the per-space contract, the rollout
 loop, and a structured-space example. `docs/` holds the runtime references for
 this package — that contract, the
-[calling contract](docs/environment-dynamics-in-transformer.md), and
-[ONNX export](docs/export-onnx.md).
+[calling contract](docs/environment-dynamics-in-transformer.md), the
+[API reference](docs/api.md), and [ONNX export](docs/export-onnx.md).
 
 ## Context Window and KV Cache
 
@@ -244,6 +244,9 @@ from causal_gpt_rl.inference import (
     convert_legacy_bundle_to_safetensors,  # migrate legacy bundles to the safetensors format
 )
 ```
+
+Signatures, parameters, return values, and the exceptions each call raises are in
+the **[API reference](docs/api.md)**.
 
 ## Development Checks
 
