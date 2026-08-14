@@ -17,14 +17,14 @@ Causal GPT-RL — latent environment dynamics in the model
     (state, action) → (next action, next value)
 ```
 
-![Conventional RL takes the next state from the environment; Causal GPT-RL folds that step into the model and emits the next action and value directly](assets/latent-environment-dynamics.jpg)
-
 The model reads a state together with the action taken in it, and emits the next
 action — and the value that goes with it — directly. There is no next-state
 output, and nothing in the calling contract asks you to supply one. What you
 pass each step is an observation; the runtime pairs it with the action the model
 itself last produced, and that pair — not the state alone — is what the model
 reads, the way a language model reads a token.
+
+![Each step the environment supplies a state and the model supplies an action; the two join as one more token, so the context the policy reads is one it helped build](assets/autoregressive-rollout.png)
 
 As a calling contract, two things differ from what you are used to:
 
@@ -83,7 +83,7 @@ action back into the context and gives you no way to inject someone else's: the
 loop is closed on purpose, and the action that re-enters has to be the one the
 model actually produced.
 
-![From a reference context the model continues on its own, building a self-constructed context out of its own outputs](assets/self-constructed-context.jpg)
+![From a reference context the model continues on its own, building a self-constructed context out of its own outputs](assets/self-constructed-context.png)
 
 The same self-construction is what makes the training side work without a
 simulator. Offline RL normally means learning from a recorded log and nothing
