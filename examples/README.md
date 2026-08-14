@@ -13,6 +13,7 @@ Load a bundle, roll it out, read the return.
 | [`deploy/mujoco.py`](deploy/mujoco.py) | The same rollout as a script, against a MuJoCo Gymnasium env. |
 | [`deploy/mlagents.py`](deploy/mlagents.py) | The Crawler-specific ML-Agents variant. |
 | [`deploy/survival.py`](deploy/survival.py) | Survival, per-interval hazard, and completer return/step — what to report once a horizon is long enough that a return mean stops describing any real episode. |
+| [`deploy/checkup.py`](deploy/checkup.py) | Pre-flight check of a delivered bundle against the dataset it was trained on — no environment needed. Observation fit, action agreement, action spread, value and termination heads. |
 
 ```bash
 python -m examples.deploy.mujoco --env-id Hopper-v5 --bundle path/to/bundle --episodes 5
