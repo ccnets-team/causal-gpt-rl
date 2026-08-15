@@ -1,7 +1,7 @@
 ﻿# Training
 
-This directory contains hosted-training input definitions and notes for AWS
-Marketplace/SageMaker training paths.
+This directory holds the hosted-training input definitions, and the docs for
+both what the product is and how to run it as a managed job.
 
 The local trainer implementation is not part of this repository.
 
@@ -41,8 +41,9 @@ you are new to Causal GPT-RL.
 
 [`training/docs/aws/`](docs/aws/README.md) covers the managed path end to end —
 running a job, the dataset channel and hyperparameters, delivered bundles and
-the output artifact, the checkpoint-selection metric, and resuming a run. It
-opens with the diagram of what crosses to hosted training and what comes back.
+the output artifact, the checkpoint-selection metric, and resuming a run. Only
+the dataset you upload crosses to hosted training; what comes back is yours to
+run, and to continue training from.
 
 ## Hosted Training
 

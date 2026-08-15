@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1460 900" font-family="Segoe UI, Arial, sans-serif">
   <title>Causal GPT-RL — Your Environment Stays With You</title>
-  <desc>The data boundary of hosted training: you run your environment and controller, record trajectories, and package them as a Minari dataset. Only the dataset crosses to AWS hosted training, and only a policy bundle comes back, which you deploy into the same environment. The training job never connects to your environment.</desc>
+  <desc>The data boundary of hosted training: you run your environment and controller, record trajectories, and package them as a Minari dataset. The dataset is the only thing that crosses to AWS hosted training; what comes back is a trained policy you deploy into the same environment, and can continue training from. The training job never connects to your environment.</desc>
   <rect width="1460" height="900" fill="#ffffff"/>
 
   <!-- ================= TITLE ================= -->

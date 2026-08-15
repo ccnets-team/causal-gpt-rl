@@ -3,10 +3,10 @@
 Running Causal GPT-RL training as a managed job: what you hand over, what the
 job gives back, and how to continue from it.
 
-Only the dataset you upload crosses to hosted training, and only a policy
-bundle comes back.
+Only the dataset you upload crosses to hosted training. What comes back is
+yours to run, and to continue training from.
 
-![Causal GPT-RL — your environment stays with you; only the dataset goes out and only a policy bundle comes back](../assets/customer-data-training-boundary.svg)
+![Causal GPT-RL — your environment stays with you; the dataset you upload is the only thing that crosses, and what comes back is a trained policy](../assets/customer-data-training-boundary.svg)
 
 | Document | What it answers |
 |---|---|
