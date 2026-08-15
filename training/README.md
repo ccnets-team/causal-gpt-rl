@@ -7,6 +7,11 @@ The local trainer implementation is not part of this repository.
 
 ## How it fits together
 
+Only the dataset you upload crosses to hosted training, and only a policy
+bundle comes back.
+
+![Causal GPT-RL — your environment stays with you; only the dataset goes out and only a policy bundle comes back](docs/assets/customer-data-training-boundary.svg)
+
 Your dataset's observation and action spaces define the model's I/O schema: the
 same spaces are turned into a `DataSpec` schema at build-time, which fixes the
 autoregressive token layout the model consumes and produces at inference.

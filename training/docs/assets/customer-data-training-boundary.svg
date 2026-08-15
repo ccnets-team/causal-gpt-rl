@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1460 900" font-family="Segoe UI, Arial, sans-serif">
+  <title>Causal GPT-RL — Your Environment Stays With You</title>
+  <desc>The data boundary of hosted training: you run your environment and controller, record trajectories, and package them as a Minari dataset. Only the dataset crosses to AWS hosted training, and only a policy bundle comes back, which you deploy into the same environment. The training job never connects to your environment.</desc>
+  <rect width="1460" height="900" fill="#ffffff"/>
+
+  <!-- ================= TITLE ================= -->
+  <text x="730" y="84" text-anchor="middle" font-size="44" font-weight="700" fill="#404040">Causal GPT-RL: <tspan font-weight="600" fill="#d1544a">Your Environment Stays With You</tspan></text>
+
+  <!-- ================= REGIONS ================= -->
+  <rect x="48" y="130" width="790" height="730" rx="20" fill="#f9f7fc" stroke="#c4a7e7" stroke-width="2.5"/>
+  <rect x="900" y="130" width="512" height="730" rx="20" fill="#fdf9f3" stroke="#f6c68a" stroke-width="2.5"/>
+
+  <!-- the boundary itself -->
+  <line x1="869" y1="130" x2="869" y2="860" stroke="#b8b8be" stroke-width="2.5" stroke-dasharray="10 8"/>
+  <text transform="translate(886,232) rotate(-90)" text-anchor="middle" font-size="13" font-weight="700" letter-spacing="3" fill="#9b9b9b">DATA BOUNDARY</text>
+
+  <text x="443" y="170" text-anchor="middle" font-size="23" font-weight="700" fill="#6b4f9e">Customer side</text>
+
+  <!-- ================= CUSTOMER: RECORDING ================= -->
+  <rect x="125" y="206" width="240" height="92" rx="16" fill="#ffffff" stroke="#c4a7e7" stroke-width="2.5"/>
+  <text x="245" y="240" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Your environment</text>
+  <text x="245" y="263" text-anchor="middle" font-size="13" fill="#8a8a8a">Simulator · game engine</text>
+  <text x="245" y="281" text-anchor="middle" font-size="13" fill="#8a8a8a">Robot · live system</text>
+
+  <rect x="515" y="206" width="240" height="92" rx="16" fill="#ffffff" stroke="#c4a7e7" stroke-width="2.5"/>
+  <text x="635" y="240" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Your controller</text>
+  <text x="635" y="263" text-anchor="middle" font-size="13" fill="#8a8a8a">Scripted policy · prior model</text>
+  <text x="635" y="281" text-anchor="middle" font-size="13" fill="#8a8a8a">Human operator</text>
+
+  <!-- controller -> environment (action) -->
+  <path d="M511 236 H 373" fill="none" stroke="#8f6fbf" stroke-width="2.5"/>
+  <polygon points="367,236 377,231 377,241" fill="#8f6fbf"/>
+  <text x="440" y="224" text-anchor="middle" font-size="13" fill="#8a8a8a">Action</text>
+  <!-- environment -> controller (observation, reward) -->
+  <path d="M369 268 H 507" fill="none" stroke="#8f6fbf" stroke-width="2.5"/>
+  <polygon points="513,268 503,263 503,273" fill="#8f6fbf"/>
+  <text x="440" y="290" text-anchor="middle" font-size="13" fill="#8a8a8a">Observation · reward</text>
+
+  <!-- interaction -> recorded trajectories -->
+  <path d="M245 298 V 324 H 635 V 298" fill="none" stroke="#6b6b6b" stroke-width="2.5"/>
+  <text x="440" y="316" text-anchor="middle" font-size="13" font-style="italic" font-weight="600" fill="#8f6fbf">You record</text>
+  <path d="M440 324 V 342" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="440,348 432,336 448,336" fill="#404040"/>
+
+  <rect x="260" y="348" width="360" height="88" rx="16" fill="#f2ebfa" stroke="#c4a7e7" stroke-width="2"/>
+  <text x="440" y="382" text-anchor="middle" font-size="18" font-weight="700" fill="#6b4f9e">Recorded trajectories</text>
+  <text x="440" y="407" text-anchor="middle" font-size="13.5" fill="#8a8a8a">(observation, action, reward, terminated, truncated)</text>
+
+  <path d="M440 436 V 468" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="440,474 432,462 448,462" fill="#404040"/>
+
+  <rect x="260" y="474" width="360" height="88" rx="16" fill="#f2ebfa" stroke="#c4a7e7" stroke-width="2.5"/>
+  <text x="440" y="508" text-anchor="middle" font-size="18" font-weight="700" fill="#6b4f9e">Minari dataset</text>
+  <text x="440" y="533" text-anchor="middle" font-size="13.5" fill="#8a8a8a">Convert your data into this format</text>
+
+  <!-- ================= CROSSING: DATASET UPLOAD ================= -->
+  <path d="M620 518 H 938" fill="none" stroke="#8f6fbf" stroke-width="3.5"/>
+  <polygon points="944,518 932,510 932,526" fill="#8f6fbf"/>
+  <text x="740" y="501" text-anchor="middle" font-size="15" font-weight="700" fill="#6b4f9e">Dataset upload</text>
+  <text x="740" y="542" text-anchor="middle" font-size="13.5" fill="#8a8a8a">S3 training channel</text>
+
+  <!-- ================= AWS HOSTED TRAINING ================= -->
+  <text x="1156" y="170" text-anchor="middle" font-size="23" font-weight="700" fill="#9a6a1e">AWS hosted training</text>
+  <text x="1156" y="195" text-anchor="middle" font-size="14" fill="#8a8a8a">AWS Marketplace · SageMaker training job</text>
+
+  <text x="1156" y="252" text-anchor="middle" font-size="17" font-style="italic" font-weight="600" fill="#c98a2e">The job never connects to your environment,</text>
+  <text x="1156" y="282" text-anchor="middle" font-size="15" fill="#8a8a8a">so it cannot measure how the policy performs at your task.</text>
+
+  <rect x="946" y="468" width="420" height="100" rx="18" fill="#404040"/>
+  <text x="1156" y="512" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">Offline training</text>
+  <text x="1156" y="541" text-anchor="middle" font-size="14" fill="#c9c9c9">Reads only the datasets you upload</text>
+
+  <path d="M1156 568 V 661" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="1156,667 1148,655 1164,655" fill="#c98a2e"/>
+  <text x="1174" y="616" text-anchor="start" font-size="13.5" fill="#8a8a8a">Exported while it trains</text>
+
+  <rect x="946" y="667" width="420" height="88" rx="18" fill="#fdf1e0" stroke="#f6c68a" stroke-width="2.5"/>
+  <text x="1156" y="701" text-anchor="middle" font-size="19" font-weight="700" fill="#9a6a1e">Policy bundle</text>
+  <text x="1156" y="726" text-anchor="middle" font-size="13.5" fill="#8a8a8a">Runs with the provided runtime library</text>
+
+  <!-- ================= CROSSING: MODEL DELIVERY ================= -->
+  <path d="M946 711 H 630" fill="none" stroke="#c98a2e" stroke-width="3.5"/>
+  <polygon points="624,711 636,703 636,719" fill="#c98a2e"/>
+  <text x="740" y="694" text-anchor="middle" font-size="15" font-weight="700" fill="#9a6a1e">Model delivery</text>
+  <text x="740" y="735" text-anchor="middle" font-size="13.5" fill="#8a8a8a">Checkpoints · model.tar.gz</text>
+
+  <!-- ================= CUSTOMER: DEPLOY ================= -->
+  <rect x="260" y="667" width="360" height="88" rx="16" fill="#fdf1e0" stroke="#f6c68a" stroke-width="2.5"/>
+  <text x="440" y="701" text-anchor="middle" font-size="18" font-weight="700" fill="#9a6a1e">Deploy &amp; evaluate</text>
+  <text x="440" y="726" text-anchor="middle" font-size="13.5" fill="#8a8a8a">Scored in your environment, not ours</text>
+
+  <!-- loop back into the environment -->
+  <path d="M260 735 H 90 V 252 H 113" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="119,252 107,244 107,260" fill="#c98a2e"/>
+  <text x="100" y="725" text-anchor="start" font-size="13" font-style="italic" font-weight="600" fill="#c98a2e">Back into the environment</text>
+
+  <!-- ================= WHAT NEVER CROSSES ================= -->
+  <line x1="110" y1="788" x2="470" y2="788" stroke="#e2d6f0" stroke-width="2"/>
+  <text x="110" y="826" text-anchor="start" font-size="15" font-weight="700" fill="#6b4f9e">Nothing leaves your side except the dataset you upload</text>
+</svg>
