@@ -17,4 +17,4 @@ bundle comes back.
 | [Retraining](sagemaker-retraining.md) | Resuming a run, and branching from a preserved step. |
 
 These docs assume you know what a bundle is and what its spaces mean. If you do
-not, read the [journey series](../journey/01-bring-your-own-data.md) first.
+not, read the [journey series](../journey/README.md) first.
