@@ -241,7 +241,7 @@ tiers synthesized by degrading a stock policy. The published datasets at
 were made that way, from the builds at
 [ccnets/causal-gpt-rl-unity-envs](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs).
 
-[`../examples/sumo_traffic_light/`](../examples/sumo_traffic_light/) is reserved
-for the next worked external-source example. SUMO remains the environment in
-that example; it only has to produce the same typed-vector episode contract
+A second worked source is planned from outside Gymnasium — a SUMO traffic-light
+controller driven over TraCI — to walk the same path from a different engine.
+Whatever the source, it only has to produce the typed-vector episode contract
 described here.
