@@ -7,11 +7,6 @@ The local trainer implementation is not part of this repository.
 
 ## How it fits together
 
-Only the dataset you upload crosses to hosted training, and only a policy
-bundle comes back.
-
-![Causal GPT-RL — your environment stays with you; only the dataset goes out and only a policy bundle comes back](docs/assets/customer-data-training-boundary.svg)
-
 Your dataset's observation and action spaces define the model's I/O schema: the
 same spaces are turned into a `DataSpec` schema at build-time, which fixes the
 autoregressive token layout the model consumes and produces at inference.
@@ -52,13 +47,10 @@ bundle is and what its spaces mean.
 
 ## AWS/SageMaker Docs
 
-AWS Marketplace/SageMaker training notes live under `training/docs/aws/`:
-
-- `training/docs/aws/aws-marketplace-training.md` — running a job, logs, metrics
-- `training/docs/aws/sagemaker-inputs.md` — datasets and hyperparameters
-- `training/docs/aws/sagemaker-checkpoints.md` — delivered bundles and the output artifact
-- `training/docs/aws/checkpoint-score.md` — the checkpoint-selection metric
-- `training/docs/aws/sagemaker-retraining.md` — resuming a run
+[`training/docs/aws/`](docs/aws/README.md) covers the managed path end to end —
+running a job, the dataset channel and hyperparameters, delivered bundles and
+the output artifact, the checkpoint-selection metric, and resuming a run. It
+opens with the diagram of what crosses to hosted training and what comes back.
 
 ## Hosted Training
 
