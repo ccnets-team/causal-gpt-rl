@@ -300,8 +300,8 @@ def test_bounded_box_action_exports_from_extracted_specs():
 
 
 # --------------------------------------------------------------------------- #
-# End-to-end — container-action bundle load + run (synthetic stand-in for the
-# trainer hybrid-action fixture; swap in the real fixture once it lands).
+# End-to-end — container-action bundle load + run. Self-contained: the bundle
+# is built and exported here, so the check needs no delivered fixture.
 # --------------------------------------------------------------------------- #
 
 def _export_and_load(action_space, tmp, **load_kw):

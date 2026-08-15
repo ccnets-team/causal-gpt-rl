@@ -3,7 +3,8 @@
 Covers the serving side of hybrid_state: a structured env observation
 (Dict / Tuple / Discrete) is flattened continuous-first into the model's
 canonical flat state, while a plain Box / no space keeps the byte-identical
-raw-passthrough path. Mirrors the trainer fixture shape Dict{Box(3)+Discrete(4)}.
+raw-passthrough path. The shape exercised here, Dict{Box(3)+Discrete(4)}, is the
+one real structured bundles carry.
 """
 import tempfile
 
@@ -131,8 +132,8 @@ def test_adapter_flatdim_mismatch_with_state_size_is_loud():
 
 
 # --------------------------------------------------------------------------- #
-# End-to-end — structured bundle load + run (synthetic stand-in for the
-# trainer fixture; swap in the real fixture once it lands).
+# End-to-end — structured bundle load + run. Self-contained: the bundle is
+# built and exported here, so the check needs no delivered fixture.
 # --------------------------------------------------------------------------- #
 
 def _structured_model(obs_space: gym.spaces.Space) -> AutoregressiveModel:
