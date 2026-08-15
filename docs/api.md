@@ -312,10 +312,15 @@ standard deviations.
 
 `max_steps` stops an episode at the requested horizon even if the environment
 has not terminated. Only the first `env.reset` receives `seed`; later resets
-continue from the environment's RNG state.
+continue from the environment's RNG state — so `num_episodes=50, seed=0` is
+fifty draws from the initial-state distribution, not seeds `0..49`. The two are
+comparable in the mean and differ episode by episode. To measure a named seed
+range, seed the resets yourself — [`examples/deploy/reproduce.py`](../examples/deploy/reproduce.py)
+gives each seed its own environment and advances them as one batch, which is
+the reproduction protocol.
 
 ```python
-stats = run_episodes(env, runner, num_episodes=50, seed=0)
+stats = run_episodes(env, runner, num_episodes=5, seed=0)
 print(stats["return_mean"], stats["return_std"])
 ```
 

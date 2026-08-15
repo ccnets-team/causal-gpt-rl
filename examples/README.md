@@ -21,7 +21,32 @@ python -m examples.deploy.mujoco --env-id Hopper-v5 --bundle path/to/bundle --ep
 
 ## Reproduce a published score
 
-[`unity/`](unity/) walks the whole path: download a policy and its
+[`deploy/reproduce.py`](deploy/reproduce.py) measures a MuJoCo bundle under the
+reproduction protocol: 50 episodes, seeds 0..49, run together as one 50-row
+batch, the KV cache left at the bundle's context length.
+
+```bash
+python -m examples.deploy.reproduce --env-id Ant-v5          # one bundle
+python -m examples.deploy.reproduce --env-id all --json out.json   # every bundle
+```
+
+Three things fix the number, and dropping any one of them changes it.
+
+**The seeds.** `run_episodes` seeds only its first reset and lets the
+environment's RNG carry the rest, so fifty of its episodes are fifty draws from
+the same distribution rather than seeds 0..49 — comparable in the mean, never
+equal episode by episode.
+
+**The batch width.** A batch-of-fifty forward and a batch-of-one forward do not
+reduce in the same order, and in a closed autoregressive loop that last-bit
+difference compounds over a thousand steps until the trajectories separate.
+Fifty sequential rollouts are a different measurement, not a slower one.
+
+**The runtime.** The script prints the installed torch / gymnasium / mujoco
+beside the versions the protocol is defined on, because a different simulator
+release is a different measurement even with identical weights and seeds.
+
+[`unity/`](unity/) walks the whole path for Unity: download a policy and its
 model-removed Unity build from Hugging Face, then measure the policy
 closed-loop against the number on the model card.
 

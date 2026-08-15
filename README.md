@@ -120,6 +120,17 @@ print(stats["return_mean"], stats["return_std"])
 
 Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team/causal-gpt-rl/blob/main/examples/hub_quickstart.ipynb)
 
+Five episodes off one seed is a smoke test, not the reproduction protocol — that
+is 50 episodes with seeds 0..49, advanced together as one 50-row batch on a
+recorded runtime stack, and `run_episodes` seeds only its first reset. To
+measure a bundle that way:
+
+```bash
+python -m examples.deploy.reproduce --env-id Ant-v5
+```
+
+See [Reproduce a published score](examples/README.md#reproduce-a-published-score).
+
 ## Available Policies
 
 Policy bundles, the environments they run in, and the trajectory datasets are
