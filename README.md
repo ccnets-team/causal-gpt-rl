@@ -31,7 +31,7 @@ token           → next token                           (LLM generation)
 (state, action) → (next state from env, next action)   (RL rollout)
 ```
 
-![Conventional RL takes the next state from the environment; Causal GPT-RL folds that step into the model and emits the next action and value directly](docs/assets/latent-environment-dynamics.png)
+![A rollout unrolled — the state arrives from the environment at every step, while the action is produced by the model and fed back in as part of the next token](docs/assets/action-generation-in-a-rollout.svg)
 
 Causal GPT-RL policies act stably under their own rollouts — long-horizon control without the drift that has historically kept transformers from being usable as RL agents.
 
