@@ -13,6 +13,12 @@ autoregressive token layout the model consumes and produces at inference.
 
 ![Causal GPT-RL — your dataset spaces define the model](docs/assets/dataset-spaces-define-the-model.svg)
 
+Our training service is designed to generalize across tasks by drawing on the
+capabilities already present in transformer models, rather than relying on
+task-specific tuning. We publish untuned bundle results, and they suggest that,
+once that bridge is in place, the same training recipe can work across very
+different control problems without task-by-task tuning.
+
 ## Hyperparameters
 
 `hyperparameters.py` contains the training job payload schema. Hosted-training
@@ -29,6 +35,14 @@ hp.set_config(
 
 training_hyperparameters = hp.to_dict()
 ```
+
+`dataset_ids` is the only field you have to supply. Everything else arrives
+already set, and those settings are what every published bundle was trained with
+— see [Default Hyperparameters](default-hyperparameters.md).
+
+We believe that is the more useful direction for the product: not eliminating
+every reason to tune, but making tuning an optional optimization step rather
+than a prerequisite for training a new task.
 
 ## Journey
 
