@@ -1,79 +1,79 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 592" width="1260" height="592" font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1090 600" width="1090" height="600" font-family="Segoe UI, Arial, sans-serif">
   <title>Causal GPT-RL — How an Action Is Generated in a Rollout</title>
   <desc>A rollout unrolled: each token pairs the current state with the action taken from it. That action acts on the environment, which returns the next state — the state of the following token. The model meanwhile generates the next action from the completed state-action pairs behind it, not from the state it just received.</desc>
-  <rect width="1260" height="592" fill="#ffffff"/>
+  <rect width="1090" height="600" fill="#ffffff"/>
 
   <!-- ================= TITLE ================= -->
-  <text x="630" y="64" text-anchor="middle" font-size="40" font-weight="700" fill="#404040">How an Action Is Generated in a Rollout</text>
+  <text x="545" y="66" text-anchor="middle" font-size="36" font-weight="700" fill="#404040">How an Action Is Generated in a Rollout</text>
 
   <!-- ================= THE ENVIRONMENT MAKES ONE TRANSITION ================= -->
-  <rect x="60" y="140" width="1140" height="64" rx="18" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
-  <text x="630" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#6b4f9e">Your environment — one transition per step</text>
+  <rect x="30" y="140" width="1030" height="64" rx="18" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
+  <text x="545" y="181" text-anchor="middle" font-size="22" font-weight="600" fill="#6b4f9e">Your environment — one transition per step</text>
 
   <!-- ================= STEP t ================= -->
-  <rect x="120" y="330" width="200" height="100" rx="18" fill="#404040"/>
-  <path d="M170 204 V 340" fill="none" stroke="#c4a7e7" stroke-width="4"/>
-  <polygon points="170,356 159,336 181,336" fill="#c4a7e7"/>
-  <text x="156" y="248" text-anchor="end" font-size="16" font-weight="600" fill="#6b4f9e" xml:space="preserve">current state <tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t</tspan></text>
-  <circle cx="170" cy="380" r="28" fill="#c4a7e7"/>
-  <text x="170" y="388" text-anchor="middle" font-size="21" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="13">t</tspan></text>
-  <circle cx="270" cy="380" r="28" fill="#f6c68a"/>
-  <text x="270" y="388" text-anchor="middle" font-size="21" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="13">t</tspan></text>
+  <rect x="40" y="330" width="200" height="100" rx="18" fill="#404040"/>
+  <path d="M90 204 V 340" fill="none" stroke="#c4a7e7" stroke-width="4"/>
+  <polygon points="90,356 79,336 101,336" fill="#c4a7e7"/>
+  <text x="102" y="250" font-size="19" font-weight="600" fill="#6b4f9e" xml:space="preserve">state <tspan font-style="italic">s</tspan><tspan dy="5" font-size="13">t</tspan></text>
+  <circle cx="90" cy="380" r="28" fill="#c4a7e7"/>
+  <text x="90" y="389" text-anchor="middle" font-size="23" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="14">t</tspan></text>
+  <circle cx="190" cy="380" r="28" fill="#f6c68a"/>
+  <text x="190" y="389" text-anchor="middle" font-size="23" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="14">t</tspan></text>
 
   <!-- the action goes back out to the world -->
-  <path d="M270 352 V 222" fill="none" stroke="#c98a2e" stroke-width="4"/>
-  <polygon points="270,206 259,226 281,226" fill="#c98a2e"/>
-  <text x="290" y="290" font-size="16" font-weight="600" fill="#9a6a1e" xml:space="preserve">action <tspan font-style="italic">a</tspan><tspan dy="4" font-size="11">t</tspan><tspan dy="-4"> for state </tspan><tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t</tspan></text>
+  <path d="M190 352 V 222" fill="none" stroke="#c98a2e" stroke-width="4"/>
+  <polygon points="190,206 179,226 201,226" fill="#c98a2e"/>
+  <text x="204" y="296" font-size="19" font-weight="600" fill="#9a6a1e" xml:space="preserve">action <tspan font-style="italic">a</tspan><tspan dy="5" font-size="13">t</tspan><tspan dy="-5"> for state </tspan><tspan font-style="italic">s</tspan><tspan dy="5" font-size="13">t</tspan></text>
 
-  <text x="220" y="458" text-anchor="middle" font-size="15" fill="#8a8a8a">one token = [ state , action ]</text>
+  <text x="140" y="462" text-anchor="middle" font-size="17" fill="#8a8a8a">one token = [ state , action ]</text>
 
-  <path d="M320 380 H 366" fill="none" stroke="#404040" stroke-width="3"/>
-  <polygon points="372,380 362,374 362,386" fill="#404040"/>
+  <path d="M240 380 H 276" fill="none" stroke="#404040" stroke-width="3"/>
+  <polygon points="282,380 272,374 272,386" fill="#404040"/>
 
-  <rect x="378" y="340" width="130" height="80" rx="16" fill="#404040"/>
-  <text x="443" y="376" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">GPT</text>
-  <text x="443" y="400" text-anchor="middle" font-size="13" fill="#c9c9c9">+ KV cache</text>
+  <rect x="288" y="340" width="130" height="80" rx="16" fill="#404040"/>
+  <text x="353" y="374" text-anchor="middle" font-size="23" font-weight="700" fill="#ffffff">GPT</text>
+  <text x="353" y="400" text-anchor="middle" font-size="15" fill="#c9c9c9">+ KV cache</text>
 
-  <path d="M508 380 H 554" fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="560,380 550,374 550,386" fill="#c98a2e"/>
+  <path d="M418 380 H 454" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="460,380 450,374 450,386" fill="#c98a2e"/>
 
-  <text x="600" y="326" text-anchor="middle" font-size="16" font-weight="600" fill="#9a6a1e">generated</text>
-  <circle cx="600" cy="380" r="32" fill="#f6c68a"/>
-  <text x="600" y="389" text-anchor="middle" font-size="23" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="14">t+1</tspan></text>
+  <text x="496" y="328" text-anchor="middle" font-size="19" font-weight="600" fill="#9a6a1e">generated</text>
+  <circle cx="496" cy="380" r="32" fill="#f6c68a"/>
+  <text x="496" y="390" text-anchor="middle" font-size="25" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="15">t+1</tspan></text>
 
   <!-- ================= STEP t+1 ================= -->
-  <rect x="700" y="330" width="200" height="100" rx="18" fill="#404040"/>
-  <path d="M750 204 V 340" fill="none" stroke="#c4a7e7" stroke-width="4"/>
-  <polygon points="750,356 739,336 761,336" fill="#c4a7e7"/>
-  <text x="732" y="248" text-anchor="end" font-size="16" font-weight="600" fill="#6b4f9e" xml:space="preserve">next state <tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t+1</tspan><tspan dy="-4"> from action </tspan><tspan font-style="italic">a</tspan><tspan dy="4" font-size="11">t</tspan></text>
-  <circle cx="750" cy="380" r="28" fill="#c4a7e7"/>
-  <text x="750" y="388" text-anchor="middle" font-size="19" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="12">t+1</tspan></text>
-  <circle cx="850" cy="380" r="28" fill="#f6c68a"/>
-  <text x="850" y="388" text-anchor="middle" font-size="19" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="12">t+1</tspan></text>
+  <rect x="568" y="330" width="200" height="100" rx="18" fill="#404040"/>
+  <path d="M618 204 V 340" fill="none" stroke="#c4a7e7" stroke-width="4"/>
+  <polygon points="618,356 607,336 629,336" fill="#c4a7e7"/>
+  <text x="600" y="250" text-anchor="end" font-size="19" font-weight="600" fill="#6b4f9e" xml:space="preserve">next state <tspan font-style="italic">s</tspan><tspan dy="5" font-size="13">t+1</tspan><tspan dy="-5"> from action </tspan><tspan font-style="italic">a</tspan><tspan dy="5" font-size="13">t</tspan></text>
+  <circle cx="618" cy="380" r="28" fill="#c4a7e7"/>
+  <text x="618" y="389" text-anchor="middle" font-size="21" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="13">t+1</tspan></text>
+  <circle cx="718" cy="380" r="28" fill="#f6c68a"/>
+  <text x="718" y="389" text-anchor="middle" font-size="21" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="13">t+1</tspan></text>
 
   <!-- the same move again, one step later -->
-  <path d="M850 352 V 222" fill="none" stroke="#c98a2e" stroke-width="4"/>
-  <polygon points="850,206 839,226 861,226" fill="#c98a2e"/>
-  <text x="870" y="290" font-size="16" font-weight="600" fill="#9a6a1e" xml:space="preserve">action <tspan font-style="italic">a</tspan><tspan dy="4" font-size="11">t+1</tspan><tspan dy="-4"> for state </tspan><tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t+1</tspan></text>
+  <path d="M718 352 V 222" fill="none" stroke="#c98a2e" stroke-width="4"/>
+  <polygon points="718,206 707,226 729,226" fill="#c98a2e"/>
+  <text x="732" y="296" font-size="19" font-weight="600" fill="#9a6a1e" xml:space="preserve">action <tspan font-style="italic">a</tspan><tspan dy="5" font-size="13">t+1</tspan><tspan dy="-5"> for state </tspan><tspan font-style="italic">s</tspan><tspan dy="5" font-size="13">t+1</tspan></text>
 
-  <path d="M900 380 H 946" fill="none" stroke="#404040" stroke-width="3"/>
-  <polygon points="952,380 942,374 942,386" fill="#404040"/>
+  <path d="M768 380 H 804" fill="none" stroke="#404040" stroke-width="3"/>
+  <polygon points="810,380 800,374 800,386" fill="#404040"/>
 
-  <rect x="958" y="340" width="130" height="80" rx="16" fill="#404040"/>
-  <text x="1023" y="376" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">GPT</text>
-  <text x="1023" y="400" text-anchor="middle" font-size="13" fill="#c9c9c9">+ KV cache</text>
+  <rect x="816" y="340" width="130" height="80" rx="16" fill="#404040"/>
+  <text x="881" y="374" text-anchor="middle" font-size="23" font-weight="700" fill="#ffffff">GPT</text>
+  <text x="881" y="400" text-anchor="middle" font-size="15" fill="#c9c9c9">+ KV cache</text>
 
-  <path d="M1088 380 H 1134" fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="1140,380 1130,374 1130,386" fill="#c98a2e"/>
+  <path d="M946 380 H 982" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="988,380 978,374 978,386" fill="#c98a2e"/>
 
-  <circle cx="1180" cy="380" r="32" fill="#f6c68a"/>
-  <text x="1180" y="389" text-anchor="middle" font-size="23" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="14">t+2</tspan></text>
+  <circle cx="1024" cy="380" r="32" fill="#f6c68a"/>
+  <text x="1024" y="390" text-anchor="middle" font-size="25" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="15">t+2</tspan></text>
 
   <!-- ================= THE ACTION FEEDS ITSELF BACK ================= -->
-  <path d="M600 414 C 640 476, 810 476, 850 414" fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="851,410 838,424 856,421" fill="#c98a2e"/>
+  <path d="M496 412 C 536 474, 678 474, 718 412" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="719,408 706,422 724,419" fill="#c98a2e"/>
 
   <!-- ================= CAPTION ================= -->
-  <text x="630" y="524" text-anchor="middle" font-size="18" font-weight="700" fill="#404040" xml:space="preserve">Causal GPT-RL does not compute the action <tspan font-style="italic">a</tspan><tspan dy="5" font-size="12">t+1</tspan><tspan dy="-5"> from the state </tspan><tspan font-style="italic">s</tspan><tspan dy="5" font-size="12">t+1</tspan><tspan dy="-5"> it just received.</tspan></text>
-  <text x="630" y="550" text-anchor="middle" font-size="18" font-weight="700" fill="#404040" xml:space="preserve">It generates <tspan font-style="italic">a</tspan><tspan dy="5" font-size="12">t+1</tspan><tspan dy="-5"> from completed state–action pairs.</tspan></text>
+  <text x="545" y="526" text-anchor="middle" font-size="21" font-weight="700" fill="#404040" xml:space="preserve">Causal GPT-RL does not compute the action <tspan font-style="italic">a</tspan><tspan dy="6" font-size="14">t+1</tspan><tspan dy="-6"> from the state </tspan><tspan font-style="italic">s</tspan><tspan dy="6" font-size="14">t+1</tspan><tspan dy="-6"> it just received.</tspan></text>
+  <text x="545" y="560" text-anchor="middle" font-size="21" font-weight="700" fill="#404040" xml:space="preserve">It generates <tspan font-style="italic">a</tspan><tspan dy="6" font-size="14">t+1</tspan><tspan dy="-6"> from completed state–action pairs.</tspan></text>
 </svg>
