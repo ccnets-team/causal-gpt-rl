@@ -13,6 +13,15 @@
   structure rather than a filesystem, so they are kept. Weights and topology are
   untouched: the same bundle exports to byte-identical outputs before and after,
   and the file is roughly half a megabyte smaller.
+- Corrected what the comment over `DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER` claims
+  about retention limits. It called 8x the context length the backbone's
+  position "capacity"; 8x is only the Llama default, GPT-2 gets 2x, and every
+  published bundle declares `max_position_embeddings` outright — where, on a
+  Llama backbone, it is not a weight and does not bound sequence length at all.
+  Nothing caps retention at the trained window; past it the extra history pays
+  off only where the policy generalizes that far, which the README now says in
+  place of a flat "larger values are supported". No behavior change; the default
+  is still 1x, which is what the published scores were measured at.
 
 ## 0.16.0
 
