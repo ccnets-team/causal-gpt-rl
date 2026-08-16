@@ -49,6 +49,8 @@ Offline trajectories — for each timestep, a tuple of
 [Minari](https://minari.farama.org/) dataset that carries a declared Gymnasium
 `observation_space` and `action_space`.
 
+![Your declared observation and action spaces become a DataSpec schema at build time, and that schema is what fixes the model's input and output specs — so the spaces are the configuration rather than a description of it. The action space carries both colours because it feeds the input side and the output side alike](../assets/io-schema-from-your-spaces.svg)
+
 ```python
 import gymnasium as gym
 import numpy as np
@@ -75,8 +77,6 @@ heads. From them follow the total input width, the number and type of output hea
 (continuous / categorical / binary), how each field is normalized, and how actions
 decode. You never configure a network separately — the **spaces *are* the
 configuration**, frozen into the trained bundle.
-
-![Your declared observation and action spaces become a DataSpec schema at build time, and that schema is what fixes the model's input and output specs — so the spaces are the configuration rather than a description of it. The action space carries both colours because it feeds the input side and the output side alike](../assets/io-schema-from-your-spaces.svg)
 
 The practical consequence: a space is a **commitment, not a knob**. Adding a sensor
 dimension or swapping a leaf's type produces a *different model* — you cannot tune
