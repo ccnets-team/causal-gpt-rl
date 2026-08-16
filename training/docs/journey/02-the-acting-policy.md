@@ -27,6 +27,8 @@ critic, no value network, no auxiliary machinery at inference. You drive it by
 alternating `act()` and `observe()`, and this is why an AR model is *used*
 differently from a conventional RL policy.
 
+![A rollout unrolled — each token pairs the current state with the action for it, that action moves the environment, and the environment returns the next state; meanwhile the model generates the next action from completed state-action pairs, not from the state it just received](../assets/action-generation-in-a-rollout.svg)
+
 ---
 
 ## Run it
