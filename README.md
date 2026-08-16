@@ -181,13 +181,18 @@ window the policy was measured on:
 runner = load_runner("path/to/bundle", kv_cache_max_len=64)
 ```
 
-Larger values are supported. The trained window is not a ceiling: a token here is
+Larger values run. The trained window is not a ceiling: a token here is
 a state–action pair rather than a word, so the window's length is simply how many
 steps are remembered, and running the same weights over a longer one is the
 familiar territory it is in a language model. Weights trained on a 32-token
 window carry an episode through to the end with a 1000-step KV cache — the
 weights are unchanged; the only thing that grew is the amount of past carried
 along.
+
+Whether the extra history helps is a separate question, and an
+environment-dependent one: retention past the trained window pays off only where
+the policy generalizes that far. Across the published bundles it gains in some
+environments and costs in others.
 
 So the knob's purpose is not performance tuning but **drift control over long
 rollouts**. A policy conditioning on its own outputs rides on the history it has

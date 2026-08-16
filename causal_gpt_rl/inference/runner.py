@@ -31,12 +31,13 @@ from .context.buffer import ContextBuffer
 from .state_normalizer import StateNormalizer
 
 # How much past a cached rollout retains when the caller passes no explicit
-# `kv_cache_max_len`, as a multiple of the bundle's `context_length`. 1x keeps
-# the rollout inside the window the model was trained on. Larger values are
-# supported — the backbone sizes its position window at 8x the context length,
-# so they stay within capacity — but attending past the trained window is an
-# extrapolation regime whose payoff is environment-dependent, so the caller
-# opts into it explicitly.
+# `kv_cache_max_len`, as a multiple of the bundle's `context_length`. Only this
+# default is expressed as a multiple; the knob itself is an absolute token
+# count. 1x keeps the rollout inside the window the model was trained on, which
+# is where the published scores were measured. Larger values run — nothing caps
+# retention at the trained window — but they pay off only where the policy
+# generalizes past it, which is environment-dependent, so the caller opts in
+# explicitly.
 DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER = 1
 
 
