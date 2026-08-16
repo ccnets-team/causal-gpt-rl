@@ -18,7 +18,7 @@ tags:
 [![Python](https://img.shields.io/pypi/pyversions/causal-gpt-rl)](https://pypi.org/project/causal-gpt-rl/)
 [![License: PolyForm NC 1.0.0](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-blue)](https://polyformproject.org/licenses/noncommercial/1.0.0)
 
-GPT-style transformers (GPT-2, Llama) running as RL policies in continuous-control environments.
+GPT-style transformers (Llama) running as RL policies in continuous and discrete control environments.
 
 **Here to run a policy?** → [Quick Start](#quick-start).
 **Evaluating the product?** → [Available Policies](#available-policies) for what
@@ -149,7 +149,7 @@ the API reference, and ONNX export.
 
 ## Context Window and KV Cache
 
-A bundle's `context_length` is the model's context window. It is fixed in the
+A bundle's `context_length` is its trained context window. It is fixed in the
 bundle and is not changeable at inference.
 
 `kv_cache_max_len` — how much past a rollout retains — *is* a load-time knob. It
@@ -172,39 +172,9 @@ rollouts**. A policy conditioning on its own outputs rides on the history it has
 been building, and how much of that history it carries is what governs the ride.
 See [Transformer Model Integrating Environment Dynamics for RL](docs/environment-dynamics-in-transformer.md).
 
-### Measuring a long horizon
-
-Past the horizon where episodes start splitting into "died early" and "ran the
-full length", a return mean stops describing any real episode — it lands between
-the two modes, and its standard deviation reports the split rather than
-run-to-run noise. Report survival there:
-
-```python
-from causal_gpt_rl.inference import load_runner, run_episodes
-from examples.deploy.survival import format_survival_table, survival_stats
-
-for kv in (32, 64, 128):
-    runner = load_runner("path/to/bundle", kv_cache_max_len=kv)
-    stats = run_episodes(env, runner, num_episodes=50, seed=0, max_steps=5000)
-    survival = survival_stats(
-        stats["lengths"], stats["returns"], horizon=5000, bucket=1000
-    )
-    print(f"kv={kv}")
-    print(format_survival_table(survival))
-```
-
-[`survival_stats`](examples/deploy/survival.py) is a pure function of lengths and
-returns — analysis over results rather than runtime behaviour, so it sits in
-`examples/` and works equally on episodes collected by a loop of your own. Two
-columns carry most of the signal:
-
-- **`conditional`** — the share of episodes entering an interval that also leave
-  it. Flat across intervals means failure is a constant per-step risk; falling
-  means it compounds with rollout depth.
-- **`return_per_step_completers`** — return per step over the episodes that
-  reached the horizon. Episodes that died early drag the all-episode figure down,
-  so this is the one that separates "still performing" from "alive but no longer
-  doing the task".
+On long rollouts a return mean can average early failures and full-length runs
+into a number that describes neither — what to report instead is
+[Measuring a Long Horizon](docs/long-horizon.md).
 
 ## Bundle Format
 
