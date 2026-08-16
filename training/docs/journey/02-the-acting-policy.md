@@ -45,7 +45,7 @@ Loading exposes the one knob the rollout has — **how much history it keeps**:
 | `context_length` | the trained token window the model was built for | **No** — fixed in the bundle at training time |
 | `kv_cache_max_len` | how much past the rollout retains | **Yes** — passed at load time; defaults to `context_length` (1×) |
 
-![Why long-context extrapolation can be stable in RL — two measures leave the same first step, a short arrow to the trained window of 32 and a long one to a 1000-step retention, over a single unbroken bar of tokens that runs on past the shorter one](../assets/trained-window-is-not-a-ceiling.svg)
+![Why long-context extrapolation can be stable in RL — two measures leave the same first step, a short arrow to the trained window of 32 and a long one to a 1000-step retention, over a single unbroken bar of tokens that runs on past the shorter one](../assets/long-context-extrapolation-in-rl.svg)
 
 Then drive it by alternating `act()` and `observe()`:
 
