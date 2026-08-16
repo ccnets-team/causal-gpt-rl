@@ -45,6 +45,8 @@ Loading exposes the one knob the rollout has — **how much history it keeps**:
 | `context_length` | the trained token window the model was built for | **No** — fixed in the bundle at training time |
 | `kv_cache_max_len` | how much past the rollout retains | **Yes** — passed at load time; defaults to `context_length` (1×) |
 
+![The trained window is not a ceiling — one unbroken bar of state–action tokens runs through the dashed context_length mark and far past it, with the same weights attached at either length](../assets/trained-window-is-not-a-ceiling.svg)
+
 Then drive it by alternating `act()` and `observe()`:
 
 ```python
