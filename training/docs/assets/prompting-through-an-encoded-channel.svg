@@ -1,84 +1,85 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1460 592" width="1460" height="592" font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 715" width="900" height="715" font-family="Segoe UI, Arial, sans-serif">
   <title>Causal GPT-RL — A Policy You Can Prompt</title>
   <desc>The same picture as part three, with one move added. The instruction now starts as a user prompt: you run it through your own encoder and only the resulting embedding crosses into the model's cache, where it sits beside the environment's observation as one state. The line changes colour at the encoder, from words to state. Everything else is unchanged — the model conditions on the whole cache, and emitting an action and keeping it are the same move, so keeping the action legal is still the adapter's job. It is prompted the way a language model is, but for control: language goes in and only a decision comes out, so the policy carries no language-scale weight.</desc>
-  <rect width="1460" height="592" fill="#ffffff"/>
+  <rect width="900" height="715" fill="#ffffff"/>
 
   <!-- ================= TITLE ================= -->
-  <text x="730" y="64" text-anchor="middle" font-size="40" font-weight="700" fill="#404040">A Policy You Can <tspan fill="#6b4f9e">Prompt</tspan></text>
+  <text x="450" y="58" text-anchor="middle" font-size="34" font-weight="700" fill="#404040">A Policy You Can <tspan fill="#6b4f9e">Prompt</tspan></text>
 
   <!-- ================= THE MODEL CACHE (drawn first; everything lands on it) ================= -->
-  <rect x="640" y="193" width="200" height="200" rx="18" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
-  <text x="740" y="221" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">Model Cache</text>
+  <rect x="400" y="180" width="220" height="224" rx="18" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
+  <text x="510" y="212" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">Model Cache</text>
 
-  <text x="662" y="241" text-anchor="start" font-size="12" font-weight="700" fill="#9a6a1e">action</text>
-  <rect x="662" y="247" width="156" height="30" rx="15" fill="#f6c68a"/>
-  <text x="740" y="267" text-anchor="middle" font-size="14" font-weight="600" fill="#2b2b2b">actions</text>
+  <text x="422" y="240" text-anchor="start" font-size="13" font-weight="700" fill="#9a6a1e">action</text>
+  <rect x="422" y="246" width="176" height="32" rx="16" fill="#f6c68a"/>
+  <text x="510" y="268" text-anchor="middle" font-size="15" font-weight="600" fill="#2b2b2b">actions</text>
 
-  <text x="662" y="307" text-anchor="start" font-size="12" font-weight="700" fill="#6b4f9e">state</text>
-  <rect x="662" y="315" width="156" height="30" rx="15" fill="#6b4f9e"/>
-  <text x="740" y="335" text-anchor="middle" font-size="14" font-weight="600" fill="#ffffff">instruction</text>
+  <text x="422" y="312" text-anchor="start" font-size="13" font-weight="700" fill="#6b4f9e">state</text>
+  <rect x="422" y="318" width="176" height="32" rx="16" fill="#6b4f9e"/>
+  <text x="510" y="340" text-anchor="middle" font-size="15" font-weight="600" fill="#ffffff">instruction</text>
 
-  <rect x="662" y="349" width="156" height="30" rx="15" fill="#c4a7e7"/>
-  <text x="740" y="369" text-anchor="middle" font-size="14" font-weight="600" fill="#2b2b2b">observation</text>
+  <rect x="422" y="356" width="176" height="32" rx="16" fill="#c4a7e7"/>
+  <text x="510" y="378" text-anchor="middle" font-size="15" font-weight="600" fill="#2b2b2b">observation</text>
 
-  <text x="740" y="415" text-anchor="middle" font-size="14" font-style="italic" fill="#8a8a8a">the context the model reads</text>
+  <text x="510" y="432" text-anchor="middle" font-size="15" font-style="italic" fill="#8a8a8a">the context the model reads</text>
 
   <!-- ================= SOURCE: USER — words, encoded on your side ================= -->
-  <rect x="40" y="210" width="170" height="76" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
-  <text x="125" y="257" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">User</text>
+  <rect x="40" y="92" width="180" height="64" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <text x="130" y="131" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">User</text>
 
-  <path d="M210 248 H 350" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <text x="280" y="236" text-anchor="middle" font-size="15" font-weight="700" fill="#404040">User Prompt</text>
+  <path d="M130 156 V 212" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <text x="146" y="190" text-anchor="start" font-size="15" font-weight="700" fill="#404040">User Prompt</text>
 
-  <rect x="350" y="218" width="170" height="60" rx="16" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2.5"/>
-  <text x="435" y="248" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Encoder</text>
-  <text x="435" y="268" text-anchor="middle" font-size="12" fill="#8a8a8a">your side</text>
+  <rect x="40" y="212" width="180" height="64" rx="16" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2.5"/>
+  <text x="130" y="242" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Encoder</text>
+  <text x="130" y="262" text-anchor="middle" font-size="13" fill="#8a8a8a">your side</text>
 
-  <path d="M520 248 H 545 V 330 H 662" fill="none" stroke="#6b4f9e" stroke-width="3"/>
-  <text x="595" y="318" text-anchor="middle" font-size="14" font-weight="700" fill="#6b4f9e">embedding</text>
+  <path d="M220 244 H 320 V 334 H 412" fill="none" stroke="#6b4f9e" stroke-width="3"/>
+  <polygon points="422,334 410,328 410,340" fill="#6b4f9e"/>
+  <text x="272" y="232" text-anchor="middle" font-size="15" font-weight="700" fill="#6b4f9e">embedding</text>
 
   <!-- ================= SOURCE: ENVIRONMENT ================= -->
-  <rect x="40" y="326" width="170" height="76" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
-  <text x="125" y="373" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">Environment</text>
+  <rect x="40" y="337" width="180" height="70" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <text x="130" y="380" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">Environment</text>
 
-  <path d="M210 364 H 662" fill="none" stroke="#a98fd0" stroke-width="3"/>
-  <text x="350" y="352" text-anchor="middle" font-size="16" font-weight="700" fill="#8f6fbf">state from env</text>
+  <path d="M220 372 H 412" fill="none" stroke="#a98fd0" stroke-width="3"/>
+  <polygon points="422,372 410,366 410,378" fill="#a98fd0"/>
+  <text x="308" y="362" text-anchor="middle" font-size="16" font-weight="700" fill="#8f6fbf">state from env</text>
 
   <!-- ================= CACHE -> MODEL (attached, not sent) ================= -->
-  <path d="M840 293 H 886" fill="none" stroke="#8f6fbf" stroke-width="3"/>
+  <path d="M620 300 H 680" fill="none" stroke="#8f6fbf" stroke-width="3"/>
 
   <!-- ================= THE MODEL ================= -->
-  <rect x="886" y="253" width="190" height="80" rx="16" fill="#404040"/>
-  <text x="981" y="301" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">Causal GPT-RL</text>
+  <rect x="680" y="260" width="180" height="80" rx="16" fill="#404040"/>
+  <text x="770" y="308" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">Causal GPT-RL</text>
 
   <!-- emitted and kept in the same move -->
-  <path d="M1076 293 H 1134" fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="1142,293 1130,287 1130,299" fill="#c98a2e"/>
-  <path d="M1105 293 C 1105 210, 1078 158, 1000 158 H 900 C 868 158, 856 178, 856 210 V 262 H 830" fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="818,262 832,255 832,269" fill="#c98a2e"/>
-  <circle cx="1105" cy="293" r="5" fill="#c98a2e"/>
-  <text x="950" y="144" text-anchor="middle" font-size="15" font-style="italic" font-weight="600" fill="#9a6a1e">kept as history</text>
+  <path d="M770 340 V 512" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="770,522 763,509 777,509" fill="#c98a2e"/>
+  <path d="M770 380 H 855 Q875 380 875 360 V 175 Q875 155 855 155 H 670 Q650 155 650 175 V 242 Q650 262 630 262 H 610" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="598,262 610,256 610,268" fill="#c98a2e"/>
+  <circle cx="770" cy="380" r="5" fill="#c98a2e"/>
+  <text x="762" y="143" text-anchor="middle" font-size="15" font-style="italic" font-weight="600" fill="#9a6a1e">kept as history</text>
 
   <!-- ================= ACTION ================= -->
-  <circle cx="1172" cy="293" r="30" fill="#f6c68a"/>
-  <text x="1172" y="304" text-anchor="middle" font-size="26" font-style="italic" fill="#2b2b2b">a</text>
-  <text x="1172" y="346" text-anchor="middle" font-size="14" font-weight="600" fill="#9a6a1e">always emitted</text>
+  <circle cx="770" cy="554" r="32" fill="#f6c68a"/>
+  <text x="770" y="565" text-anchor="middle" font-size="27" font-style="italic" fill="#2b2b2b">a</text>
+  <text x="770" y="612" text-anchor="middle" font-size="15" font-weight="600" fill="#9a6a1e">always emitted</text>
 
-  <path d="M1202 293 H 1240" fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="1248,293 1236,287 1236,299" fill="#c98a2e"/>
+  <path d="M738 554 H 684" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="672,554 684,548 684,560" fill="#c98a2e"/>
 
   <!-- ================= ADAPTER ================= -->
-  <rect x="1256" y="257" width="150" height="72" rx="16" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2.5"/>
-  <text x="1331" y="287" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Adapter</text>
-  <text x="1331" y="309" text-anchor="middle" font-size="12" fill="#8a8a8a">your side</text>
+  <rect x="502" y="518" width="170" height="72" rx="16" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2.5"/>
+  <text x="587" y="550" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Adapter</text>
+  <text x="587" y="572" text-anchor="middle" font-size="13" fill="#8a8a8a">your side</text>
 
   <!-- ================= BACK TO THE WORLD ================= -->
-  <path d="M1331 329 V 458 Q1331 478 1311 478 H 145 Q125 478 125 458 V 410"
-        fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="125,402 117,416 133,416" fill="#c98a2e"/>
-  <text x="740" y="466" text-anchor="middle" font-size="16" font-style="italic" font-weight="600" fill="#9a6a1e">the action reaches the world</text>
+  <path d="M502 554 H 150 Q130 554 130 534 V 427" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="130,415 122,429 138,429" fill="#c98a2e"/>
+  <text x="318" y="542" text-anchor="middle" font-size="16" font-style="italic" font-weight="600" fill="#9a6a1e">the action reaches the world</text>
 
   <!-- ================= CAPTION ================= -->
-  <text x="730" y="528" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Prompt it like a language model — but for control.</text>
-  <text x="730" y="556" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Language goes in; only a decision comes out.</text>
+  <text x="450" y="648" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">Prompt it like a language model — but for control.</text>
+  <text x="450" y="678" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">Language goes in; only a decision comes out.</text>
 </svg>
