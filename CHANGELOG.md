@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- An exported ONNX no longer carries the exporting machine's filesystem.
+  `torch.onnx` stamps every node it emits with a `pkg.torch.onnx.stack_trace`
+  entry holding absolute paths and source lines from wherever the export ran, so
+  a delivered artifact named its author's home directory, conda prefix, and
+  checkout path — 2898 occurrences of one user name in an 11-state bundle. The
+  traces are export-time debugging aids that nothing reads back, and they are
+  now dropped before the artifact is written. The sibling keys torch writes
+  (`namespace`, `class_hierarchy`, `fx_node`, `name_scopes`) name graph
+  structure rather than a filesystem, so they are kept. Weights and topology are
+  untouched: the same bundle exports to byte-identical outputs before and after,
+  and the file is roughly half a megabyte smaller.
+
 ## 0.16.0
 
 - Loading a bundle no longer prints warnings. Two unrelated causes produced four

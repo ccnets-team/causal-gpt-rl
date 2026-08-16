@@ -176,6 +176,32 @@ def _require_onnx():
     return onnx
 
 
+# Written by torch.onnx onto every node it emits.
+_STACK_TRACE_KEY = "pkg.torch.onnx.stack_trace"
+
+
+def _strip_exporter_stack_traces(model: Any) -> None:
+    """Drop the exporter's per-node stack traces from a loaded ONNX model.
+
+    Each trace records the absolute paths and source lines of the machine that
+    ran the export, so an artifact carries whoever exported it around. Nothing
+    reads the traces back — they are export-time debugging aids — and the
+    sibling keys torch writes (``namespace``, ``class_hierarchy``, ``fx_node``,
+    ``name_scopes``) name graph structure rather than a filesystem, so only this
+    one is removed. Weights and graph topology are untouched.
+    """
+    for container in (model.graph, *model.functions):
+        for node in container.node:
+            keep = [
+                prop
+                for prop in node.metadata_props
+                if prop.key != _STACK_TRACE_KEY
+            ]
+            if len(keep) != len(node.metadata_props):
+                del node.metadata_props[:]
+                node.metadata_props.extend(keep)
+
+
 def export_onnx(
     bundle_path: str | Path,
     output_path: str | Path,
@@ -272,11 +298,9 @@ def export_onnx(
 
     # Dynamo commonly externalizes weights. Fold them back into one portable
     # artifact and remove its temporary sidecar.
-    onnx.save(
-        onnx.load(str(output_path), load_external_data=True),
-        str(output_path),
-        save_as_external_data=False,
-    )
+    model = onnx.load(str(output_path), load_external_data=True)
+    _strip_exporter_stack_traces(model)
+    onnx.save(model, str(output_path), save_as_external_data=False)
     sidecar = Path(str(output_path) + ".data")
     if sidecar.exists():
         sidecar.unlink()
