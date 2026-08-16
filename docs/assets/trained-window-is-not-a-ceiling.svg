@@ -69,7 +69,7 @@
   <text x="540" y="442" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">reduces the compounding effect of policy errors that re-enter the self-generated context.</text>
 
   <!-- ================= THE 1000 IS SOMETHING YOU CAN RUN ================= -->
-  <text x="540" y="490" text-anchor="middle" font-size="16" fill="#8a8a8a">All five published MuJoCo bundles run a long-horizon context — Ant, HalfCheetah, Hopper, Walker2d, Humanoid:</text>
+  <text x="540" y="490" text-anchor="middle" font-size="16" fill="#8a8a8a">Ant, HalfCheetah, Hopper, Walker2d and Humanoid all run a long-horizon context:</text>
   <rect x="100" y="506" width="880" height="52" rx="12" fill="#f4f4f6" stroke="#dcdce2" stroke-width="1.5"/>
   <text x="540" y="538" text-anchor="middle" font-size="17" font-family="Consolas, Menlo, monospace" fill="#404040">load_runner_from_hub("ccnets/causal-gpt-rl", subfolder="ant-v5", kv_cache_max_len=1000)</text>
 </svg>
