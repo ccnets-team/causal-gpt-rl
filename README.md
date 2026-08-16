@@ -35,9 +35,11 @@ token           → next token                           (LLM generation)
 
 Causal GPT-RL policies act stably under their own rollouts — long-horizon control without the drift that has historically kept transformers from being usable as RL agents.
 
-A single autoregressive model drives full-episode rollouts via KV cache — no separate critic, no auxiliary networks at inference. The model carries a value head and computes it on every forward pass, but a rollout does not read it: the action alone carries the loop.
+A single autoregressive model drives full-episode rollouts via a KV cache, the same mechanism an LLM uses to hold its context while generating — no separate critic, no auxiliary networks at inference. It computes a value head on every forward pass, but a rollout never reads it: the action alone carries the loop.
 
 The calling contract that follows from this — why the output is one step ahead of the observation you just passed, and why actions keep coming with no environment attached — is [Transformer Model Integrating Environment Dynamics for RL](docs/environment-dynamics-in-transformer.md).
+
+This repository is the public inference runtime: it loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers. Training is not here — it runs on AWS Marketplace as the [CCNets Causal GPT-RL Training Algorithm](training/docs/aws/README.md).
 
 - **Code (GitHub):** [ccnets-team/causal-gpt-rl](https://github.com/ccnets-team/causal-gpt-rl)
 - **Hugging Face org:** https://huggingface.co/ccnets
@@ -49,44 +51,17 @@ Released under PolyForm Noncommercial 1.0.0. For commercial licensing, contact t
 
 ## Install
 
-For Hub loading and MuJoCo environments:
-
 ```bash
 pip install "causal-gpt-rl[hub,mujoco]"
 ```
 
-For local development:
+From a clone, `python -m pip install -e ".[hub,mujoco]"`. For private bundles,
+run `hf auth login` first. On Windows the Hub cache uses symlinks, which fail
+with `OSError: [WinError 1314]` unless Developer Mode is on — enable it, or set
+`HF_HUB_DISABLE_SYMLINKS=1`.
 
-```bash
-git clone https://github.com/ccnets-team/causal-gpt-rl.git
-cd causal-gpt-rl
-python -m pip install -e ".[hub,mujoco]"
-```
-
-For private bundles, authenticate first:
-
-```bash
-hf auth login
-```
-
-On Windows, the Hub cache uses symlinks, which fail with
-`OSError: [WinError 1314]` unless Developer Mode is on or Python runs as
-administrator. Either enable Developer Mode or disable symlinks for the cache:
-
-```bash
-set HF_HUB_DISABLE_SYMLINKS=1
-```
-
-To convert a delivered bundle (`config.json` + `model.safetensors`) into a
-self-contained ONNX policy:
-
-```bash
-pip install "causal-gpt-rl[onnx]"
-causal-gpt-rl-export-onnx --bundle ./bundle --out policy.onnx --batch-size 1
-```
-
-See [Export a delivered bundle to ONNX](docs/export-onnx.md) for fixed-batch
-multi-agent examples and the Python API.
+Turning a bundle into a self-contained ONNX policy is
+[Export a delivered bundle to ONNX](docs/export-onnx.md).
 
 ## Quick Start
 
@@ -119,35 +94,29 @@ published on the Hugging Face org:
 
 | Repo | Contents |
 |---|---|
-| [ccnets/causal-gpt-rl](https://huggingface.co/ccnets/causal-gpt-rl) | MuJoCo continuous control — `Ant-v5`, `HalfCheetah-v5`, `Hopper-v5`, `Walker2d-v5`, `Humanoid-v5` |
-| [ccnets/causal-gpt-rl-unity](https://huggingface.co/ccnets/causal-gpt-rl-unity) | Unity ML-Agents — Crawler, DungeonEscape, Pyramids, SoccerTwos (`model.safetensors` + per-context ONNX) |
+| [ccnets/causal-gpt-rl](https://huggingface.co/ccnets/causal-gpt-rl) | MuJoCo continuous control — `Ant-v5`, `HalfCheetah-v5`, `Hopper-v5`, `Walker2d-v5`, `Humanoid-v5`, `HumanoidStandup-v5`, `Pusher-v5`, `Swimmer-v5` |
+| [ccnets/causal-gpt-rl-unity](https://huggingface.co/ccnets/causal-gpt-rl-unity) | Unity ML-Agents — Crawler, DungeonEscape, PushBlock, Pyramids, SoccerTwos (`model.safetensors` + per-context ONNX) |
 | [ccnets/causal-gpt-rl-unity-envs](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs) | Model-removed Unity builds + stock policies where redistributable |
 | [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets) | Recorded Minari trajectories |
 
-Per-bundle returns, the evaluation protocol, and the runtime versions each score
-was measured on are on the corresponding model card. Worked runs — including the
-Unity download-and-measure walkthroughs — are in
+Returns, the evaluation protocol, and the runtime each score was measured on are
+on the corresponding model card; the MuJoCo training runs are public at
+[wandb.ai/causal-gpt-rl/mujoco](https://wandb.ai/causal-gpt-rl/mujoco), and
+worked runs — including the Unity download-and-measure walkthroughs — are in
 [examples/](examples/README.md).
-
-The runs behind the MuJoCo bundles are public at
-[wandb.ai/causal-gpt-rl/mujoco](https://wandb.ai/causal-gpt-rl/mujoco) — the
-learning curves and per-run configuration, alongside the reported returns.
-
-This repository is the public inference runtime: it loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers. Training is not here — it runs on AWS Marketplace as the [CCNets Causal GPT-RL Training Algorithm](training/docs/aws/README.md).
 
 ## Observation & Action Spaces
 
 **Every fixed-shape Gymnasium space, and any `Dict` / `Tuple` nesting of them.**
 Variable-length and structural spaces — raw images, `Text`, `Sequence`, `Graph`,
 `OneOf` — are out of scope; encode those into vectors on your side. A bundle
-carries its declared `observation_space` and `action_space`, so you work in your
-environment's own spaces: pass observations exactly as your env produces them,
-and the action you get back is always a valid sample of the action space.
+carries its own spaces, so you pass observations exactly as your env produces
+them and get back a valid sample of its action space.
 
 See **[docs/](docs/README.md)** for the per-space contract, the calling contract,
 the API reference, and ONNX export.
 
-## Context Window and KV Cache
+## Rollout History
 
 A bundle's `context_length` is its trained context window. It is fixed in the
 bundle and is not changeable at inference.
@@ -162,19 +131,19 @@ runner = load_runner("path/to/bundle", kv_cache_max_len=64)
 
 ![Why long-context extrapolation can be stable in RL — two measures leave the same first step, a short arrow to the trained window of 32 and a long one to a 1000-step retention, over a single unbroken bar of tokens that runs on past the shorter one](docs/assets/trained-window-is-not-a-ceiling.svg)
 
-Larger values run: weights trained on a 32-token window carry an episode to the
-end with a 1000-step KV cache. Whether that extra history helps is
-environment-dependent — across the Hugging Face bundles it gains in some
-environments and costs in others.
+**A long horizon becomes a matter of context length** — conditioning on context
+offers a general way to address RL problems, using a quantity language models
+already expose: how much past the model retains, in steps rather than words.
+Unlike an MLP policy, that history can be changed at load time without changing
+the model. See [Transformer Model Integrating Environment Dynamics for RL](docs/environment-dynamics-in-transformer.md).
 
-So the knob's purpose is not performance tuning but **drift control over long
-rollouts**. A policy conditioning on its own outputs rides on the history it has
-been building, and how much of that history it carries is what governs the ride.
-See [Transformer Model Integrating Environment Dynamics for RL](docs/environment-dynamics-in-transformer.md).
+Larger values run. Whether more past helps a particular environment is a
+separate question — across the Hugging Face bundles, it helps some and hurts
+others.
 
-On long rollouts a return mean can average early failures and full-length runs
-into a number that describes neither — what to report instead is
-[Measuring a Long Horizon](docs/long-horizon.md).
+On long rollouts, a mean return can average early failures and full-length runs
+into a number that describes neither. See
+[Measuring a Long Horizon](docs/long-horizon.md) for what to report instead.
 
 ## Bundle Format
 
