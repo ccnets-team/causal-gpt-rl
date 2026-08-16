@@ -113,7 +113,7 @@ Two different numbers govern length here:
 | `context_length` | the trained token window (32 in the published bundles) | **No** — fixed in the bundle |
 | `kv_cache_max_len` | how much past the rollout actually retains, in tokens | **Yes** — at load time; defaults to `context_length`. Larger values run, but pay off only where the policy generalizes past its trained window |
 
-![The trained window is not a ceiling — one unbroken bar of state–action tokens runs through the dashed context_length mark and far past it, with the same weights attached at either length](assets/trained-window-is-not-a-ceiling.svg)
+![Why long-context extrapolation can be stable in RL — two measures leave the same first step, a short arrow to the trained window of 32 and a long one to a 1000-step retention, over a single unbroken bar of tokens that runs on past the shorter one](assets/trained-window-is-not-a-ceiling.svg)
 
 The purpose of that knob is not performance tuning; it is **drift control over
 long rollouts**. A policy conditioning on its own outputs rides on the history

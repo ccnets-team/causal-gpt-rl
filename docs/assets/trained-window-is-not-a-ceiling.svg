@@ -1,65 +1,75 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 500" width="1080" height="500" font-family="Segoe UI, Arial, sans-serif">
-  <title>Causal GPT-RL — The Trained Window Is Not a Ceiling</title>
-  <desc>Two different numbers govern length. The trained window, context_length, is fixed in the bundle and is marked here by a dashed line. Retention, kv_cache_max_len, is set at load time and is drawn as one continuous bar of state-action tokens that runs straight through that dashed mark and far past it — the mark is a measurement point, not a wall. The window's share of the bar is tinted a shade darker inside the same unbroken outline, so it is delimited without being cut off. The model is joined to the bar by a line carrying no arrowhead, because the model is attached to the cache it keeps rather than sent it, and the weights are the same at either length. A span beneath the far side notes that carrying more past is environment-dependent: it gains in some environments and costs in others.</desc>
-  <rect width="1080" height="500" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 592" width="1080" height="592" font-family="Segoe UI, Arial, sans-serif">
+  <title>Causal GPT-RL — Why Long-Context Extrapolation Can Be Stable in RL</title>
+  <desc>Two lengths are measured off the same first step. The shorter one, context_length, is the trained window, 32 steps for the bundle drawn here. The longer one, kv_cache_max_len, is retention, set at load time. Both are drawn as arrows above a single unbroken bar of tokens, starting from the same left edge so it is plain where each is counted from; the shorter arrow stops at 32 while the bar itself runs on to the end, which is what makes the trained window a measurement point rather than a wall. The window's share of the bar is tinted a shade darker inside the same unbroken outline, so it is delimited without being cut off. Each token is one step — a state stacked over an action; both stretches of the bar show only a few sample tokens with an ellipsis standing in for the rest, so neither is meant to be counted. The model is joined to the bar by a line carrying no arrowhead, because the model is attached to the cache it keeps rather than sent it. Beneath the picture is the call that runs a published bundle at a thousand-step cache, so the longer length is something a reader can execute rather than a claim to take on trust; all five published MuJoCo bundles — Ant, HalfCheetah, Hopper, Walker2d and Humanoid — run there.</desc>
+  <rect width="1080" height="592" fill="#ffffff"/>
 
   <!-- ================= TITLE ================= -->
-  <text x="540" y="58" text-anchor="middle" font-size="34" font-weight="700" fill="#404040">The Trained Window Is Not a Ceiling</text>
+  <text x="540" y="58" text-anchor="middle" font-size="34" font-weight="700" fill="#404040">Why Long-Context Extrapolation Can Be Stable in RL</text>
 
-  <!-- ================= THE TWO MARKS ================= -->
-  <text x="490" y="124" text-anchor="middle" font-size="21" font-weight="700" fill="#6b4f9e">context_length = 32</text>
-  <text x="490" y="150" text-anchor="middle" font-size="16" fill="#8a8a8a">trained window — fixed in the bundle</text>
+  <!-- ================= MEASURE 2: RETENTION, OFF THE SAME FIRST STEP ================= -->
+  <text x="657" y="104" text-anchor="middle" font-size="21" font-weight="700" fill="#6b4f9e">kv_cache_max_len = 1000</text>
+  <text x="657" y="126" text-anchor="middle" font-size="16" fill="#8a8a8a">how much past it keeps — set at load time</text>
+  <path d="M270 138 V 154 M270 146 H 1032" fill="none" stroke="#6b4f9e" stroke-width="3"/>
+  <polygon points="1044,146 1030,139 1030,153" fill="#6b4f9e"/>
 
-  <text x="1044" y="124" text-anchor="end" font-size="21" font-weight="700" fill="#6b4f9e">kv_cache_max_len = 1000</text>
-  <text x="1044" y="150" text-anchor="end" font-size="16" fill="#8a8a8a">how much past it keeps — set at load time</text>
+  <!-- ================= MEASURE 1: THE TRAINED WINDOW ================= -->
+  <text x="380" y="178" text-anchor="middle" font-size="21" font-weight="700" fill="#6b4f9e">context_length = 32</text>
+  <text x="380" y="200" text-anchor="middle" font-size="16" fill="#8a8a8a">trained window</text>
+  <path d="M270 210 V 226 M270 218 H 478" fill="none" stroke="#6b4f9e" stroke-width="3"/>
+  <polygon points="490,218 476,211 476,225" fill="#6b4f9e"/>
 
-  <!-- ================= THE RETAINED PAST (drawn before the mark, so the bar reads as unbroken) ================= -->
-  <rect x="270" y="216" width="774" height="56" rx="16" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
+  <!-- both measures leave the same first step -->
+  <path d="M270 154 V 210" fill="none" stroke="#a98fd0" stroke-width="1.5"/>
+
+  <!-- ================= THE RETAINED PAST (drawn before the tokens, so nothing is painted over) ================= -->
+  <rect x="270" y="234" width="774" height="84" rx="16" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
   <!-- the window's share, tinted inside the outline: it delimits without breaking the bar -->
-  <path d="M285 218 H 490 V 270 H 285 A 14 14 0 0 1 271 256 V 232 A 14 14 0 0 1 285 218 Z" fill="#e8ddf5"/>
+  <path d="M285 236 H 490 V 316 H 285 A 14 14 0 0 1 271 302 V 250 A 14 14 0 0 1 285 236 Z" fill="#e8ddf5"/>
 
-  <!-- tokens: inside the trained window -->
-  <rect x="292" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="306" cy="244" r="9" fill="#c4a7e7"/><circle cx="326" cy="244" r="9" fill="#f6c68a"/>
-  <rect x="350" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="364" cy="244" r="9" fill="#c4a7e7"/><circle cx="384" cy="244" r="9" fill="#f6c68a"/>
-  <rect x="408" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="422" cy="244" r="9" fill="#c4a7e7"/><circle cx="442" cy="244" r="9" fill="#f6c68a"/>
+  <!-- tokens: state stacked over action, one pair per step — inside the trained window -->
+  <rect x="290" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="308" cy="262" r="11" fill="#c4a7e7"/><circle cx="308" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="336" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="354" cy="262" r="11" fill="#c4a7e7"/><circle cx="354" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="382" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="400" cy="262" r="11" fill="#c4a7e7"/><circle cx="400" cy="290" r="11" fill="#f6c68a"/>
+
+  <text x="452" y="282" text-anchor="middle" font-size="30" font-weight="700" fill="#8f6fbf">···</text>
 
   <!-- tokens: past it, identical -->
-  <rect x="512" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="526" cy="244" r="9" fill="#c4a7e7"/><circle cx="546" cy="244" r="9" fill="#f6c68a"/>
-  <rect x="570" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="584" cy="244" r="9" fill="#c4a7e7"/><circle cx="604" cy="244" r="9" fill="#f6c68a"/>
-  <rect x="628" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="642" cy="244" r="9" fill="#c4a7e7"/><circle cx="662" cy="244" r="9" fill="#f6c68a"/>
+  <rect x="512" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="530" cy="262" r="11" fill="#c4a7e7"/><circle cx="530" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="558" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="576" cy="262" r="11" fill="#c4a7e7"/><circle cx="576" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="604" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="622" cy="262" r="11" fill="#c4a7e7"/><circle cx="622" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="650" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="668" cy="262" r="11" fill="#c4a7e7"/><circle cx="668" cy="290" r="11" fill="#f6c68a"/>
 
-  <text x="768" y="250" text-anchor="middle" font-size="30" font-weight="700" fill="#8f6fbf">···</text>
+  <text x="768" y="282" text-anchor="middle" font-size="30" font-weight="700" fill="#8f6fbf">···</text>
 
-  <rect x="860" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="874" cy="244" r="9" fill="#c4a7e7"/><circle cx="894" cy="244" r="9" fill="#f6c68a"/>
-  <rect x="918" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="932" cy="244" r="9" fill="#c4a7e7"/><circle cx="952" cy="244" r="9" fill="#f6c68a"/>
-  <rect x="976" y="227" width="48" height="34" rx="8" fill="#404040"/>
-  <circle cx="990" cy="244" r="9" fill="#c4a7e7"/><circle cx="1010" cy="244" r="9" fill="#f6c68a"/>
-
-  <!-- the mark stops at the bar and picks up below it: the bar is what passes through -->
-  <path d="M490 164 V 210" fill="none" stroke="#6b4f9e" stroke-width="3" stroke-dasharray="9 7"/>
-  <path d="M490 278 V 336" fill="none" stroke="#6b4f9e" stroke-width="3" stroke-dasharray="9 7"/>
+  <rect x="850" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="868" cy="262" r="11" fill="#c4a7e7"/><circle cx="868" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="896" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="914" cy="262" r="11" fill="#c4a7e7"/><circle cx="914" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="942" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="960" cy="262" r="11" fill="#c4a7e7"/><circle cx="960" cy="290" r="11" fill="#f6c68a"/>
+  <rect x="988" y="244" width="36" height="64" rx="10" fill="#404040"/>
+  <circle cx="1006" cy="262" r="11" fill="#c4a7e7"/><circle cx="1006" cy="290" r="11" fill="#f6c68a"/>
 
   <!-- ================= THE MODEL (attached to the cache, not sent it) ================= -->
-  <rect x="30" y="200" width="200" height="88" rx="16" fill="#404040"/>
-  <text x="130" y="252" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">Causal GPT-RL</text>
-  <path d="M230 244 H 270" fill="none" stroke="#8f6fbf" stroke-width="3"/>
-  <text x="130" y="312" text-anchor="middle" font-size="16" fill="#8a8a8a">the same weights</text>
+  <rect x="30" y="232" width="200" height="88" rx="16" fill="#404040"/>
+  <text x="130" y="284" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">Causal GPT-RL</text>
+  <path d="M230 276 H 270" fill="none" stroke="#8f6fbf" stroke-width="3"/>
 
-  <text x="478" y="310" text-anchor="end" font-size="16" fill="#8a8a8a" xml:space="preserve">one token = [ state , action ]</text>
-
-  <!-- ================= WHAT LIES PAST THE WINDOW ================= -->
-  <path d="M490 330 V 342 M490 336 H 1044 M1044 330 V 342" fill="none" stroke="#a98fd0" stroke-width="2"/>
-  <text x="767" y="364" text-anchor="middle" font-size="17" fill="#8a8a8a">beyond the window — gains in some environments, costs in others</text>
+  <text x="478" y="342" text-anchor="end" font-size="16" fill="#8a8a8a" xml:space="preserve">one token = one step = [ state , action ]</text>
 
   <!-- ================= CAPTION ================= -->
-  <text x="540" y="430" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">Weights trained on a 32-token window carry an episode to the end with a 1000-step KV cache.</text>
-  <text x="540" y="464" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">The weights are unchanged; the only thing that grew is the amount of past carried along.</text>
+  <text x="540" y="410" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">Fresh environment states anchor the rollout at every step, while the training objective</text>
+  <text x="540" y="442" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">reduces the compounding effect of policy errors that re-enter the self-generated context.</text>
+
+  <!-- ================= THE 1000 IS SOMETHING YOU CAN RUN ================= -->
+  <text x="540" y="490" text-anchor="middle" font-size="16" fill="#8a8a8a">All five published MuJoCo bundles run a long-horizon context — Ant, HalfCheetah, Hopper, Walker2d, Humanoid:</text>
+  <rect x="100" y="506" width="880" height="52" rx="12" fill="#f4f4f6" stroke="#dcdce2" stroke-width="1.5"/>
+  <text x="540" y="538" text-anchor="middle" font-size="17" font-family="Consolas, Menlo, monospace" fill="#404040">load_runner_from_hub("ccnets/causal-gpt-rl", subfolder="ant-v5", kv_cache_max_len=1000)</text>
 </svg>
