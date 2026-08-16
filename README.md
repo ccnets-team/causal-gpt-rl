@@ -39,8 +39,6 @@ A single autoregressive model drives full-episode rollouts via KV cache — no s
 
 The calling contract that follows from this — why the output is one step ahead of the observation you just passed, and why actions keep coming with no environment attached — is [Transformer Model Integrating Environment Dynamics for RL](docs/environment-dynamics-in-transformer.md).
 
-This repository is the public inference runtime. It loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers.
-
 - **Code (GitHub):** [ccnets-team/causal-gpt-rl](https://github.com/ccnets-team/causal-gpt-rl)
 - **Hugging Face org:** https://huggingface.co/ccnets
 - **MuJoCo runs (W&B):** https://wandb.ai/causal-gpt-rl/mujoco
@@ -48,16 +46,6 @@ This repository is the public inference runtime. It loads policy bundles, runs G
 - LinkedIn: https://www.linkedin.com/company/ccnets
 
 Released under PolyForm Noncommercial 1.0.0. For commercial licensing, contact the maintainers via ccnets.org.
-
-## What Is Here
-
-- **This package** — the inference runtime. Load a policy bundle from Hugging
-  Face or disk, roll it out, evaluate it.
-- **Hugging Face** — pretrained bundles to run, with their environments and
-  recorded datasets.
-- **Not here** — training. Causal GPT-RL trains custom agents from private
-  offline datasets as a commercial product; the trainer is not part of this
-  repository.
 
 ## Install
 
@@ -120,16 +108,9 @@ print(stats["return_mean"], stats["return_std"])
 
 Notebook version: [examples/hub_quickstart.ipynb](https://github.com/ccnets-team/causal-gpt-rl/blob/main/examples/hub_quickstart.ipynb)
 
-Five episodes off one seed is a smoke test, not the reproduction protocol — that
-is 50 episodes with seeds 0..49, advanced together as one 50-row batch on a
-recorded runtime stack, and `run_episodes` seeds only its first reset. To
-measure a bundle that way:
-
-```bash
-python -m examples.deploy.reproduce --env-id Ant-v5
-```
-
-See [Reproduce a published score](examples/README.md#reproduce-a-published-score).
+Five episodes off one seed is a smoke test, not the protocol the published scores
+were measured under. To measure a bundle that way, see
+[Reproduce a published score](examples/README.md#reproduce-a-published-score).
 
 ## Available Policies
 
@@ -152,21 +133,19 @@ The runs behind the MuJoCo bundles are public at
 [wandb.ai/causal-gpt-rl/mujoco](https://wandb.ai/causal-gpt-rl/mujoco) — the
 learning curves and per-run configuration, alongside the reported returns.
 
+This repository is the public inference runtime: it loads policy bundles, runs Gymnasium/MuJoCo rollouts, and provides small evaluation helpers. Training is not here — it runs on AWS Marketplace as the [CCNets Causal GPT-RL Training Algorithm](training/docs/aws/README.md).
+
 ## Observation & Action Spaces
 
 **Every fixed-shape Gymnasium space, and any `Dict` / `Tuple` nesting of them.**
 Variable-length and structural spaces — raw images, `Text`, `Sequence`, `Graph`,
-`OneOf` — are out of scope; encode those into vectors on your side.
+`OneOf` — are out of scope; encode those into vectors on your side. A bundle
+carries its declared `observation_space` and `action_space`, so you work in your
+environment's own spaces: pass observations exactly as your env produces them,
+and the action you get back is always a valid sample of the action space.
 
-A bundle carries its declared `observation_space` and `action_space`, so you work
-in your environment's own spaces: pass observations exactly as your env produces
-them, and the action you get back is always a valid sample of the action space.
-
-See **[docs/spaces.md](docs/spaces.md)** for the per-space contract, the rollout
-loop, and a structured-space example. `docs/` holds the runtime references for
-this package — that contract, the
-[calling contract](docs/environment-dynamics-in-transformer.md), the
-[API reference](docs/api.md), and [ONNX export](docs/export-onnx.md).
+See **[docs/](docs/README.md)** for the per-space contract, the calling contract,
+the API reference, and ONNX export.
 
 ## Context Window and KV Cache
 
@@ -181,17 +160,11 @@ window the policy was measured on:
 runner = load_runner("path/to/bundle", kv_cache_max_len=64)
 ```
 
-Larger values run. The trained window is not a ceiling: a token here is
-a state–action pair rather than a word, so the window's length is simply how many
-steps are remembered, and running the same weights over a longer one is the
-familiar territory it is in a language model. Weights trained on a 32-token
-window carry an episode through to the end with a 1000-step KV cache — the
-weights are unchanged; the only thing that grew is the amount of past carried
-along.
+![The trained window is not a ceiling — one unbroken bar of state–action tokens runs through the dashed context_length mark and far past it, with the same weights attached at either length](docs/assets/trained-window-is-not-a-ceiling.svg)
 
-Whether the extra history helps is a separate question, and an
-environment-dependent one: retention past the trained window pays off only where
-the policy generalizes that far. Across the published bundles it gains in some
+Larger values run: weights trained on a 32-token window carry an episode to the
+end with a 1000-step KV cache. Whether that extra history helps is
+environment-dependent — across the Hugging Face bundles it gains in some
 environments and costs in others.
 
 So the knob's purpose is not performance tuning but **drift control over long
@@ -247,22 +220,6 @@ bundle/
 ```
 
 Public bundles are `bundle_format_version=2`.
-
-## API
-
-```python
-from causal_gpt_rl.inference import (
-    PolicyRunner,                          # step-wise rollout policy with KV cache
-    load_runner,                           # load runner from a local bundle directory
-    load_runner_from_hub,                  # load runner from a Hugging Face Hub repo
-    run_episodes,                          # evaluate over N episodes; returns stats dict
-    export_bundle,                         # write a bundle directory from a runner
-    convert_legacy_bundle_to_safetensors,  # migrate legacy bundles to the safetensors format
-)
-```
-
-Signatures, parameters, return values, and the exceptions each call raises are in
-the **[API reference](docs/api.md)**.
 
 ## Development Checks
 
