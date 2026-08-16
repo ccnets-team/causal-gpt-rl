@@ -111,7 +111,7 @@ Two different numbers govern length here:
 | Value | What it is | Can you set it? |
 |---|---|---|
 | `context_length` | the trained token window (32 in the published bundles) | **No** — fixed in the bundle |
-| `kv_cache_max_len` | how much past the rollout actually retains | **Yes** — at load time; defaults to `context_length` (1×) |
+| `kv_cache_max_len` | how much past the rollout actually retains, in tokens | **Yes** — at load time; defaults to `context_length`. Larger values run, but pay off only where the policy generalizes past its trained window |
 
 The purpose of that knob is not performance tuning; it is **drift control over
 long rollouts**. A policy conditioning on its own outputs rides on the history

@@ -84,7 +84,7 @@ unless reproducing a specific deployment setup or measuring long rollouts.
 | `bundle_dir` | Directory containing `config.json` and `model.safetensors` (or legacy `model.pt`). |
 | `device` | Torch device used for inference. |
 | `num_envs` | Number of independent environments evaluated in one batch. |
-| `kv_cache_max_len` | Retained KV-cache length. `None` uses the bundle's `context_length`. |
+| `kv_cache_max_len` | Retained KV-cache length, in tokens. `None` uses the bundle's `context_length`; larger values run, but pay off only where the policy generalizes past it — see [The trained window is not a ceiling](environment-dynamics-in-transformer.md#the-trained-window-is-not-a-ceiling). |
 | `use_windowed` | Recompute the full context window on each step instead of using the KV cache. |
 | `bos_cache_mode` | Override the bundle's BOS cache mode with `"retain"` or `"discard"`. |
 
@@ -179,7 +179,7 @@ This delayed pairing is specific to this model. The high-level
 |---|---|
 | `num_envs` | Current number of batch rows. |
 | `context_length` | Context window recorded in the bundle. |
-| `kv_cache_max_len` | Retained KV-cache length. |
+| `kv_cache_max_len` | Retained KV-cache length, in tokens. |
 | `state_size` | Flat model observation width. |
 | `action_size` | Flat model action width. |
 | `obs_space` | Declared Gymnasium observation space, or `None`. |
