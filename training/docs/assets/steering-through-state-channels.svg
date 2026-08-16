@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 592" width="1260" height="592" font-family="Segoe UI, Arial, sans-serif">
   <title>Causal GPT-RL — Shaping Behavior Through State</title>
-  <desc>What the model conditions on is a cache it keeps, not a message it is sent. The cache holds two groups: the action half, which the model writes itself, and the state half, which is yours to compose — you put an action mask and an instruction into it while the environment supplies the observation. The parts are coloured by where each came from, and the connections into the cache are plain lines rather than arrows because they are what the context is made of, not a sequence of steps. Emitting an action and keeping it are the same move, which is why an action always comes out and why its output cannot be masked. Keeping the action legal is therefore the adapter's job on your side, and it then reaches the world, which returns the next observation.</desc>
+  <desc>What the model conditions on is a cache it keeps, not a message it is sent. The cache holds two groups: the action half, which the model writes itself, and the state half, which is yours to compose — you, the developer, put an action mask and an instruction into it while the environment supplies the observation. The parts are coloured by where each came from, and the connections into the cache are plain lines rather than arrows because they are what the context is made of, not a sequence of steps. Emitting an action and keeping it are the same move, which is why an action always comes out and why its output cannot be masked. Keeping the action legal is therefore the adapter's job on your side, and it then reaches the world, which returns the next observation.</desc>
   <rect width="1260" height="592" fill="#ffffff"/>
 
   <!-- ================= TITLE ================= -->
@@ -30,12 +30,12 @@
 
   <!-- ================= SOURCE: YOU ================= -->
   <rect x="40" y="172" width="170" height="76" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
-  <text x="125" y="219" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">You</text>
+  <text x="125" y="219" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">Developer</text>
 
   <path d="M210 210 H 380 V 347" fill="none" stroke="#6b4f9e" stroke-width="3"/>
   <path d="M380 313 H 462" fill="none" stroke="#6b4f9e" stroke-width="3"/>
   <path d="M380 347 H 462" fill="none" stroke="#6b4f9e" stroke-width="3"/>
-  <text x="295" y="198" text-anchor="middle" font-size="16" font-weight="700" fill="#6b4f9e">state you add</text>
+  <text x="295" y="198" text-anchor="middle" font-size="16" font-weight="700" fill="#6b4f9e">state you control</text>
 
   <!-- ================= SOURCE: ENVIRONMENT ================= -->
   <rect x="40" y="343" width="170" height="76" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
@@ -79,6 +79,6 @@
   <text x="640" y="466" text-anchor="middle" font-size="16" font-style="italic" font-weight="600" fill="#9a6a1e">the action reaches the world</text>
 
   <!-- ================= CAPTION ================= -->
-  <text x="630" y="528" text-anchor="middle" font-size="19" fill="#404040">What you add to the state is how you steer.</text>
-  <text x="630" y="556" text-anchor="middle" font-size="19" fill="#404040">The model is informed; the adapter enforces.</text>
+  <text x="630" y="528" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">What you add to the state is how you steer.</text>
+  <text x="630" y="556" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">The model is informed; the adapter enforces.</text>
 </svg>

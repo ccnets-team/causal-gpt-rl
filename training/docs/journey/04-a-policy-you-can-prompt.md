@@ -21,6 +21,8 @@ own discrete-embedding scheme — the encoding is yours to bring.) And because t
 model reads only that vector — never the words — prompting adds no language-scale
 weight: it stays as small as the policy from Part 1.
 
+![The same picture as Part 3 with one move added — the instruction now starts as a user prompt, which your own encoder turns into an embedding, and only that embedding crosses into the cache to sit beside the environment's observation; it is prompted the way a language model is, but for control — language goes in and only a decision comes out](../assets/prompting-through-an-encoded-channel.svg)
+
 ```python
 observation_space = gym.spaces.Dict({
     "sensors":     gym.spaces.Box(-np.inf, np.inf, shape=(16,)),
