@@ -3,7 +3,7 @@
 A four-part read on what Causal GPT-RL is and how you steer it, in order. Start
 here if you are new.
 
-![A rollout unrolled — the state arrives from the environment at every step, while the action is produced by the model and fed back in as part of the next token](../assets/action-generation-in-a-rollout.svg)
+![A rollout unrolled — each token pairs the current state with the action for it, that action moves the environment, and the environment returns the next state; meanwhile the model generates the next action from completed state-action pairs, not from the state it just received](../assets/action-generation-in-a-rollout.svg)
 
 The loop in [the docs index](../README.md) is the one every RL system shares.
 This is where ours departs from it: the action does not merely leave the model,

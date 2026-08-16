@@ -1,23 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 620" width="1260" height="620" font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 592" width="1260" height="592" font-family="Segoe UI, Arial, sans-serif">
   <title>Causal GPT-RL — How an Action Is Generated in a Rollout</title>
-  <desc>A rollout unrolled: each token pairs a state with an action. The state arrives from the environment at every step, while the action is produced by the model and fed back in as part of the next token, so the policy conditions on its own output.</desc>
-  <rect width="1260" height="620" fill="#ffffff"/>
+  <desc>A rollout unrolled: each token pairs the current state with the action taken from it. That action acts on the environment, which returns the next state — the state of the following token. The model meanwhile generates the next action from the completed state-action pairs behind it, not from the state it just received.</desc>
+  <rect width="1260" height="592" fill="#ffffff"/>
 
   <!-- ================= TITLE ================= -->
   <text x="630" y="64" text-anchor="middle" font-size="40" font-weight="700" fill="#404040">How an Action Is Generated in a Rollout</text>
 
-  <!-- ================= THE WORLD SUPPLIES STATE ================= -->
+  <!-- ================= THE ENVIRONMENT MAKES ONE TRANSITION ================= -->
   <rect x="60" y="140" width="1140" height="64" rx="18" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
-  <text x="630" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#6b4f9e">Your environment — a new state to act on, every step</text>
+  <text x="630" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#6b4f9e">Your environment — one transition per step</text>
 
   <!-- ================= STEP t ================= -->
   <rect x="120" y="330" width="200" height="100" rx="18" fill="#404040"/>
   <path d="M170 204 V 340" fill="none" stroke="#c4a7e7" stroke-width="4"/>
   <polygon points="170,356 159,336 181,336" fill="#c4a7e7"/>
+  <text x="156" y="248" text-anchor="end" font-size="16" font-weight="600" fill="#6b4f9e" xml:space="preserve">current state <tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t</tspan></text>
   <circle cx="170" cy="380" r="28" fill="#c4a7e7"/>
   <text x="170" y="388" text-anchor="middle" font-size="21" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="13">t</tspan></text>
   <circle cx="270" cy="380" r="28" fill="#f6c68a"/>
   <text x="270" y="388" text-anchor="middle" font-size="21" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="13">t</tspan></text>
+
+  <!-- the action goes back out to the world -->
+  <path d="M270 352 V 222" fill="none" stroke="#c98a2e" stroke-width="4"/>
+  <polygon points="270,206 259,226 281,226" fill="#c98a2e"/>
+  <text x="290" y="290" font-size="16" font-weight="600" fill="#9a6a1e" xml:space="preserve">action <tspan font-style="italic">a</tspan><tspan dy="4" font-size="11">t</tspan><tspan dy="-4"> for state </tspan><tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t</tspan></text>
+
   <text x="220" y="458" text-anchor="middle" font-size="15" fill="#8a8a8a">one token = [ state , action ]</text>
 
   <path d="M320 380 H 366" fill="none" stroke="#404040" stroke-width="3"/>
@@ -38,10 +45,16 @@
   <rect x="700" y="330" width="200" height="100" rx="18" fill="#404040"/>
   <path d="M750 204 V 340" fill="none" stroke="#c4a7e7" stroke-width="4"/>
   <polygon points="750,356 739,336 761,336" fill="#c4a7e7"/>
+  <text x="732" y="248" text-anchor="end" font-size="16" font-weight="600" fill="#6b4f9e" xml:space="preserve">next state <tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t+1</tspan><tspan dy="-4"> from action </tspan><tspan font-style="italic">a</tspan><tspan dy="4" font-size="11">t</tspan></text>
   <circle cx="750" cy="380" r="28" fill="#c4a7e7"/>
   <text x="750" y="388" text-anchor="middle" font-size="19" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="12">t+1</tspan></text>
   <circle cx="850" cy="380" r="28" fill="#f6c68a"/>
   <text x="850" y="388" text-anchor="middle" font-size="19" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="12">t+1</tspan></text>
+
+  <!-- the same move again, one step later -->
+  <path d="M850 352 V 222" fill="none" stroke="#c98a2e" stroke-width="4"/>
+  <polygon points="850,206 839,226 861,226" fill="#c98a2e"/>
+  <text x="870" y="290" font-size="16" font-weight="600" fill="#9a6a1e" xml:space="preserve">action <tspan font-style="italic">a</tspan><tspan dy="4" font-size="11">t+1</tspan><tspan dy="-4"> for state </tspan><tspan font-style="italic">s</tspan><tspan dy="4" font-size="11">t+1</tspan></text>
 
   <path d="M900 380 H 946" fill="none" stroke="#404040" stroke-width="3"/>
   <polygon points="952,380 942,374 942,386" fill="#404040"/>
@@ -59,8 +72,8 @@
   <!-- ================= THE ACTION FEEDS ITSELF BACK ================= -->
   <path d="M600 414 C 640 476, 810 476, 850 414" fill="none" stroke="#c98a2e" stroke-width="3"/>
   <polygon points="851,410 838,424 856,421" fill="#c98a2e"/>
-  <text x="725" y="512" text-anchor="middle" font-size="17" font-style="italic" font-weight="600" fill="#9a6a1e">the same action goes straight back in</text>
 
   <!-- ================= CAPTION ================= -->
-  <text x="630" y="566" text-anchor="middle" font-size="19" fill="#404040">The state arrives from the environment; the model generates its own action — so a rollout runs on its own history.</text>
+  <text x="630" y="524" text-anchor="middle" font-size="18" font-weight="700" fill="#404040" xml:space="preserve">Causal GPT-RL does not compute the action <tspan font-style="italic">a</tspan><tspan dy="5" font-size="12">t+1</tspan><tspan dy="-5"> from the state </tspan><tspan font-style="italic">s</tspan><tspan dy="5" font-size="12">t+1</tspan><tspan dy="-5"> it just received.</tspan></text>
+  <text x="630" y="550" text-anchor="middle" font-size="18" font-weight="700" fill="#404040" xml:space="preserve">It generates <tspan font-style="italic">a</tspan><tspan dy="5" font-size="12">t+1</tspan><tspan dy="-5"> from completed state–action pairs.</tspan></text>
 </svg>
