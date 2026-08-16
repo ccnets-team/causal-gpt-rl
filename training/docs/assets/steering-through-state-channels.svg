@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 592" width="1260" height="592" font-family="Segoe UI, Arial, sans-serif">
+  <title>Causal GPT-RL — Shaping Behavior Through State</title>
+  <desc>What the model conditions on is a cache it keeps, not a message it is sent. The cache holds two groups: the action half, which the model writes itself, and the state half, which is yours to compose — you put an action mask and an instruction into it while the environment supplies the observation. The parts are coloured by where each came from, and the connections into the cache are plain lines rather than arrows because they are what the context is made of, not a sequence of steps. Emitting an action and keeping it are the same move, which is why an action always comes out and why its output cannot be masked. Keeping the action legal is therefore the adapter's job on your side, and it then reaches the world, which returns the next observation.</desc>
+  <rect width="1260" height="592" fill="#ffffff"/>
+
+  <!-- ================= TITLE ================= -->
+  <text x="630" y="64" text-anchor="middle" font-size="40" font-weight="700" fill="#404040">Shaping Behavior Through <tspan fill="#6b4f9e">State</tspan></text>
+
+  <!-- ================= THE MODEL CACHE (drawn first; everything lands on it) ================= -->
+  <rect x="440" y="176" width="200" height="234" rx="18" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
+  <text x="540" y="204" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">Model Cache</text>
+
+  <!-- group: action — the model writes this half -->
+  <text x="462" y="224" text-anchor="start" font-size="12" font-weight="700" fill="#9a6a1e">action</text>
+  <rect x="462" y="230" width="156" height="30" rx="15" fill="#f6c68a"/>
+  <text x="540" y="250" text-anchor="middle" font-size="14" font-weight="600" fill="#2b2b2b">actions</text>
+
+  <!-- group: state — yours to compose -->
+  <text x="462" y="290" text-anchor="start" font-size="12" font-weight="700" fill="#6b4f9e">state</text>
+  <rect x="462" y="298" width="156" height="30" rx="15" fill="#6b4f9e"/>
+  <text x="540" y="318" text-anchor="middle" font-size="14" font-weight="600" fill="#ffffff">action mask</text>
+
+  <rect x="462" y="332" width="156" height="30" rx="15" fill="#6b4f9e"/>
+  <text x="540" y="352" text-anchor="middle" font-size="14" font-weight="600" fill="#ffffff">instruction</text>
+
+  <rect x="462" y="366" width="156" height="30" rx="15" fill="#c4a7e7"/>
+  <text x="540" y="386" text-anchor="middle" font-size="14" font-weight="600" fill="#2b2b2b">observation</text>
+
+  <text x="540" y="432" text-anchor="middle" font-size="14" font-style="italic" fill="#8a8a8a">the context the model reads</text>
+
+  <!-- ================= SOURCE: YOU ================= -->
+  <rect x="40" y="172" width="170" height="76" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <text x="125" y="219" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">You</text>
+
+  <path d="M210 210 H 380 V 347" fill="none" stroke="#6b4f9e" stroke-width="3"/>
+  <path d="M380 313 H 462" fill="none" stroke="#6b4f9e" stroke-width="3"/>
+  <path d="M380 347 H 462" fill="none" stroke="#6b4f9e" stroke-width="3"/>
+  <text x="295" y="198" text-anchor="middle" font-size="16" font-weight="700" fill="#6b4f9e">state you add</text>
+
+  <!-- ================= SOURCE: ENVIRONMENT ================= -->
+  <rect x="40" y="343" width="170" height="76" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <text x="125" y="390" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">Environment</text>
+
+  <path d="M210 381 H 462" fill="none" stroke="#a98fd0" stroke-width="3"/>
+  <text x="295" y="369" text-anchor="middle" font-size="16" font-weight="700" fill="#8f6fbf">state from env</text>
+
+  <!-- ================= CACHE -> MODEL (attached, not sent) ================= -->
+  <path d="M640 293 H 686" fill="none" stroke="#8f6fbf" stroke-width="3"/>
+
+  <!-- ================= THE MODEL ================= -->
+  <rect x="686" y="253" width="190" height="80" rx="16" fill="#404040"/>
+  <text x="781" y="301" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">Causal GPT-RL</text>
+
+  <!-- emitted and kept in the same move -->
+  <path d="M876 293 H 934" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="942,293 930,287 930,299" fill="#c98a2e"/>
+  <path d="M905 293 C 905 210, 878 158, 800 158 H 700 C 668 158, 656 178, 656 210 V 245 H 630" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="618,245 632,238 632,252" fill="#c98a2e"/>
+  <circle cx="905" cy="293" r="5" fill="#c98a2e"/>
+  <text x="750" y="144" text-anchor="middle" font-size="15" font-style="italic" font-weight="600" fill="#9a6a1e">kept as history</text>
+
+  <!-- ================= ACTION ================= -->
+  <circle cx="972" cy="293" r="30" fill="#f6c68a"/>
+  <text x="972" y="304" text-anchor="middle" font-size="26" font-style="italic" fill="#2b2b2b">a</text>
+  <text x="972" y="346" text-anchor="middle" font-size="14" font-weight="600" fill="#9a6a1e">always emitted</text>
+
+  <path d="M1002 293 H 1040" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="1048,293 1036,287 1036,299" fill="#c98a2e"/>
+
+  <!-- ================= ADAPTER ================= -->
+  <rect x="1056" y="257" width="150" height="72" rx="16" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2.5"/>
+  <text x="1131" y="287" text-anchor="middle" font-size="19" font-weight="700" fill="#404040">Adapter</text>
+  <text x="1131" y="309" text-anchor="middle" font-size="12" fill="#8a8a8a">your side</text>
+
+  <!-- ================= BACK TO THE WORLD ================= -->
+  <path d="M1131 329 V 458 Q1131 478 1111 478 H 145 Q125 478 125 458 V 427"
+        fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="125,419 117,433 133,433" fill="#c98a2e"/>
+  <text x="640" y="466" text-anchor="middle" font-size="16" font-style="italic" font-weight="600" fill="#9a6a1e">the action reaches the world</text>
+
+  <!-- ================= CAPTION ================= -->
+  <text x="630" y="528" text-anchor="middle" font-size="19" fill="#404040">What you add to the state is how you steer.</text>
+  <text x="630" y="556" text-anchor="middle" font-size="19" fill="#404040">The model is informed; the adapter enforces.</text>
+</svg>

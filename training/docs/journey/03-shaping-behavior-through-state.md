@@ -14,6 +14,8 @@ step.** That fact is a design tool: anything you add to the observation, the mod
 learns to condition on. Two moves cover most needs — tell it *what's allowed*, and
 tell it *what to pursue*. Both are just channels on your `observation_space`.
 
+![What the model conditions on is a cache it keeps — you put an action mask and an instruction into it, the environment supplies the observation, and the model's own actions are kept there too; emitting an action and keeping it are the same move, which is why one always comes out and why keeping it legal is your adapter's job](../assets/steering-through-state-channels.svg)
+
 ---
 
 ## Action masking — what's allowed
