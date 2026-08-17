@@ -25,6 +25,11 @@ GPT-style transformers (Llama) running as RL policies in continuous and discrete
 **Evaluating the product?** → [Available Policies](#available-policies) for what
 is published and how it scores.
 
+No expert demonstrations required: trained only on simple and medium
+offline trajectories, several bundles outperform both. Horizon is adjustable at
+inference, with stable retention beyond the training window. Try the bundles on
+[Hugging Face](https://huggingface.co/ccnets).
+
 Both LLM generation and RL interaction are autoregressive:
 
 ```text
@@ -119,10 +124,10 @@ the API reference, and ONNX export.
 
 ## Rollout History
 
-A bundle's `context_length` is its trained context window. It is fixed in the
-bundle and is not changeable at inference.
+A bundle's `context_length` is the length used in training, and not a limit at
+inference.
 
-`kv_cache_max_len` — how much past a rollout retains — *is* a load-time knob. It
+`kv_cache_max_len` — how much past a rollout retains — is a load-time knob. It
 defaults to the bundle's own `context_length`, which keeps a rollout inside the
 window the policy was measured on:
 

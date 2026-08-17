@@ -64,16 +64,19 @@ exporting one bundle several times is how per-context variants of the same
 policy are published. A shorter window costs less per call and carries less
 history.
 
-Exporting *longer* than the bundle's own context length is not checked, and the
-two backbones fail differently. Each bundle carries a position capacity sized
-from its training context — 8× for Llama, 2× for GPT-2. A GPT-2 bundle asked for
-more raises `IndexError` inside the backbone, because its position embeddings
-are a trained lookup table. A Llama bundle exports without complaint: RoPE
-computes positions instead of looking them up, so a graph is produced at any
-length. Verification does not catch this — it compares ONNX against PyTorch, and
-both run equally far outside what the policy was trained on. Treat the bundle's
-own context length as the supported ceiling, and measure before deploying
-anything longer.
+ONNX exports use a **fixed context length chosen at export time**. Exporting
+beyond the bundle's trained `context_length` is allowed, but backend limits
+differ: GPT-2 eventually hits its learned positional-embedding limit and raises
+`IndexError`, while Llama can export longer windows because RoPE does not use a
+fixed position lookup table. ONNX verification does not validate whether that
+longer window is meaningful for the policy — it only checks ONNX against PyTorch
+at the chosen length.
+
+The **PyTorch runtime has no fixed exported window**. Its KV cache grows with the
+rollout up to `kv_cache_max_len`, so retention can be changed at load time
+without rebuilding the model. In short: **ONNX fixes the window at export;
+PyTorch keeps retention configurable at load time.** Any ONNX graph exported
+beyond the bundle's trained context should be measured before deployment.
 
 The output is one self-contained ONNX file. Raw observations are inputs because
 bundle state normalization is embedded in the graph. Continuous, discrete,
