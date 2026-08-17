@@ -11,6 +11,7 @@ yours to run, and to continue training from.
 | Document | What it answers |
 |---|---|
 | [Running a job](aws-marketplace-training.md) | Launching a training job after subscribing, and reading its logs and metrics. **Start here.** |
+| [Quickstart notebook](../../../examples/aws_marketplace/aws_train_quickstart.ipynb) | The same path as runnable cells: dataset into S3, launch, load a bundle mid-run, open the finished model. |
 | [Training inputs](sagemaker-inputs.md) | The dataset channel and every hyperparameter — what the job adjusts for you, and what it refuses to start with. |
 | [Checkpoints and bundles](sagemaker-checkpoints.md) | The bundles delivered while the job runs, and what the final artifact contains. |
 | [Checkpoint Score](checkpoint-score.md) | The metric that picks the canonical bundle — and what it does not tell you. |
