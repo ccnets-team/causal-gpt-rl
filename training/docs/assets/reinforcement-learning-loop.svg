@@ -13,14 +13,6 @@
   <!-- ============ THE LOOP (scaled down as one unit) ============ -->
   <g transform="translate(80,63) scale(0.7)">
 
-    <!-- Top action arc -->
-    <path d="M 410 210 C 485 95, 715 95, 790 210"
-          fill="none" stroke="#c98a2e" stroke-width="3.5" stroke-linecap="round"/>
-    <polygon points="790,210 773,202 779,220" fill="#c98a2e"/>
-    <text x="600" y="111" text-anchor="middle" font-size="21" font-weight="600" fill="#9a6a1e">
-      Action
-    </text>
-
     <!-- Cards -->
     <rect x="125" y="210" width="350" height="320" rx="16"
           fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
@@ -75,6 +67,15 @@
     </g>
     <text x="900" y="470" text-anchor="middle" font-size="28" font-weight="700" fill="#404040">
       Environment
+    </text>
+
+    <!-- Top action arc — drawn after the cards, like the arcs below, so the
+         opaque card does not paint over where the arrow lands -->
+    <path d="M 410 210 C 485 95, 715 95, 790 210"
+          fill="none" stroke="#c98a2e" stroke-width="3.5" stroke-linecap="round"/>
+    <polygon points="790,210 773,202 779,220" fill="#c98a2e"/>
+    <text x="600" y="111" text-anchor="middle" font-size="21" font-weight="600" fill="#9a6a1e">
+      Action
     </text>
 
     <!-- Bottom observation arc (inner) -->
