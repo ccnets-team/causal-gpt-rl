@@ -38,6 +38,7 @@ you do not need to normalize them yourself.
 
 ```python
 from sagemaker.algorithm import AlgorithmEstimator
+from sagemaker.inputs import TrainingInput
 
 algorithm_arn = "<marketplace-algorithm-arn>"
 role_arn = "<your-sagemaker-execution-role-arn>"
@@ -59,9 +60,16 @@ estimator = AlgorithmEstimator(
 )
 
 estimator.fit({
-    "training": "s3://my-bucket/cgrl/datasets/minari/farama/"
+    "training": TrainingInput(
+        "s3://my-bucket/cgrl/datasets/minari/farama/",
+        content_type="application/x-minari",
+    )
 })
 ```
+
+The `training` channel declares one content type, `application/x-minari`, and
+one input mode, `File`. The estimator already runs in `File` mode, so the
+channel inherits it and does not name it.
 
 ## Monitoring Training Logs
 

@@ -13,13 +13,22 @@ no vendor-hosted corpus and no download path out of the container, which is what
 `data_source` being pinned to `"byo"` means.
 
 Input is Minari-based. Upload Minari dataset directories to S3 and pass that root
-as the single input channel, named `training`.
+as the single input channel, named `training`. The channel declares one content
+type, `application/x-minari`, and one input mode, `File`.
 
 ```python
+from sagemaker.inputs import TrainingInput
+
 estimator.fit({
-    "training": "s3://my-bucket/cgrl/datasets/minari/farama/"
+    "training": TrainingInput(
+        "s3://my-bucket/cgrl/datasets/minari/farama/",
+        content_type="application/x-minari",
+    )
 })
 ```
+
+The input mode is left off the channel here because the estimator already runs
+in `File` mode and the channel inherits it.
 
 That prefix is the dataset root, and `dataset_ids` are resolved relative to it.
 The tree under it is the one Minari itself writes, so uploading a local
