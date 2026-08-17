@@ -52,7 +52,7 @@ estimator = AlgorithmEstimator(
     # it the job produces one model, at the end.
     checkpoint_s3_uri="s3://my-bucket/cgrl/checkpoints/my-job/",
     hyperparameters={
-        "dataset_ids": "mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0",
+        "dataset_ids": "mujoco/walker2d/simple-v0,mujoco/walker2d/medium-v0",
         "max_steps": "100000",
         "batch_size": "128",
     },
@@ -76,21 +76,21 @@ The summary is printed as three titled sections.
 ```text
 ================ Dataset Configuration ================
 Dataset validation: PASSED
-Dataset IDs: mujoco/humanoid/simple-v0
+Dataset IDs: mujoco/walker2d/simple-v0
 Dataset variants: simple-v0
 Datasets: 1
-Episodes: 1039
-Transitions: 999269
-Observation space: Box(-inf, inf, (348,), float64)
-Action space: Box(-0.4, 0.4, (17,), float32)
-Flattened observation shape: (348,)
-Flattened action shape: (17,)
-State specs: [continuous(size=348)]
-Action specs: [continuous(size=17)]
+Episodes: 1017
+Transitions: 999942
+Observation space: Box(-inf, inf, (17,), float64)
+Action space: Box(-1.0, 1.0, (6,), float32)
+Flattened observation shape: (17,)
+Flattened action shape: (6,)
+State specs: [continuous(size=17)]
+Action specs: [continuous(size=6)]
 =======================================================
 ================ Evaluation Configuration ==============
 Evaluation mode: offline
-Requested env ID: Humanoid-v5
+Requested env ID: Walker2d-v5
 Environment source: disabled
 Checkpoint metric: eval_offline/checkpoint_score
 Metric direction: max

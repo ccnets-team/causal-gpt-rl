@@ -28,7 +28,7 @@ The tree under it is the one Minari itself writes, so uploading a local
 ```text
 s3://my-bucket/cgrl/datasets/minari/farama/
   mujoco/
-    humanoid/
+    walker2d/
       simple-v0/
         data/
           main_data.hdf5
@@ -36,7 +36,7 @@ s3://my-bucket/cgrl/datasets/minari/farama/
       medium-v0/
 ```
 
-`dataset_ids = mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0` resolves to
+`dataset_ids = mujoco/walker2d/simple-v0,mujoco/walker2d/medium-v0` resolves to
 those two directories. An id is a Minari dataset id —
 `<namespace>/<name>/<version>` — and it is also the path, so the two always match.
 
@@ -47,7 +47,7 @@ in this repository turns per-episode `.npz` files into an env-less Minari
 dataset:
 
 ```bash
-python collection/build_minari.py --raw raw/ --dataset-id mujoco/humanoid/simple-v0
+python collection/build_minari.py --raw raw/ --dataset-id mujoco/walker2d/simple-v0
 ```
 
 Each `.npz` holds one episode: `observations` of length `T+1`, and `actions`,
@@ -76,7 +76,7 @@ it before letting the run continue — see
 
 | Name | Description | Example |
 | --- | --- | --- |
-| `dataset_ids` | Minari dataset ids to train on, relative to the `training` channel root. Pass multiple ids as a comma-separated string. | `mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0` |
+| `dataset_ids` | Minari dataset ids to train on, relative to the `training` channel root. Pass multiple ids as a comma-separated string. | `mujoco/walker2d/simple-v0,mujoco/walker2d/medium-v0` |
 
 ## What You Can Set
 
@@ -246,7 +246,7 @@ The SageMaker `VolumeSizeInGB` default of 30GB also holds your dataset and the c
 
 ```python
 hyperparameters = {
-    "dataset_ids": "mujoco/humanoid/simple-v0,mujoco/humanoid/medium-v0",
+    "dataset_ids": "mujoco/walker2d/simple-v0,mujoco/walker2d/medium-v0",
     "max_steps": "100000",
     "batch_size": "128",
     "context_length": "32",
@@ -263,7 +263,7 @@ For a product smoke test, reduce `max_steps`.
 
 ```python
 hyperparameters = {
-    "dataset_ids": "mujoco/humanoid/simple-v0",
+    "dataset_ids": "mujoco/walker2d/simple-v0",
     "max_steps": "1600",
 }
 ```

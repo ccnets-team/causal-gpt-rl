@@ -29,7 +29,7 @@ from training import Hyperparameters
 
 hp = Hyperparameters()
 hp.set_config(
-    dataset_ids=["mujoco/humanoid/simple-v0"],
+    dataset_ids=["mujoco/walker2d/simple-v0"],
     max_steps=100_000,
 )
 
