@@ -16,6 +16,7 @@ tags:
 
 [![PyPI](https://img.shields.io/pypi/v/causal-gpt-rl)](https://pypi.org/project/causal-gpt-rl/)
 [![Python](https://img.shields.io/pypi/pyversions/causal-gpt-rl)](https://pypi.org/project/causal-gpt-rl/)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-ccnets-yellow)](https://huggingface.co/ccnets)
 [![License: PolyForm NC 1.0.0](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-blue)](https://polyformproject.org/licenses/noncommercial/1.0.0)
 
 GPT-style transformers (Llama) running as RL policies in continuous and discrete control environments.
