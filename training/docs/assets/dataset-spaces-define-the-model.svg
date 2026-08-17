@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1176" width="1000" height="1176" font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 1176" width="1060" height="1176" font-family="Segoe UI, Arial, sans-serif">
   <title>Causal GPT-RL — Your Dataset Spaces Define the Model</title>
   <desc>Autoregressive I/O convention and build-time I/O schema construction: Minari offline dataset spaces define the DataSpec schema, which defines the model's input and output heads.</desc>
-  <rect width="1000" height="1176" fill="#ffffff"/>
+  <rect width="1060" height="1176" fill="#ffffff"/>
 
   <defs>
     <!-- Action space feeds BOTH input (purple) and output (orange) -->
@@ -16,7 +16,7 @@
   </defs>
 
   <!-- ================= TITLE ================= -->
-  <text x="500" y="52" text-anchor="middle" font-size="30" font-weight="700" fill="#404040">Causal GPT-RL: <tspan font-weight="600" fill="#d1544a">Your Dataset Spaces Define the Model</tspan></text>
+  <text x="530" y="52" text-anchor="middle" font-size="30" font-weight="700" fill="#404040">Causal GPT-RL: <tspan font-weight="600" fill="#d1544a">Your Dataset Spaces Define the Model</tspan></text>
 
   <!-- ================= INPUT CONTEXT ================= -->
   <text x="275" y="112" text-anchor="middle" font-size="20" font-weight="700" fill="#8f6fbf">Input context</text>
@@ -48,23 +48,23 @@
   <polygon points="678,284 670,268 686,268" fill="#404040"/>
 
   <!-- ================= OUTPUT (folded below the model) ================= -->
-  <rect x="540" y="292" width="430" height="200" rx="14" fill="#fdf6ec" stroke="#f0dcc0" stroke-width="2"/>
-  <text x="755" y="320" text-anchor="middle" font-size="20" font-weight="700" fill="#c98a2e">Output</text>
-  <text x="755" y="342" text-anchor="middle" font-size="13" font-weight="600" fill="#404040">output token → (aₜ₊₁, Vₜ₊₁, eosₜ)</text>
+  <rect x="540" y="292" width="490" height="200" rx="14" fill="#fdf6ec" stroke="#f0dcc0" stroke-width="2"/>
+  <text x="785" y="320" text-anchor="middle" font-size="20" font-weight="700" fill="#c98a2e">Output</text>
+  <text x="785" y="342" text-anchor="middle" font-size="13" font-weight="600" fill="#404040">output token → (aₜ₊₁, Vₜ₊₁, eosₜ)</text>
 
-  <circle cx="612" cy="396" r="27" fill="#f6c68a"/>
-  <text x="612" y="403" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="11">t+1</tspan></text>
-  <circle cx="755" cy="396" r="27" fill="#f6c68a"/>
-  <text x="755" y="403" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">V<tspan dy="6" font-size="11">t+1</tspan></text>
-  <circle cx="898" cy="396" r="27" fill="#f6c68a" stroke="#e0a860" stroke-width="3" stroke-dasharray="6 6"/>
-  <text x="898" y="402" text-anchor="middle" font-size="15" font-weight="700" fill="#2b2b2b">eos<tspan dy="6" font-size="10">t</tspan></text>
+  <circle cx="642" cy="396" r="27" fill="#f6c68a"/>
+  <text x="642" y="403" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="11">t+1</tspan></text>
+  <circle cx="785" cy="396" r="27" fill="#f6c68a"/>
+  <text x="785" y="403" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">V<tspan dy="6" font-size="11">t+1</tspan></text>
+  <circle cx="928" cy="396" r="27" fill="#f6c68a" stroke="#e0a860" stroke-width="3" stroke-dasharray="6 6"/>
+  <text x="928" y="402" text-anchor="middle" font-size="15" font-weight="700" fill="#2b2b2b">eos<tspan dy="6" font-size="10">t</tspan></text>
 
-  <text x="612" y="446" text-anchor="middle" font-weight="600" font-size="12.5" fill="#404040">action at t+1</text>
-  <text x="755" y="446" text-anchor="middle" font-weight="600" font-size="12.5" fill="#404040">state value at t+1</text>
-  <text x="898" y="446" text-anchor="middle" font-weight="600" font-size="12.5" fill="#404040">episode-end probability</text>
+  <text x="642" y="446" text-anchor="middle" font-weight="600" font-size="12.5" fill="#404040">action at t+1</text>
+  <text x="785" y="446" text-anchor="middle" font-weight="600" font-size="12.5" fill="#404040">state value at t+1</text>
+  <text x="928" y="446" text-anchor="middle" font-weight="600" font-size="12.5" fill="#404040">episode-end probability</text>
 
-  <text x="755" y="468" text-anchor="middle" font-size="12" fill="#9b6fbf">outputs: next action &amp; value aligned to (t+1)</text>
-  <text x="755" y="485" text-anchor="middle" font-size="12" fill="#9b6fbf">termination: done label of transition (t)</text>
+  <text x="785" y="468" text-anchor="middle" font-size="12" fill="#9b6fbf">outputs: next action &amp; value aligned to (t+1)</text>
+  <text x="785" y="485" text-anchor="middle" font-size="12" fill="#9b6fbf">termination: done label of transition (t)</text>
 
   <!-- ================= TOKEN EXPANSION ================= -->
   <rect x="40" y="292" width="480" height="180" rx="14" fill="#f7f4fb" stroke="#e2d6f0" stroke-width="2"/>
@@ -95,53 +95,53 @@
   <text x="394" y="523" text-anchor="start" font-weight="600" font-size="13" fill="#404040">Action — feeds both sides</text>
 
   <!-- ================= I/O SCHEMA CONSTRUCTION (top-down funnel) ================= -->
-  <line x1="40" y1="558" x2="960" y2="558" stroke="#e2d6f0" stroke-width="2"/>
-  <text x="500" y="604" text-anchor="middle" font-size="26" font-weight="700" fill="#6b4f9e">I/O schema construction</text>
-  <text x="500" y="630" text-anchor="middle" font-weight="600" font-size="13" fill="#404040">Minari offline dataset spaces → DataSpec schema → Model I/O heads at build-time</text>
+  <line x1="40" y1="558" x2="1020" y2="558" stroke="#e2d6f0" stroke-width="2"/>
+  <text x="530" y="604" text-anchor="middle" font-size="26" font-weight="700" fill="#6b4f9e">I/O schema construction</text>
+  <text x="530" y="630" text-anchor="middle" font-weight="600" font-size="13" fill="#404040">Minari offline dataset spaces → DataSpec schema → Model I/O heads at build-time</text>
 
-  <rect x="410" y="652" width="180" height="60" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
-  <text x="500" y="677" text-anchor="middle" font-size="16" font-weight="700" fill="#404040">Your Dataset</text>
-  <text x="500" y="697" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Minari offline</text>
+  <rect x="440" y="652" width="180" height="60" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
+  <text x="530" y="677" text-anchor="middle" font-size="16" font-weight="700" fill="#404040">Your Dataset</text>
+  <text x="530" y="697" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Minari offline</text>
 
-  <path d="M500 712 V 730 H 350 V 740" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <path d="M500 730 H 650 V 740" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="350,752 343,738 357,738" fill="#404040"/>
-  <polygon points="650,752 643,738 657,738" fill="#404040"/>
+  <path d="M530 712 V 730 H 360 V 740" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <path d="M530 730 H 700 V 740" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="360,752 353,738 367,738" fill="#404040"/>
+  <polygon points="700,752 693,738 707,738" fill="#404040"/>
 
-  <rect x="215" y="752" width="270" height="62" rx="14" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
-  <text x="350" y="777" text-anchor="middle" font-size="16" font-weight="700" fill="#6b4f9e">Observation Space</text>
-  <text x="350" y="797" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Box · Discrete · Dict …</text>
+  <rect x="205" y="752" width="310" height="62" rx="14" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
+  <text x="360" y="777" text-anchor="middle" font-size="16" font-weight="700" fill="#6b4f9e">Observation Space</text>
+  <text x="360" y="797" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Box · Discrete · Dict …</text>
 
-  <rect x="515" y="752" width="270" height="62" rx="14" fill="url(#spaceActionFill)" stroke="url(#spaceActionStroke)" stroke-width="2"/>
-  <text x="650" y="777" text-anchor="middle" font-size="16" font-weight="700" fill="#9a6a1e">Action Space</text>
-  <text x="650" y="797" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Box · Discrete · MultiDiscrete · MultiBinary …</text>
+  <rect x="545" y="752" width="310" height="62" rx="14" fill="url(#spaceActionFill)" stroke="url(#spaceActionStroke)" stroke-width="2"/>
+  <text x="700" y="777" text-anchor="middle" font-size="16" font-weight="700" fill="#9a6a1e">Action Space</text>
+  <text x="700" y="797" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Box · Discrete · MultiDiscrete · MultiBinary …</text>
 
-  <path d="M350 814 V 832 H 650 V 814" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <path d="M500 832 V 842" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="500,854 493,840 507,840" fill="#404040"/>
+  <path d="M360 814 V 832 H 700 V 814" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <path d="M530 832 V 842" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="530,854 523,840 537,840" fill="#404040"/>
 
-  <rect x="390" y="854" width="220" height="74" rx="18" fill="#404040"/>
-  <text x="500" y="884" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">schema</text>
-  <text x="500" y="906" text-anchor="middle" font-size="12.5" fill="#c9c9c9">Gym SpaceSpec → DataSpec</text>
+  <rect x="420" y="854" width="220" height="74" rx="18" fill="#404040"/>
+  <text x="530" y="884" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">schema</text>
+  <text x="530" y="906" text-anchor="middle" font-size="12.5" fill="#c9c9c9">Gym SpaceSpec → DataSpec</text>
 
-  <path d="M500 928 V 946 H 350 V 956" fill="none" stroke="#8f6fbf" stroke-width="3"/>
-  <polygon points="350,968 343,954 357,954" fill="#8f6fbf"/>
-  <path d="M500 946 H 650 V 956" fill="none" stroke="#c98a2e" stroke-width="3"/>
-  <polygon points="650,968 643,954 657,954" fill="#c98a2e"/>
+  <path d="M530 928 V 946 H 360 V 956" fill="none" stroke="#8f6fbf" stroke-width="3"/>
+  <polygon points="360,968 353,954 367,954" fill="#8f6fbf"/>
+  <path d="M530 946 H 700 V 956" fill="none" stroke="#c98a2e" stroke-width="3"/>
+  <polygon points="700,968 693,954 707,954" fill="#c98a2e"/>
 
-  <rect x="215" y="968" width="270" height="62" rx="14" fill="#f2ebfa" stroke="#c4a7e7" stroke-width="2"/>
-  <text x="350" y="993" text-anchor="middle" font-size="16" font-weight="700" fill="#6b4f9e">Input spec</text>
-  <text x="350" y="1013" text-anchor="middle" font-size="12.5" fill="#8a8a8a">state · action · bos</text>
+  <rect x="205" y="968" width="310" height="62" rx="14" fill="#f2ebfa" stroke="#c4a7e7" stroke-width="2"/>
+  <text x="360" y="993" text-anchor="middle" font-size="16" font-weight="700" fill="#6b4f9e">Input spec</text>
+  <text x="360" y="1013" text-anchor="middle" font-size="12.5" fill="#8a8a8a">state · action · bos</text>
 
-  <rect x="515" y="968" width="270" height="62" rx="14" fill="#fdf1e0" stroke="#f6c68a" stroke-width="2"/>
-  <text x="650" y="993" text-anchor="middle" font-size="16" font-weight="700" fill="#9a6a1e">Output spec</text>
-  <text x="650" y="1013" text-anchor="middle" font-size="12.5" fill="#8a8a8a">next action · next value · termination</text>
+  <rect x="545" y="968" width="310" height="62" rx="14" fill="#fdf1e0" stroke="#f6c68a" stroke-width="2"/>
+  <text x="700" y="993" text-anchor="middle" font-size="16" font-weight="700" fill="#9a6a1e">Output spec</text>
+  <text x="700" y="1013" text-anchor="middle" font-size="12.5" fill="#8a8a8a">next action · next value · termination</text>
 
-  <path d="M350 1030 V 1048 H 650 V 1030" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <path d="M500 1048 V 1058" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="500,1070 493,1056 507,1056" fill="#404040"/>
+  <path d="M360 1030 V 1048 H 700 V 1030" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <path d="M530 1048 V 1058" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="530,1070 523,1056 537,1056" fill="#404040"/>
 
-  <rect x="415" y="1070" width="170" height="74" rx="18" fill="#404040"/>
-  <text x="500" y="1100" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">Model</text>
-  <text x="500" y="1122" text-anchor="middle" font-size="12.5" fill="#c9c9c9">Causal GPT-RL θ</text>
+  <rect x="445" y="1070" width="170" height="74" rx="18" fill="#404040"/>
+  <text x="530" y="1100" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">Model</text>
+  <text x="530" y="1122" text-anchor="middle" font-size="12.5" fill="#c9c9c9">Causal GPT-RL θ</text>
 </svg>

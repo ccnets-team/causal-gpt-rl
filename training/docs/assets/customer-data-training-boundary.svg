@@ -100,5 +100,6 @@
 
   <!-- ================= WHAT NEVER CROSSES ================= -->
   <line x1="72" y1="904" x2="380" y2="904" stroke="#e2d6f0" stroke-width="2"/>
-  <text x="72" y="938" text-anchor="start" font-size="14.5" font-weight="700" fill="#6b4f9e">Nothing leaves your side except the dataset you upload</text>
+  <text x="72" y="930" text-anchor="start" font-size="14.5" font-weight="700" fill="#6b4f9e">Nothing leaves your side</text>
+  <text x="72" y="951" text-anchor="start" font-size="14.5" font-weight="700" fill="#6b4f9e">except the dataset you upload</text>
 </svg>
