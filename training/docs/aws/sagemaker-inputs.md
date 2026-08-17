@@ -52,8 +52,9 @@ python collection/build_minari.py --raw raw/ --dataset-id mujoco/humanoid/simple
 
 Each `.npz` holds one episode: `observations` of length `T+1`, and `actions`,
 `rewards`, `terminations`, `truncations` of length `T`. See
-[`collection/README.md`](../../../collection/README.md) for the observation and
-action space declarations, including multi-agent recordings.
+[the input contract](../../../collection/docs/01-the-input-contract.md) for the
+observation and action space declarations, and
+[packaging](../../../collection/docs/03-packaging.md) for multi-agent recordings.
 
 Datasets published on Hugging Face or the Farama registry can be downloaded and
 uploaded as they are — no repackaging.

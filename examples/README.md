@@ -64,16 +64,17 @@ numbers.
 
 ## Build a dataset in the same format
 
-[`unity_collection/`](unity_collection/) is the worked recipe — record rollouts
-from a Unity build, synthesize quality tiers, and package the result. The
-datasets at
+[`unity_collection/`](unity_collection/) is the worked recipe — record
+trajectories from a Unity build, synthesize quality tiers, and package the
+result. The datasets at
 [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets)
 were made this way.
 
 [`../collection/`](../collection/) is the packager underneath it, and it is
 source-agnostic: any source whose episodes fit five typed-vector arrays becomes
-a Minari dataset the same way, Unity or not. Its README is the input contract
-and how to check what came out.
+a Minari dataset the same way, Unity or not. Its
+[docs](../collection/docs/README.md) are the input contract and how to check
+what came out.
 
 ## Environments
 

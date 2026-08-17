@@ -31,7 +31,7 @@ The measurement runner (`../unity/evaluate_onnx.py`) uses the same collection en
 
 1. Get the model-removed Crawler build and the stock `Crawler.onnx` from the
    [envs repo](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs).
-2. Record rollouts (the stock policy driving the build):
+2. Record trajectories (the stock policy driving the build):
 
    ```bash
    python collect.py \
@@ -53,8 +53,8 @@ The measurement runner (`../unity/evaluate_onnx.py`) uses the same collection en
 The recipe ends at the Minari dataset — a portable, env-less trajectory set whose
 observation and action spaces mirror the build's sensors and action spec (see
 [Observation & action spaces](#observation--action-spaces) below). What the
-packager expects on its input side, and how to check what came out, is the
-[`collection/` README](../../collection/README.md).
+packager expects on its input side, and how to check what came out, is in
+[`collection/docs/`](../../collection/docs/README.md).
 
 The same two commands collect **any** build — point `--build`/`--onnx` at it and
 pick a `--dataset-id`. For example the discrete **PushBlock** build (a single
@@ -95,7 +95,7 @@ The collector writes each ego-agent trajectory as one episode and writes match
 relationships (`match_id`, `field_id`, `team_id`, `group_id`) to the adjacent
 `manifest.jsonl`. `--ego-agent` is the packager flag that names whose trajectory
 each episode holds; see
-[Multi-agent recordings](../../collection/README.md#multi-agent-recordings).
+[Multi-agent recordings](../../collection/docs/03-packaging.md#multi-agent-recordings).
 
 The packager consumes the episode arrays, not the `manifest.jsonl` sidecar;
 decentralized shared-policy training therefore sees independent per-agent
@@ -109,7 +109,7 @@ spec, records the obs channels and actions flat, and writes the `spec.json` that
 `build_minari.py` turns into declared spaces — so a build with different sensors
 or actions produces the matching dataset with **no code change**. What those
 declarations may say, and what each shape means for the model that consumes them,
-is the [input contract](../../collection/README.md#the-input-contract).
+is the [input contract](../../collection/docs/01-the-input-contract.md).
 
 Two worked builds:
 
