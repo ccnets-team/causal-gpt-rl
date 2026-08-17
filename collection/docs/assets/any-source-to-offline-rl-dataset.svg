@@ -1,74 +1,74 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 857 762" width="857" height="762" font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 762" width="900" height="762" font-family="Segoe UI, Arial, sans-serif">
   <title>From any source to an offline RL dataset</title>
   <desc>Three entry points join a single path that ends at one Minari dataset. Someone with only an environment enters first and passes through all three stages: get a policy model (trained with Stable-Baselines3, for example PPO), record trajectories, then package. Someone who already has an environment and a policy model has the first stage done and joins at recording. Someone arriving with trajectories already recorded joins at packaging. Packaging is what this directory does — declare the observation and action spaces, preflight the episodes, write the dataset — and the spaces declared there become the model's interface. A dashed arrow leads onward to a note that any offline-RL method can train on the finished dataset — a separate, optional step.</desc>
 
-  <rect width="857" height="762" fill="#ffffff"/>
+  <rect width="900" height="762" fill="#ffffff"/>
 
-  <text x="428" y="52" text-anchor="middle" font-size="29" font-weight="700" fill="#404040">From any source to an offline RL dataset</text>
-  <text x="428" y="81" text-anchor="middle" font-size="14.5" fill="#8a8a8a">Three entry points — where you join depends on what you already have</text>
+  <text x="450" y="52" text-anchor="middle" font-size="29" font-weight="700" fill="#404040">From any source to an offline RL dataset</text>
+  <text x="450" y="81" text-anchor="middle" font-size="14.5" fill="#8a8a8a">Three entry points — where you join depends on what you already have</text>
 
   <!-- ============ entry 1 : an environment ============ -->
-  <rect x="40" y="150" width="350" height="72" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
+  <rect x="40" y="150" width="392" height="72" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
   <circle cx="74" cy="186" r="16" fill="#6b6b6b"/>
   <text x="74" y="192" text-anchor="middle" font-size="16" font-weight="700" fill="#ffffff">1</text>
   <text x="104" y="181" font-size="16" font-weight="700" fill="#404040">An environment</text>
   <text x="104" y="202" font-size="12.5" fill="#8a8a8a">no policy to drive it yet</text>
-  <path d="M390 186 H 418" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="430,186 416,179 416,193" fill="#404040"/>
+  <path d="M432 186 H 460" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="472,186 458,179 458,193" fill="#404040"/>
 
   <!-- stage : get a policy model -->
-  <rect x="442" y="146" width="330" height="80" rx="16" fill="#fdf1e0" stroke="#f6c68a" stroke-width="2"/>
-  <text x="607" y="180" text-anchor="middle" font-size="18" font-weight="700" fill="#9a6a1e">Get a policy model</text>
-  <text x="607" y="202" text-anchor="middle" font-size="12.5" fill="#8a8a8a">train one with SB3 (e.g. PPO)</text>
+  <rect x="484" y="146" width="330" height="80" rx="16" fill="#fdf1e0" stroke="#f6c68a" stroke-width="2"/>
+  <text x="649" y="180" text-anchor="middle" font-size="18" font-weight="700" fill="#9a6a1e">Get a policy model</text>
+  <text x="649" y="202" text-anchor="middle" font-size="12.5" fill="#8a8a8a">train one with SB3 (e.g. PPO)</text>
 
-  <path d="M607 226 V 276" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="607,288 600,274 614,274" fill="#404040"/>
+  <path d="M649 226 V 276" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="649,288 642,274 656,274" fill="#404040"/>
 
   <!-- ============ entry 2 : an environment and a policy model ============ -->
-  <rect x="40" y="292" width="350" height="72" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
+  <rect x="40" y="292" width="392" height="72" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
   <circle cx="74" cy="328" r="16" fill="#6b6b6b"/>
   <text x="74" y="334" text-anchor="middle" font-size="16" font-weight="700" fill="#ffffff">2</text>
   <text x="104" y="323" font-size="16" font-weight="700" fill="#404040">An environment and a policy model</text>
   <text x="104" y="344" font-size="12.5" fill="#8a8a8a">a policy already drives it</text>
-  <path d="M390 328 H 418" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="430,328 416,321 416,335" fill="#404040"/>
+  <path d="M432 328 H 460" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="472,328 458,321 458,335" fill="#404040"/>
 
   <!-- stage : record trajectories -->
-  <rect x="442" y="288" width="330" height="80" rx="16" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
-  <text x="607" y="322" text-anchor="middle" font-size="18" font-weight="700" fill="#6b4f9e">Record trajectories</text>
-  <text x="607" y="344" text-anchor="middle" font-size="12.5" fill="#8a8a8a">write five arrays per episode</text>
+  <rect x="484" y="288" width="330" height="80" rx="16" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
+  <text x="649" y="322" text-anchor="middle" font-size="18" font-weight="700" fill="#6b4f9e">Record trajectories</text>
+  <text x="649" y="344" text-anchor="middle" font-size="12.5" fill="#8a8a8a">write five arrays per episode</text>
 
-  <path d="M607 368 V 418" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="607,430 600,416 614,416" fill="#404040"/>
+  <path d="M649 368 V 418" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="649,430 642,416 656,416" fill="#404040"/>
 
   <!-- ============ entry 3 : recorded trajectories ============ -->
-  <rect x="40" y="434" width="350" height="72" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
+  <rect x="40" y="434" width="392" height="72" rx="14" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2"/>
   <circle cx="74" cy="470" r="16" fill="#6b6b6b"/>
   <text x="74" y="476" text-anchor="middle" font-size="16" font-weight="700" fill="#ffffff">3</text>
   <text x="104" y="465" font-size="16" font-weight="700" fill="#404040">Recorded trajectories</text>
   <text x="104" y="486" font-size="12.5" fill="#8a8a8a">complete episodes, from any source</text>
-  <path d="M390 470 H 418" fill="none" stroke="#6b6b6b" stroke-width="3"/>
-  <polygon points="430,470 416,463 416,477" fill="#404040"/>
+  <path d="M432 470 H 460" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="472,470 458,463 458,477" fill="#404040"/>
 
   <!-- stage : package them -->
-  <rect x="442" y="430" width="330" height="80" rx="16" fill="#404040"/>
-  <text x="607" y="464" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">Package them</text>
-  <text x="607" y="486" text-anchor="middle" font-size="12.5" fill="#c9c9c9">declare the spaces, preflight, write the dataset</text>
+  <rect x="484" y="430" width="330" height="80" rx="16" fill="#404040"/>
+  <text x="649" y="464" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">Package them</text>
+  <text x="649" y="486" text-anchor="middle" font-size="12.5" fill="#c9c9c9">declare the spaces, preflight, write the dataset</text>
 
-  <path d="M607 510 V 560" fill="none" stroke="#8f6fbf" stroke-width="3"/>
-  <polygon points="607,572 600,558 614,558" fill="#8f6fbf"/>
+  <path d="M649 510 V 560" fill="none" stroke="#8f6fbf" stroke-width="3"/>
+  <polygon points="649,572 642,558 656,558" fill="#8f6fbf"/>
 
   <!-- ============ output ============ -->
-  <rect x="397" y="572" width="420" height="88" rx="18" fill="#f2ebfa" stroke="#c4a7e7" stroke-width="2.5"/>
+  <rect x="439" y="572" width="420" height="88" rx="18" fill="#f2ebfa" stroke="#c4a7e7" stroke-width="2.5"/>
   <g stroke="#6b4f9e" fill="none" stroke-width="3.5" stroke-linecap="round">
-    <rect x="430" y="600" width="50" height="10" rx="5"/>
-    <rect x="430" y="616" width="50" height="10" rx="5"/>
-    <rect x="430" y="632" width="50" height="10" rx="5"/>
+    <rect x="472" y="600" width="50" height="10" rx="5"/>
+    <rect x="472" y="616" width="50" height="10" rx="5"/>
+    <rect x="472" y="632" width="50" height="10" rx="5"/>
   </g>
-  <text x="642" y="611" text-anchor="middle" font-size="20" font-weight="700" fill="#6b4f9e">Minari dataset</text>
-  <text x="642" y="634" text-anchor="middle" font-size="12.5" fill="#8a8a8a">declares the interface that becomes your model</text>
+  <text x="684" y="611" text-anchor="middle" font-size="20" font-weight="700" fill="#6b4f9e">Minari dataset</text>
+  <text x="684" y="634" text-anchor="middle" font-size="12.5" fill="#8a8a8a">declares the interface that becomes your model</text>
 
-  <path d="M607 660 V 692" fill="none" stroke="#b8b8be" stroke-width="2.5" stroke-dasharray="7 6"/>
-  <polygon points="607,704 601,691 613,691" fill="#b8b8be"/>
-  <text x="607" y="732" text-anchor="middle" font-size="14" font-style="italic" fill="#8a8a8a">Any offline-RL method can train on it</text>
+  <path d="M649 660 V 692" fill="none" stroke="#b8b8be" stroke-width="2.5" stroke-dasharray="7 6"/>
+  <polygon points="649,704 643,691 655,691" fill="#b8b8be"/>
+  <text x="649" y="732" text-anchor="middle" font-size="14" font-style="italic" fill="#8a8a8a">Any offline-RL method can train on it</text>
 </svg>
