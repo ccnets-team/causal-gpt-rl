@@ -53,7 +53,7 @@ This repository is the public inference runtime: it loads policy bundles, runs G
 - Website: https://ccnets.org
 - LinkedIn: https://www.linkedin.com/company/ccnets
 
-Released under PolyForm Noncommercial 1.0.0. For commercial licensing, contact the maintainers via ccnets.org.
+Released under PolyForm Noncommercial 1.0.0. Commercial use is licensed separately — see [License](#license).
 
 ## Install
 
@@ -177,4 +177,7 @@ python -m twine check dist/*
 
 ## License
 
-Released under PolyForm Noncommercial License 1.0.0. See `LICENSE` for details. For commercial licensing, contact the maintainers via ccnets.org.
+Released under PolyForm Noncommercial License 1.0.0. See `LICENSE` for details.
+Commercial use is licensed separately — through a CCNets Causal GPT-RL Training
+Algorithm subscription on AWS Marketplace, or by contacting the maintainers via
+ccnets.org.
