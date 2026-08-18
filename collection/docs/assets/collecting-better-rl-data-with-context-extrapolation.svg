@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 70 1240 940" width="1240" height="940" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif">
+  <title>Collecting Better RL Data with Transformer Context Extrapolation</title>
+  <desc>A clockwise data-model flywheel. A seed policy creates only the initial dataset. The current dataset trains a transformer policy at context length L. The same trained weights are then used at context length 2L. That policy acts in the environment and records new trajectories, which become the next training dataset. The seed policy is outside the repeating loop. Below the loop, an inline detail compares a trained context length of 32 with a retained KV-cache length of 64 for collecting the next dataset.</desc>
+
+  <rect width="1240" height="1040" fill="#ffffff"/>
+
+  <!-- ================= TITLE ================= -->
+  <text x="620" y="150" text-anchor="middle" font-size="32" font-weight="700" fill="#404040">Collecting Better RL Data with Transformer Context Extrapolation</text>
+
+  <!-- Keep the clock compact and left-aligned, leaving the right side open. -->
+  <g transform="translate(0 105) scale(0.68) translate(0 -28)">
+
+  <!-- ================================================================= -->
+  <!-- ==================== THE FOUR CONNECTING ARCS =================== -->
+  <!-- ================================================================= -->
+
+  <!-- 3 o'clock  to  6 o'clock : the dataset feeds training -->
+  <path d="M1020 649 C 1020 762, 962 880, 852 880" fill="none" stroke="#8f6fbf" stroke-width="3.5" stroke-linecap="round"/>
+  <polygon points="840,880 854,873 854,887" fill="#8f6fbf"/>
+  <rect x="875" y="758" width="350" height="46" rx="10" fill="#ffffff"/>
+  <text x="1050" y="791" text-anchor="middle" font-size="25" font-weight="600" fill="#6b4f9e">train on the current dataset</text>
+
+  <!-- 6 o'clock  to  9 o'clock : training yields the model -->
+  <path d="M400 880 C 296 880, 220 800, 220 661" fill="none" stroke="#c98a2e" stroke-width="3.5" stroke-linecap="round"/>
+  <polygon points="220,649 213,663 227,663" fill="#c98a2e"/>
+  <rect x="120" y="768" width="260" height="46" rx="10" fill="#ffffff"/>
+  <text x="250" y="801" text-anchor="middle" font-size="25" font-weight="600" fill="#9a6a1e">deploy after training</text>
+
+  <!-- 9 o'clock  to  12 o'clock : the extrapolated model goes out to act -->
+  <path d="M220 511 C 220 398, 296 280, 388 280" fill="none" stroke="#c98a2e" stroke-width="3.5" stroke-linecap="round"/>
+  <polygon points="400,280 386,273 386,287" fill="#c98a2e"/>
+  <rect x="90" y="306" width="320" height="82" rx="10" fill="#ffffff"/>
+  <text x="250" y="338" text-anchor="middle" font-size="25" font-weight="600" fill="#9a6a1e">generate actions with</text>
+  <text x="250" y="372" text-anchor="middle" font-size="25" font-weight="600" fill="#9a6a1e">extended context</text>
+
+  <!-- 12 o'clock  to  3 o'clock : the payoff, a better dataset -->
+  <path d="M840 280 C 944 280, 1020 360, 1020 499" fill="none" stroke="#8f6fbf" stroke-width="3.5" stroke-linecap="round"/>
+  <polygon points="1020,511 1013,497 1027,497" fill="#8f6fbf"/>
+  <rect x="875" y="306" width="350" height="82" rx="10" fill="#ffffff"/>
+  <text x="1050" y="338" text-anchor="middle" font-size="25" font-weight="600" fill="#6b4f9e">collect higher-quality</text>
+  <text x="1050" y="372" text-anchor="middle" font-size="25" font-weight="600" fill="#6b4f9e">experience</text>
+
+  <!-- ================================================================= -->
+  <!-- ============================= HUB =============================== -->
+  <!-- ================================================================= -->
+  <circle cx="620" cy="580" r="150" fill="#f0f0f2"/>
+  <text x="620" y="548" text-anchor="middle" font-size="26" font-weight="700" fill="#404040">Better Policy.</text>
+  <text x="620" y="584" text-anchor="middle" font-size="26" font-weight="700" fill="#404040">Better Data.</text>
+  <text x="620" y="620" text-anchor="middle" font-size="26" font-weight="700" fill="#404040">Repeat.</text>
+
+  <!-- ================================================================= -->
+  <!-- =========================== 3 O'CLOCK =========================== -->
+  <!-- ================================================================= -->
+  <rect x="820" y="511" width="400" height="138" rx="18" fill="#f2ebfa" stroke="#c4a7e7" stroke-width="2.5"/>
+  <text x="1020" y="590" text-anchor="middle" font-size="28" font-weight="700" fill="#6b4f9e">Dataset</text>
+
+  <!-- ================================================================= -->
+  <!-- =========================== 6 O'CLOCK =========================== -->
+  <!-- ================================================================= -->
+  <rect x="400" y="811" width="440" height="138" rx="18" fill="#fdf1e0" stroke="#f6c68a" stroke-width="2.5"/>
+  <text x="620" y="872" text-anchor="middle" font-size="28" font-weight="700" fill="#9a6a1e">Transformer Policy</text>
+  <text x="620" y="910" text-anchor="middle" font-size="22" font-weight="600" fill="#8a8a8a">Context Length = L</text>
+
+  <!-- ================================================================= -->
+  <!-- =========================== 9 O'CLOCK =========================== -->
+  <!-- ================================================================= -->
+  <rect x="20" y="511" width="400" height="138" rx="18" fill="#404040"/>
+  <text x="220" y="572" text-anchor="middle" font-size="28" font-weight="700" fill="#ffffff">Context Extrapolation</text>
+  <text x="220" y="610" text-anchor="middle" font-size="22" font-weight="600" fill="#c9c9c9">Context Length = 2L</text>
+
+  <!-- ================================================================= -->
+  <!-- ========================== 12 O'CLOCK =========================== -->
+  <!-- ================================================================= -->
+  <rect x="400" y="211" width="440" height="138" rx="18" fill="#f0f0f2" stroke="#b8b8be" stroke-width="2.5"/>
+  <text x="620" y="290" text-anchor="middle" font-size="28" font-weight="700" fill="#404040">Environment Exploration</text>
+
+  </g>
+
+  <!-- ================= ONE-TIME SEED INPUT ================= -->
+  <!-- The seed policy creates only the first dataset; it is not part of the loop. -->
+  <path d="M965 480 H 844" fill="none" stroke="#6b6b6b" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="832,480 846,473 846,487" fill="#6b6b6b"/>
+
+  <rect x="965" y="440" width="180" height="80" rx="16" fill="#ffffff" stroke="#b8b8be" stroke-width="2.5" stroke-dasharray="7 6"/>
+  <text x="1055" y="488" text-anchor="middle" font-size="18" font-weight="700" fill="#404040">Seed Policy (PPO)</text>
+
+  <rect x="997" y="406" width="116" height="24" rx="12" fill="#f0f0f2"/>
+  <text x="1055" y="423" text-anchor="middle" font-size="11" font-weight="700" fill="#8a8a8a" letter-spacing="0.8">INITIAL ONLY</text>
+
+  <!-- ================= CONTEXT EXTRAPOLATION DETAIL ================= -->
+  <svg x="-220" y="756" width="780" height="265" viewBox="0 78 760 292" preserveAspectRatio="xMidYMid meet">
+    <!-- retention measured from the same first step -->
+    <text x="490" y="104" text-anchor="middle" font-size="21" font-weight="700" fill="#404040">Context Extrapolation</text>
+    <text x="490" y="126" text-anchor="middle" font-size="18" font-weight="600" fill="#6b4f9e">kv_cache_max_len = 64</text>
+    <path d="M270 138 V 154 M270 146 H 700" fill="none" stroke="#404040" stroke-width="3"/>
+    <polygon points="712,146 698,139 698,153" fill="#404040"/>
+
+    <!-- trained window -->
+    <text x="380" y="178" text-anchor="middle" font-size="21" font-weight="700" fill="#9a6a1e">Training</text>
+    <text x="380" y="200" text-anchor="middle" font-size="18" font-weight="600" fill="#8a8a8a">context_length = 32</text>
+    <path d="M270 210 V 226 M270 218 H 478" fill="none" stroke="#c98a2e" stroke-width="3"/>
+    <polygon points="490,218 476,211 476,225" fill="#c98a2e"/>
+    <path d="M270 154 V 210" fill="none" stroke="#b8b8be" stroke-width="1.5"/>
+
+    <!-- retained token history -->
+    <rect x="270" y="234" width="442" height="84" rx="16" fill="#f7f4fb" stroke="#c4a7e7" stroke-width="2"/>
+    <path d="M285 236 H 490 V 316 H 285 A 14 14 0 0 1 271 302 V 250 A 14 14 0 0 1 285 236 Z" fill="#e8ddf5"/>
+
+    <rect x="290" y="244" width="36" height="64" rx="10" fill="#404040"/>
+    <circle cx="308" cy="262" r="11" fill="#c4a7e7"/><circle cx="308" cy="290" r="11" fill="#f6c68a"/>
+    <rect x="336" y="244" width="36" height="64" rx="10" fill="#404040"/>
+    <circle cx="354" cy="262" r="11" fill="#c4a7e7"/><circle cx="354" cy="290" r="11" fill="#f6c68a"/>
+    <rect x="382" y="244" width="36" height="64" rx="10" fill="#404040"/>
+    <circle cx="400" cy="262" r="11" fill="#c4a7e7"/><circle cx="400" cy="290" r="11" fill="#f6c68a"/>
+    <text x="452" y="282" text-anchor="middle" font-size="30" font-weight="700" fill="#8f6fbf">&#8226;&#8226;&#8226;</text>
+
+    <rect x="512" y="244" width="36" height="64" rx="10" fill="#404040"/>
+    <circle cx="530" cy="262" r="11" fill="#c4a7e7"/><circle cx="530" cy="290" r="11" fill="#f6c68a"/>
+    <rect x="558" y="244" width="36" height="64" rx="10" fill="#404040"/>
+    <circle cx="576" cy="262" r="11" fill="#c4a7e7"/><circle cx="576" cy="290" r="11" fill="#f6c68a"/>
+    <rect x="604" y="244" width="36" height="64" rx="10" fill="#404040"/>
+    <circle cx="622" cy="262" r="11" fill="#c4a7e7"/><circle cx="622" cy="290" r="11" fill="#f6c68a"/>
+    <rect x="650" y="244" width="36" height="64" rx="10" fill="#404040"/>
+    <circle cx="668" cy="262" r="11" fill="#c4a7e7"/><circle cx="668" cy="290" r="11" fill="#f6c68a"/>
+
+    <text x="491" y="342" text-anchor="middle" font-size="16" fill="#8a8a8a" xml:space="preserve">one token = one step = [ state , action ]</text>
+  </svg>
+
+  <!-- ================= NLP / RL COMPARISON ================= -->
+  <text x="520" y="824" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="18" fill="#6b6b6b">
+    <tspan font-weight="700">LLMs:</tspan><tspan font-weight="600"> Expert data &#8594; training &#8594; context extrapolation &#8594; harder problems</tspan>
+  </text>
+  <text x="520" y="884" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="18" fill="#6b4f9e">
+    <tspan font-weight="700">Transformer Policies:</tspan><tspan font-weight="600"> Simple data &#8594; training &#8594; context extrapolation &#8594; better data</tspan>
+  </text>
+  <path d="M1192 892 V 936 H 714 V 904" fill="none" stroke="#6b4f9e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="714,892 707,906 721,906" fill="#6b4f9e"/>
+
+
+</svg>

@@ -9,8 +9,8 @@ that interface.
 
 ## Where you join
 
-The three are not separate routes. They are one path with three entry points,
-and each entry is the one above it with a stage already done.
+The three entry points are not separate routes: each one joins the same path
+with an earlier stage already done.
 
 | | You already have | Still ahead of you |
 |---|---|---|
@@ -45,6 +45,19 @@ Unity you bring your own policy model and your own loop — SB3's PPO, a scripte
 controller, whatever already drives your system. Nothing here integrates with
 those; what the loop has to produce is in
 [Record Trajectories](docs/02-record-trajectories.md).
+
+## Improving the next dataset
+
+A packaged dataset can also become the starting point for the next collection
+cycle. Train a transformer policy on the current dataset, deploy it with a
+longer context, and record the resulting experience as the source data for the
+next dataset.
+
+![Collecting better RL data with transformer context extrapolation — train a transformer policy on the current dataset, deploy it with a longer context, collect new experience, and use that experience as the next dataset](docs/assets/collecting-better-rl-data-with-context-extrapolation.svg)
+
+This flywheel is optional. The training and environment loop run outside the
+collection package; the trajectories they produce enter through the same input
+contract as any other source.
 
 ## Docs
 
