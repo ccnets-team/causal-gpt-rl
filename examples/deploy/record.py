@@ -141,11 +141,12 @@ def record_episodes(
             action = collector.act()
             observation, reward, terminated, truncated, _ = env.step(action)
             total += float(reward)
-            # The cap only truncates an episode the environment did not already
-            # end: a terminal state is the stronger claim, and flagging both
-            # would say two different things about one transition.
-            truncated = bool(truncated) or (
-                not terminated and step + 1 == max_steps
+            # A terminal state is the stronger claim, so it clears truncation —
+            # whether the truncation came from the cap or from the env itself
+            # (a TimeLimit can raise both flags on the same step). Recording
+            # both would say two different things about one transition.
+            truncated = not terminated and (
+                bool(truncated) or step + 1 == max_steps
             )
             collector.observe(observation, reward, terminated, truncated)
             if terminated or truncated:
@@ -189,8 +190,11 @@ def summarize(results: list[dict], out: Path) -> None:
     if terminated == 0:
         # A dataset where nothing ever ends teaches a termination head that
         # nothing ever ends. Worth knowing before packaging it.
+        # ASCII only, here and everywhere this script prints: a console on a
+        # legacy code page (cp949, cp1252) raises UnicodeEncodeError on the
+        # write, which would fail a run whose episodes are already on disk.
         print(
-            "[note] no episode reached a terminal state — every one ran out of "
+            "[note] no episode reached a terminal state - every one ran out of "
             "time. Raise --max-steps, or expect a dataset with no terminations "
             "in it."
         )
