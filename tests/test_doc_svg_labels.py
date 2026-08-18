@@ -153,7 +153,7 @@ def _measure(files: list[str]) -> list[dict]:
                     "--allow-file-access-from-files", "--virtual-time-budget=20000",
                     f"--user-data-dir={tmp}", "--dump-dom", page.as_uri(),
                 ],
-                capture_output=True, text=True, timeout=180,
+                capture_output=True, encoding="utf-8", timeout=180,
             )
         finally:
             page.unlink(missing_ok=True)
