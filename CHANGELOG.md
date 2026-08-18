@@ -21,7 +21,13 @@
   Nothing caps retention at the trained window; past it the extra history pays
   off only where the policy generalizes that far, which the README now says in
   place of a flat "larger values are supported". No behavior change; the default
-  is still 1x, which is what the published scores were measured at.
+  is still 1x, which is what the published scores were measured at. **This
+  supersedes the 0.15.0 note** that larger values stay "within the backbone's
+  position capacity (sized at 8x the context length)" — there is no such ceiling
+  to stay within. All eight published MuJoCo bundles are Llama and declare
+  `max_position_embeddings=256`, and the model card's retention sweep publishes a
+  measured `kv=1000` column, four times that number, for Ant, HalfCheetah,
+  Hopper, Walker2d and Humanoid.
 
 ## 0.16.0
 
