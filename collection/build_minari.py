@@ -92,7 +92,7 @@ def _build_action_space(action_kind, spec):
         return gym.spaces.Tuple(
             (gym.spaces.Box(low, high, shape=(cont,), dtype=np.float32), disc)
         )
-    raise SystemExit(f"Unknown action_kind {action_kind!r}")
+    raise ContractError(f"Unknown action_kind {action_kind!r}")
 
 
 def _split_actions(raw, action_kind, spec):
@@ -113,7 +113,7 @@ def _split_actions(raw, action_kind, spec):
         d = raw[:, cont:].astype(np.int64)
         d = d[:, 0] if len(branches) == 1 else d
         return (c, d)  # matches Tuple((Box, Discrete/MultiDiscrete))
-    raise SystemExit(f"Unknown action_kind {action_kind!r}")
+    raise ContractError(f"Unknown action_kind {action_kind!r}")
 
 
 # Group key of the ego-agent schema. The collector writes one episode per
@@ -136,13 +136,124 @@ def _wrap_ego_value(value, ego_agent):
     return {_EGO_GROUP: {ego_agent: value}}
 
 
+DEFAULT_DESCRIPTION = "Recorded episodes packaged as an env-less Minari dataset."
+
+
+def build_dataset(
+    raw,
+    dataset_id,
+    *,
+    author=None,
+    author_email=None,
+    description=DEFAULT_DESCRIPTION,
+    batch_episodes=1000,
+    ego_agent=None,
+):
+    """Package a raw directory of `ep_*.npz` files into a Minari dataset.
+
+    Preflights every episode before Minari creates anything, writes in bounded
+    batches, then loads the result back and verifies its counts and spaces.
+    Contract violations raise `ContractError`; turning those into an exit status
+    is `main()`'s job, so callers embedding this get an exception to handle.
+
+    Returns a summary dict: `dataset_id`, `episodes`, `transitions`, and the two
+    declared spaces.
+    """
+    if batch_episodes < 1:
+        raise ContractError("batch_episodes must be at least 1")
+    if ego_agent is not None and not ego_agent.strip():
+        raise ContractError("ego_agent must be a non-empty key (e.g. 'agent_0')")
+    validate_dataset_id(dataset_id)
+    if dataset_id in minari.list_local_datasets():
+        raise ContractError(f"Dataset {dataset_id!r} already exists; choose a new id")
+    # Validate every file before Minari creates an output directory. This
+    # deliberately makes a second, bounded-memory pass when writing.
+    files, spec = validate_raw_directory(raw)
+
+    action_kind = spec["action_kind"]
+    obs_channels = spec["obs_channels"]
+
+    observation_space = _wrap_ego_space(
+        _build_observation_space(obs_channels), ego_agent
+    )
+    action_space = _wrap_ego_space(_build_action_space(action_kind, spec), ego_agent)
+
+    buffers = []
+    ds = None
+    total = 0
+
+    def flush():
+        nonlocal buffers, ds
+        if not buffers:
+            return
+        if ds is None:
+            ds = create_dataset_from_buffers(
+                dataset_id=dataset_id,
+                buffer=buffers,
+                env=None,
+                observation_space=observation_space,
+                action_space=action_space,
+                author=author,
+                author_email=author_email,
+                description=description,
+            )
+        else:
+            ds.update_dataset_from_buffer(buffers)
+        buffers = []
+
+    for i, f in enumerate(files):
+        with np.load(f, allow_pickle=False) as d:
+            obs = _split_obs(d["observations"].astype(np.float32), obs_channels)
+            act = _split_actions(d["actions"], action_kind, spec)
+            rew = d["rewards"].astype(np.float32)
+            term = d["terminations"].astype(bool)
+            trunc = d["truncations"].astype(bool)
+        T = len(rew)
+        buffers.append(
+            EpisodeBuffer(
+                id=i,
+                observations=_wrap_ego_value(obs, ego_agent),
+                actions=_wrap_ego_value(act, ego_agent),
+                rewards=list(rew),
+                terminations=list(term),
+                truncations=list(trunc),
+            )
+        )
+        total += T
+        if len(buffers) >= batch_episodes:
+            flush()
+
+    flush()
+    if ds is None:  # Defensive; preflight guarantees at least one episode.
+        raise RuntimeError("Minari did not create a dataset")
+    loaded = minari.load_dataset(dataset_id)
+    if loaded.total_episodes != len(files) or loaded.total_steps != total:
+        raise RuntimeError(
+            f"Load-back count mismatch: episodes={loaded.total_episodes}/{len(files)} "
+            f"steps={loaded.total_steps}/{total}"
+        )
+    if (
+        loaded.observation_space != observation_space
+        or loaded.action_space != action_space
+    ):
+        raise RuntimeError("Load-back spaces differ from the declared spaces")
+    return {
+        "dataset_id": dataset_id,
+        "episodes": len(files),
+        "transitions": total,
+        "obs_channels": obs_channels,
+        "observation_space": observation_space,
+        "action_space": action_space,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw", required=True, help="Directory containing ep_*.npz files.")
     ap.add_argument("--dataset-id", required=True, help="Minari id, e.g. 'unity/crawler/expert-v0'.")
     ap.add_argument("--author", default=None)
     ap.add_argument("--author-email", default=None)
-    ap.add_argument("--description", default="Recorded episodes packaged as an env-less Minari dataset.")
+    ap.add_argument("--description", default=DEFAULT_DESCRIPTION)
     ap.add_argument(
         "--batch-episodes",
         type=int,
@@ -160,99 +271,27 @@ def main():
     args = ap.parse_args()
 
     try:
-        if args.batch_episodes < 1:
-            raise ContractError("--batch-episodes must be at least 1")
-        if args.ego_agent is not None and not args.ego_agent.strip():
-            raise ContractError("--ego-agent must be a non-empty key (e.g. 'agent_0')")
-        validate_dataset_id(args.dataset_id)
-        if args.dataset_id in minari.list_local_datasets():
-            raise ContractError(
-                f"Dataset {args.dataset_id!r} already exists; choose a new id"
-            )
-        # Validate every file before Minari creates an output directory. This
-        # deliberately makes a second, bounded-memory pass when writing.
-        files, spec = validate_raw_directory(args.raw)
+        summary = build_dataset(
+            args.raw,
+            args.dataset_id,
+            author=args.author,
+            author_email=args.author_email,
+            description=args.description,
+            batch_episodes=args.batch_episodes,
+            ego_agent=args.ego_agent,
+        )
     except ContractError as exc:
         raise SystemExit(f"collection input error: {exc}") from exc
 
-    action_kind = spec["action_kind"]
-    obs_channels = spec["obs_channels"]
-
-    observation_space = _wrap_ego_space(
-        _build_observation_space(obs_channels), args.ego_agent
-    )
-    action_space = _wrap_ego_space(
-        _build_action_space(action_kind, spec), args.ego_agent
-    )
-
-    buffers = []
-    ds = None
-    total = 0
-
-    def flush():
-        nonlocal buffers, ds
-        if not buffers:
-            return
-        if ds is None:
-            ds = create_dataset_from_buffers(
-                dataset_id=args.dataset_id,
-                buffer=buffers,
-                env=None,
-                observation_space=observation_space,
-                action_space=action_space,
-                author=args.author,
-                author_email=args.author_email,
-                description=args.description,
-            )
-        else:
-            ds.update_dataset_from_buffer(buffers)
-        buffers = []
-
-    for i, f in enumerate(files):
-        with np.load(f, allow_pickle=False) as d:
-            obs = _split_obs(d["observations"].astype(np.float32), obs_channels)
-            act = _split_actions(d["actions"], action_kind, spec)
-            rew = d["rewards"].astype(np.float32)
-            term = d["terminations"].astype(bool)
-            trunc = d["truncations"].astype(bool)
-        T = len(rew)
-        buffers.append(
-            EpisodeBuffer(
-                id=i,
-                observations=_wrap_ego_value(obs, args.ego_agent),
-                actions=_wrap_ego_value(act, args.ego_agent),
-                rewards=list(rew),
-                terminations=list(term),
-                truncations=list(trunc),
-            )
-        )
-        total += T
-        if len(buffers) >= args.batch_episodes:
-            flush()
-
     print(
-        f"[build] episodes={len(files)} transitions={total} "
-        f"obs_channels={obs_channels} observation_space={observation_space} "
-        f"action_space={action_space}"
+        f"[build] episodes={summary['episodes']} transitions={summary['transitions']} "
+        f"obs_channels={summary['obs_channels']} "
+        f"observation_space={summary['observation_space']} "
+        f"action_space={summary['action_space']}"
     )
-
-    flush()
-    if ds is None:  # Defensive; preflight guarantees at least one episode.
-        raise RuntimeError("Minari did not create a dataset")
-    loaded = minari.load_dataset(args.dataset_id)
-    if loaded.total_episodes != len(files) or loaded.total_steps != total:
-        raise RuntimeError(
-            f"Load-back count mismatch: episodes={loaded.total_episodes}/{len(files)} "
-            f"steps={loaded.total_steps}/{total}"
-        )
-    if (
-        loaded.observation_space != observation_space
-        or loaded.action_space != action_space
-    ):
-        raise RuntimeError("Load-back spaces differ from the declared spaces")
     print(
-        f"[done] created and verified Minari dataset '{args.dataset_id}' "
-        f"({loaded.total_episodes} episodes, {loaded.total_steps} transitions)"
+        f"[done] created and verified Minari dataset '{summary['dataset_id']}' "
+        f"({summary['episodes']} episodes, {summary['transitions']} transitions)"
     )
 
 
