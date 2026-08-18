@@ -255,7 +255,15 @@ def validate_episode(
             )
 
     if discrete is not None:
-        if not np.issubdtype(discrete.dtype, np.integer):
+        if action_kind == "hybrid":
+            # One array carries both parts of a hybrid action, so the indices
+            # can only be stored as integral floats beside the continuous
+            # values; the packager casts them back with `astype(np.int64)`.
+            if np.any(discrete != np.rint(discrete)):
+                raise ContractError(
+                    f"{source}: discrete action indices must be whole numbers"
+                )
+        elif not np.issubdtype(discrete.dtype, np.integer):
             raise ContractError(f"{source}: discrete action indices must use an integer dtype")
         branches = np.asarray(normalized_spec["branches"], dtype=np.int64)
         if np.any(discrete < 0) or np.any(discrete >= branches):
