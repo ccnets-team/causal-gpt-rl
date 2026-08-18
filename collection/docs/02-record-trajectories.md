@@ -5,11 +5,18 @@ environment and a policy model that drives it, and you need the five arrays.
 
 ## What runs, and what is only a sketch
 
-`collection/` does not step environments, and this repository ships exactly one
-runnable recorder: [`examples/unity_collection/collect.py`](../../examples/unity_collection/collect.py),
-which drives a Unity ML-Agents build. For every other source — **Gymnasium
-included** — the loop below is a specification, not a script you can run. Write
-the five arrays however suits your source and the packager takes it from there.
+Nothing here steps an environment for you — the loop is always yours. What can
+be shipped is the recording around it, and the two that are cover different
+halves of this stage:
+
+| | covers | |
+|---|---|---|
+| [`examples/unity_collection/collect.py`](../../examples/unity_collection/collect.py) | one **environment** source — a Unity ML-Agents build, driven by an ONNX policy | a script to run |
+| `CollectionRunner` | one **policy** source — a bundle of ours, in whatever environment you point it at | [Improving the Next Dataset](improving-the-next-dataset.md) |
+
+Your own policy in your own environment is neither, and it is the ordinary case:
+for it the loop below is a specification, not a script you can run. Write the
+five arrays however suits your source and the packager takes it from there.
 
 ## The loop
 

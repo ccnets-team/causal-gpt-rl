@@ -24,16 +24,24 @@ an action. It is not the model you get back from training; that one is
 downstream of this whole picture — until a
 [later cycle](docs/improving-the-next-dataset.md) brings it back as one.
 
-`collection/` is the last stage, and only that stage. It is **source-agnostic**:
-whatever produced the episodes — a simulator, a game build, a logged control
-system, a replayed production trace — if its fixed-shape numeric trajectories fit
-[the contract](docs/01-the-input-contract.md), you can package them. Raw pixels,
-audio, and text are encoded on your side before this boundary.
+Packaging is what `collection/` does for every source, and it is
+**source-agnostic**: whatever produced the episodes — a simulator, a game build,
+a logged control system, a replayed production trace — if its fixed-shape numeric
+trajectories fit [the contract](docs/01-the-input-contract.md), you can package
+them. Raw pixels, audio, and text are encoded on your side before this boundary.
+
+Recording is the one earlier stage it also covers, and along a different axis:
+when the policy driving the episode is a model of ours, this directory records
+the episodes too — [below](#recording-with-a-policy-of-ours). That stage is
+indexed by the *policy*, where everything else on this page is indexed by the
+*environment*, so it is a section of its own rather than another entry in the
+table.
 
 ## What ships for the earlier stages
 
-Getting a policy model and recording trajectories are sibling concerns, not
-this directory's. What this repository actually provides for them, by source:
+Getting a policy model and recording trajectories are sibling concerns, and
+mostly not this directory's. What this repository actually provides for them, by
+source:
 
 | Source | 1 · get a policy model | 2 · record trajectories | 3 · package |
 |---|---|---|---|
@@ -47,18 +55,29 @@ controller, whatever already drives your system. Nothing here integrates with
 those; what the loop has to produce is in
 [Record Trajectories](docs/02-record-trajectories.md).
 
-## Improving the next dataset
+## Recording with a policy of ours
 
-A packaged dataset can also become the starting point for the next collection
-cycle: train a policy on it, record fresh experience with that policy, package
-that as the next dataset. It is optional, it runs outside this directory, and
-its trajectories enter through the same input contract as any other source —
+Every row of that table assumes the policy is yours. When it is instead a model
+this repository produced, stage 2 stops being your loop to write:
+`CollectionRunner` wraps the runner the bundle loads into and records what it
+drives, in whatever environment you point it at.
+
+```python
+runner = CollectionRunner(load_runner("bundle/"), "raw/")
+```
+
+That is the second collection cycle, and the only one where a policy source can
+be integrated rather than contracted — SB3, CleanRL and RLlib each expose a
+different API on a different release cadence, ours is the one this repository
+versions. Why you would run it, the loop in full, and what it writes:
 [Improving the Next Dataset](docs/improving-the-next-dataset.md).
 
 ## Docs
 
 [`docs/`](docs/README.md) is the packaging path in three parts — the input
-contract, recording trajectories, then packaging and checking the result.
+contract, recording trajectories, then packaging and checking the result — plus
+[Improving the Next Dataset](docs/improving-the-next-dataset.md) beside it,
+which is where `CollectionRunner` is documented.
 
 Diagrams live in [`docs/assets/`](docs/assets/).
 
