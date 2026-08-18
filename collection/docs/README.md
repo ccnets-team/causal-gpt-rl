@@ -15,4 +15,9 @@ to produce. Read 1 and 3 if you only want to package something. Read
 [Check what you built](03-packaging.md#check-what-you-built) before you publish or
 upload — a dataset that loads can still declare the wrong interface.
 
+Once you have packaged one:
+[Improving the Next Dataset](improving-the-next-dataset.md) — where the policy
+model for the next cycle can come from, and what to measure before recording
+with it. Optional, and not a step in the path above.
+
 Diagrams live in [`assets/`](assets/).

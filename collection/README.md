@@ -1,4 +1,4 @@
-# collection
+# Collection
 
 Turn recorded episodes into the [Minari](https://minari.farama.org) dataset that
 declares the observation and action spaces your model will use. You own the
@@ -21,7 +21,8 @@ with an earlier stage already done.
 A *policy model* here is whatever drives the environment while you record — a
 network you trained (SB3's PPO, say), or any controller you can already call for
 an action. It is not the model you get back from training; that one is
-downstream of this whole picture.
+downstream of this whole picture — until a
+[later cycle](docs/improving-the-next-dataset.md) brings it back as one.
 
 `collection/` is the last stage, and only that stage. It is **source-agnostic**:
 whatever produced the episodes — a simulator, a game build, a logged control
@@ -49,15 +50,10 @@ those; what the loop has to produce is in
 ## Improving the next dataset
 
 A packaged dataset can also become the starting point for the next collection
-cycle. Train a transformer policy on the current dataset, deploy it with a
-longer context, and record the resulting experience as the source data for the
-next dataset.
-
-![Collecting better RL data with transformer context extrapolation — train a transformer policy on the current dataset, deploy it with a longer context, collect new experience, and use that experience as the next dataset](docs/assets/collecting-better-rl-data-with-context-extrapolation.svg)
-
-This flywheel is optional. The training and environment loop run outside the
-collection package; the trajectories they produce enter through the same input
-contract as any other source.
+cycle: train a policy on it, record fresh experience with that policy, package
+that as the next dataset. It is optional, it runs outside this directory, and
+its trajectories enter through the same input contract as any other source —
+[Improving the Next Dataset](docs/improving-the-next-dataset.md).
 
 ## Docs
 

@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 70 1240 940" width="1240" height="940" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-30 70 1300 940" width="1300" height="940" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif">
   <title>Collecting Better RL Data with Transformer Context Extrapolation</title>
   <desc>A clockwise data-model flywheel. A seed policy creates only the initial dataset. The current dataset trains a transformer policy at context length L. The same trained weights are then used at context length 2L. That policy acts in the environment and records new trajectories, which become the next training dataset. The seed policy is outside the repeating loop. Below the loop, an inline detail compares a trained context length of 32 with a retained KV-cache length of 64 for collecting the next dataset.</desc>
 
-  <rect width="1240" height="1040" fill="#ffffff"/>
+  <rect x="-30" width="1300" height="1040" fill="#ffffff"/>
 
   <!-- ================= TITLE ================= -->
   <text x="620" y="150" text-anchor="middle" font-size="32" font-weight="700" fill="#404040">Collecting Better RL Data with Transformer Context Extrapolation</text>
