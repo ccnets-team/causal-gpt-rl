@@ -100,6 +100,10 @@ say which policy, at which retention, produced the episodes.
   still reach the real one.
 - **`record=False`** drives the policy without writing — warm-up episodes, or a
   loop that records only some of them.
+- **Runnable forms.** [`examples/record_dataset.ipynb`](../../examples/record_dataset.ipynb)
+  walks a Hub bundle through to a dataset read back;
+  [`examples/deploy/record.py`](../../examples/deploy/record.py) is the same run
+  as a script.
 - **Anything else is your own loop.** This integrates with one policy source
   because that is the one whose interface we version; every other source has
   [the contract](01-the-input-contract.md) instead, which is what

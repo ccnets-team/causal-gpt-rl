@@ -64,10 +64,14 @@ numbers.
 
 ## Build a dataset in the same format
 
-[`deploy/record.py`](deploy/record.py) is the shortest path: point a bundle at a
-Gymnasium env and it writes the episodes it drives, ready to package. This is
-the second collection cycle — the policy a dataset trained recording the next
-one — and it needs nothing but the bundle and the env.
+Point a bundle at a Gymnasium env and it writes the episodes it drives, ready
+to package. This is the second collection cycle — the policy a dataset trained
+recording the next one — and it needs nothing but the bundle and the env.
+
+| | |
+|---|---|
+| [`record_dataset.ipynb`](record_dataset.ipynb) | Hub bundle → recorded episodes → a Minari dataset read back, in one runtime. Start here. |
+| [`deploy/record.py`](deploy/record.py) | The same run as a script, for longer collections. |
 
 ```bash
 python -m examples.deploy.record --env-id Hopper-v5 --out raw/ \
