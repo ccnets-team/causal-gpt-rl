@@ -17,6 +17,14 @@ does the text layout, so tspans, whitespace collapsing, and `text-anchor` need n
 reimplementation here -- and requires each label to keep enough clearance that a
 wider substitute font still fits. Lengthening a label past what its box can hold
 fails here, which is the point.
+
+Extents come from `getBoundingClientRect`, not `getBBox`, for the same reason:
+`getBBox` reports each element in its own user space, so a nested `<svg>` -- its
+own viewBox, its own scale -- reports coordinates that read as root-space ones
+and match a label against a box it is nowhere near. The browser resolves nested
+viewports and transforms for `getBoundingClientRect`, and dividing by the
+rendered scale puts every measurement back in the units the diagram was drawn
+in.
 """
 import html
 import json
@@ -65,8 +73,18 @@ const stage = document.getElementById('stage');
     stage.replaceChildren(document.importNode(parsed.documentElement, true));
     const svg = stage.firstElementChild;
 
+    // Everything is measured in one resolved space and then divided back into
+    // the diagram's own units, so a threshold in px means what the author drew.
+    const host = svg.getBoundingClientRect();
+    const scale = (host.width / (svg.viewBox.baseVal.width || host.width)) || 1;
+    const box = el => {
+      const b = el.getBoundingClientRect();
+      return {x: (b.x - host.x) / scale, y: (b.y - host.y) / scale,
+              width: b.width / scale, height: b.height / scale};
+    };
+
     const boxes = [...svg.querySelectorAll('rect')].map(r => {
-      const b = r.getBBox();
+      const b = box(r);
       return {b, inset: (parseFloat(r.getAttribute('stroke-width')) || 0) / 2,
               area: b.width * b.height};
     }).filter(r => r.area >= MIN_AREA);
@@ -74,8 +92,7 @@ const stage = document.getElementById('stage');
     const labels = [];
     for (const t of svg.querySelectorAll('text')) {
       if (!t.textContent.trim()) continue;
-      let tb;
-      try { tb = t.getBBox(); } catch (e) { continue; }
+      const tb = box(t);
       if (!(tb.width > 0)) continue;
       const cx = tb.x + tb.width / 2, cy = tb.y + tb.height / 2;
       const holding = boxes.filter(r =>
