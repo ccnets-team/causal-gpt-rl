@@ -64,9 +64,25 @@ numbers.
 
 ## Build a dataset in the same format
 
-[`unity_collection/`](unity_collection/) is the worked recipe — record
-trajectories from a Unity build, synthesize quality tiers, and package the
-result. The datasets at
+[`deploy/record.py`](deploy/record.py) is the shortest path: point a bundle at a
+Gymnasium env and it writes the episodes it drives, ready to package. This is
+the second collection cycle — the policy a dataset trained recording the next
+one — and it needs nothing but the bundle and the env.
+
+```bash
+python -m examples.deploy.record --env-id Hopper-v5 --out raw/ \
+    --episodes 20 --kv-cache-max-len 256
+python collection/build_minari.py --raw raw/ --dataset-id review/hopper-v0
+```
+
+Retention above the bundle's `context_length` is what that cycle turns on, and
+whether it pays is environment-dependent — it helps some of the published
+bundles and hurts others. Measure it in your environment before spending a
+collection run on it.
+
+[`unity_collection/`](unity_collection/) is the other recipe, for the case where
+the policy is not one of ours — record trajectories from a Unity build,
+synthesize quality tiers, and package the result. The datasets at
 [ccnets/causal-gpt-rl-unity-datasets](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-datasets)
 were made this way.
 
