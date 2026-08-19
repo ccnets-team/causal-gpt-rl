@@ -135,9 +135,8 @@ See the [Quick Start](../../../README.md#quick-start) and
 spaces.
 
 Treat a bundle that does not load as a skip: it may still be syncing, so retry it,
-and the next delivery is unaffected either way. A bundle needing a newer runtime
-than you have installed is refused by name rather than mis-decoded — upgrade the
-package and the same bundle loads.
+and the next delivery is unaffected either way. Runtime releases keep backward
+compatibility, so the bundles this job delivers load on any package version.
 
 ## Early Stopping
 

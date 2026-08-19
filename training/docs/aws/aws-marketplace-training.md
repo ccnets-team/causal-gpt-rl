@@ -191,6 +191,8 @@ The final `model.tar.gz` contains the canonical `bundle/` for normal inference,
 alongside `archive/bundles/` — the run's preserved points, so its candidates can
 be compared after the job ends. It also carries `canonical.pt`, the training
 state matching the canonical bundle, which is what a later job resumes from.
+Runtime releases keep backward compatibility, so a bundle from this job loads
+on any package version.
 
 Training does not make you wait for it. Policy bundles are exported while the job
 runs and synced to the configured checkpoint S3 prefix, so you can load an

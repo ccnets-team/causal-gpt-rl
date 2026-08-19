@@ -164,7 +164,9 @@ bundle/
   config.json          # model config, observation/action specs, context length
 ```
 
-Public bundles are `bundle_format_version=2`.
+Public bundles are `bundle_format_version=2`. Runtime releases keep backward
+compatibility, so the bundles on Hugging Face today and the bundles produced
+through AWS load on any package version.
 
 ## Development Checks
 
