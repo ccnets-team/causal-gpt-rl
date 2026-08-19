@@ -5,10 +5,12 @@
 - A row finishing its episode no longer costs the other rows their history.
   `reset_rows` and `add_rows` dropped the batch's shared KV cache and rebuilt it
   from the rolling window, which holds `context_length` tokens and nothing more,
-  so whatever a rollout had retained past that window was gone: in a 50-row
-  Humanoid batch at `kv_cache_max_len=1000`, one seed falling over took every
-  seed still running back to 32 tokens, and `kv=256`, `kv=512` and `kv=1000`
-  came out as the same measurement. The cache is kept now — each row records how
+  so whatever a rollout had retained past that window was gone: one row falling
+  over cut every row still running back to `context_length` of history. In a
+  twelve-row Walker2d batch at `kv_cache_max_len=400`, two rows falling at steps
+  254 and 266 moved the surviving rows' actions by up to 1.99 on a space bounded
+  at ±1 and changed a scored episode's length; the same comparison on this
+  release comes out at exactly zero. The cache is kept now — each row records how
   much of it is its own and the next forward masks the rest away, so its
   neighbours are untouched — exactly, on any backbone. On a rotary backbone
   (`Llama`, and every published bundle) the restarted row also starts exactly as
