@@ -29,7 +29,9 @@ identical weights and seeds, so the installed versions are printed beside the
 ones the protocol is defined on.
 
 A row that terminates early is auto-reset by the vector env and keeps stepping,
-so only each row's first episode is scored.
+so only each row's first episode is scored. The runner is not reset along with
+it: a finished row is out of the scoring already, and resetting it would drop
+the shared KV cache that the rows still being scored are running on.
 
 A local bundle works the same way::
 
@@ -245,11 +247,13 @@ def run_seed_batch(
         if completed.all():
             break
 
-        # Under SAME_STEP auto-reset, a row that just ended already carries its
-        # next episode's first observation, so its context is wiped before that
-        # is handed over. Rows still running keep their history. Rows that ended
-        # earlier are reset again here: they too were auto-reset by the env.
-        runner.reset_rows(term | trunc)
+        # The runner is deliberately not told about the auto-reset. Every row in
+        # `term | trunc` is already `completed`, so whatever it does next is
+        # dropped from the score anyway — while `reset_rows` invalidates the
+        # batch's shared KV cache, which cuts the rows still being scored back
+        # to `context_length` of history. Leaving it out keeps each scored row's
+        # cache untouched for the whole of its episode, which is what one runner
+        # per seed would give.
         runner.observe(obs)
 
     return totals, lengths, {
