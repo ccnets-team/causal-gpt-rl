@@ -45,12 +45,6 @@ onnx = [
   "onnxruntime>=1.18.0",
   "onnxscript>=0.1.0",
 ]
-dev = [
-  "pytest>=7.0",
-  "build>=1.2.0",
-  "twine>=5.0.0",
-]
-
 [project.scripts]
 causal-gpt-rl-export-onnx = "causal_gpt_rl.export.onnx:main"
 
