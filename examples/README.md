@@ -19,6 +19,18 @@ Load a bundle, roll it out, read the return.
 python -m examples.deploy.mujoco --env-id Hopper-v5 --bundle path/to/bundle --episodes 5
 ```
 
+## Choose how much history to keep
+
+`kv_cache_max_len` is how much past a rollout retains, and it is a load-time
+argument — the same bundle file runs at any of them, with no retraining.
+
+| | |
+|---|---|
+| [`can_longer_context_help_humanoid.ipynb`](can_longer_context_help_humanoid.ipynb) | One bundle at three retention lengths (8 / 32 / 128), against a trained window of 32. What moves is not the mean but the worst episode. |
+
+Whether more history helps is environment-dependent — across the published
+bundles it helps some and hurts others — so measure it where you intend to run.
+
 ## Reproduce a published score
 
 [`deploy/reproduce.py`](deploy/reproduce.py) measures a MuJoCo bundle under the
