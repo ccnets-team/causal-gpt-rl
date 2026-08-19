@@ -14,7 +14,9 @@ from .schema import ModelConfig, SpaceSpec, flatten_specs, nested_to_flat_list_h
 from .spec_factory import build_model_specs
 from .autoregressive_backbone import GPTBackbone
 from .utils.kv_cache import (
+    build_cached_attention_mask,
     cache_has_history,
+    cached_position_count,
     prepare_cache_warm_start_inputs,
     prepare_kv_cache_inputs,
     _truncate_kv_cache_keep_latest,
@@ -422,12 +424,20 @@ class AutoregressiveModel(nn.Module):
         past_key_values=None,
         cache_max_len: int | None = None,
         return_info: bool = False,
+        past_valid_len=None,
     ) -> list[torch.Tensor]:
         """Eval one incremental cached step for policy inference.
 
         With `return_info=True`, also returns an auxiliary-output dict (e.g.
         `termination_prob`) as a trailing tuple element so callers that need
         EOS info can read it without a separate forward.
+
+        `past_valid_len` counts, per row, how many cached positions belong to
+        that row's current episode. Rows share one cached tensor, so a row whose
+        episode restarted mid-batch still has the previous episode's keys in its
+        slot; supplying the lengths masks them away and leaves every other row
+        reading its own history. Omitted, the whole cache is every row's own —
+        the lockstep case, and byte-identical to passing no mask at all.
         """
         self.eval()
 
@@ -448,6 +458,16 @@ class AutoregressiveModel(nn.Module):
             past_key_values=past_key_values,
             max_len=cache_max_len,
         )
+
+        if not use_prefix_warm_start and past_valid_len is not None:
+            # Built after the cap above, so the mask matches what the cache
+            # actually holds rather than what it held before trimming.
+            model_padding_mask = build_cached_attention_mask(
+                past_valid_len,
+                past_len=cached_position_count(past_key_values),
+                new_len=model_input.shape[1],
+                device=model_input.device,
+            )
 
         out, past_key_values = self.infer_cached(
             model_input,

@@ -206,6 +206,10 @@ class PolicyRunner:
         # Rows flagged by `reset_rows` to be seeded as a fresh episode on the
         # next observe; empty (all-False) in the common all-envs-in-lockstep case.
         self._pending_bos_mask = np.zeros(self.num_envs, dtype=bool)
+        # Restarted rows whose bos KV is dropped after the act that produces it,
+        # so `bos_cache_mode="discard"` means the same thing for one row as it
+        # does for a whole-batch `reset()`. Empty under "retain".
+        self._pending_bos_discard_mask = np.zeros(self.num_envs, dtype=bool)
 
         self.model.eval()
         if self.state_normalizer is not None:
@@ -243,6 +247,7 @@ class PolicyRunner:
         # is already a full warm-start; no structural recompute is pending.
         self._needs_full_warmstart = False
         self._pending_bos_mask[:] = False
+        self._pending_bos_discard_mask[:] = False
 
     def reset_rows(self, done_mask) -> None:
         """Restart the episodes of a subset of envs; leave the rest untouched.
@@ -259,9 +264,10 @@ class PolicyRunner:
             runner.reset_rows(done)   # next_state[done] is the new episode's obs
             runner.observe(next_state)
 
-        The shared KV cache is invalidated and recomputed from the buffer on the
-        next step, so surviving rows pay one warm-start recompute but never lose
-        context. Call after at least one `act()`; use `reset()` to restart the
+        Surviving rows keep their cached history exactly: the shared KV cache is
+        kept and the restarted rows are marked as owning none of it, so the next
+        forward masks their previous episode away instead of everyone paying a
+        recompute. Call after at least one `act()`; use `reset()` to restart the
         whole batch.
         """
         if not self._is_reset:
@@ -273,22 +279,19 @@ class PolicyRunner:
             )
         if not mask.any():
             return
-        # Wipe the flagged rows' buffered trajectory and drop the shared cache.
+        # Wipe the flagged rows' buffered trajectory and disown their cached history.
         self.buffer.reset_context_rows(mask)
         # Seed those rows as BOS on the next observe, and clear any stale action
         # so the fresh episode does not inherit the previous step's action.
         self._pending_bos_mask |= mask
         if self._last_buffer_action is not None:
             self._last_buffer_action[mask] = 0.0
-        # The shared cache was dropped, but the buffer still holds the surviving
-        # rows' full history. Flag the next act to warm-start from the full
-        # masked window (a real recompute) rather than collapsing every row to
-        # its newest token — otherwise survivors silently lose their context.
-        # Keep that recompute (no post-act drop): the freshly-restarted rows ride
-        # its retain-flavored cache. Per-row bos discard on a shared batched
-        # cache is out of scope; the survivor-context fix is the first-order win.
-        self._needs_full_warmstart = True
-        self._reset_kv_after_next_act = False
+        # Under "discard" the restarted rows' bos KV goes away after the act that
+        # produces it, matching what `reset()` does for a whole batch. That act is
+        # the only moment the bos is the row's entire history, which is what keeps
+        # the drop expressible as a length: after it the row owns nothing again.
+        if self.bos_cache_mode == "discard":
+            self._pending_bos_discard_mask |= mask
 
     def add_rows(self, initial_states) -> None:
         """Grow the batch: append new agent rows without disturbing existing ones.
@@ -299,9 +302,11 @@ class PolicyRunner:
         full rolling context uninterrupted; the new rows start as fresh
         episodes. The next `act()` returns actions for all ``num_envs + k`` rows.
 
-        The shared KV cache is invalidated and recomputed from the buffer on the
-        next step (cheap for short contexts), the same warm-start as
-        `reset_rows`. Because the batch size is fixed at construction elsewhere,
+        The shared KV cache grows with the batch — the new rows take slots that
+        own no history and are masked away — so existing rows keep their cached
+        context too, the same discipline as `reset_rows`. A cache layout that
+        cannot be grown falls back to one warm-start recompute from the buffer.
+        Because the batch size is fixed at construction elsewhere,
         this is the only way to raise it on a live runner; use `reset()` to
         restart the whole batch instead. Call after `reset()`.
         """
@@ -309,12 +314,15 @@ class PolicyRunner:
             raise RuntimeError("Call reset(initial_state) before add_rows().")
         new_states = self._format_states_for_rows(initial_states)
         k = int(new_states.shape[0])
-        self.buffer.add_rows(new_states)
+        cache_survived = self.buffer.add_rows(new_states)
         self.num_envs += k
         # New rows are already seeded with their BOS observation, so they are not
         # pending; existing rows keep their pending flags.
         self._pending_bos_mask = np.concatenate(
             [self._pending_bos_mask, np.zeros(k, dtype=bool)]
+        )
+        self._pending_bos_discard_mask = np.concatenate(
+            [self._pending_bos_discard_mask, np.zeros(k, dtype=bool)]
         )
         if self._last_buffer_action is not None:
             self._last_buffer_action = np.concatenate(
@@ -324,11 +332,11 @@ class PolicyRunner:
                 ],
                 axis=0,
             )
-        # Existing rows keep their full buffered history; the shared cache was
-        # dropped, so warm-start the next act over the full masked window (not
-        # each row's newest token) and keep the recompute. Mirrors reset_rows.
-        self._needs_full_warmstart = True
-        self._reset_kv_after_next_act = False
+        # Only a cache that could not be grown needs the next act to warm-start
+        # over the full masked window instead of each row's newest token.
+        if not cache_survived:
+            self._needs_full_warmstart = True
+            self._reset_kv_after_next_act = False
 
     @torch.inference_mode()
     def act(self, state=None) -> np.ndarray:
@@ -375,7 +383,13 @@ class PolicyRunner:
             else:
                 next_action = result
         else:
-            if not cache_has_history(past_kv):
+            had_history = cache_has_history(past_kv)
+            # Every row grows by the same number of tokens, which is all the
+            # per-row bookkeeping needs; a full recompute instead states each
+            # row's owned length outright.
+            appended = 1
+            warm_start_lengths = None
+            if not had_history:
                 if self._needs_full_warmstart:
                     # A structural invalidation (reset_rows / add_rows) dropped
                     # the shared cache while the buffer still holds real history
@@ -384,6 +398,7 @@ class PolicyRunner:
                     # over its own valid length; slicing to the last token here
                     # would wipe those rows' context.
                     self._needs_full_warmstart = False
+                    warm_start_lengths = mask_t.sum(dim=1).detach().cpu().numpy()
                 else:
                     # Fresh reset (act#0 over the lone bos) or the discard drop
                     # (act#1): only the newest token needs (re)processing.
@@ -391,6 +406,15 @@ class PolicyRunner:
                     actions_t = actions_t[:, -1:]
                     is_bos_t = is_bos_t[:, -1:]
                     mask_t = mask_t[:, -1:]
+            # Rows that restarted, or joined, own less of the shared cache than it
+            # holds; the model needs their lengths to mask the rest away. When every
+            # row owns all of it there is nothing to mask and nothing is passed,
+            # which keeps the lockstep path exactly as it was.
+            past_valid_len = None
+            if had_history and self.buffer.cache_has_partial_rows():
+                past_valid_len = torch.as_tensor(
+                    self.buffer.get_kv_valid_lengths(), device=device
+                )
             result = self.model.predict_incremental_cached(
                 states=states_t,
                 actions=actions_t,
@@ -399,6 +423,7 @@ class PolicyRunner:
                 past_key_values=past_kv,
                 cache_max_len=self.kv_cache_max_len,
                 return_info=return_info,
+                past_valid_len=past_valid_len,
             )
             if return_info:
                 next_action, past_kv, info_raw = result
@@ -407,8 +432,19 @@ class PolicyRunner:
             if self._reset_kv_after_next_act:
                 self.buffer.set_past_key_values(None)
                 self._reset_kv_after_next_act = False
+                self._pending_bos_discard_mask[:] = False
             else:
                 self.buffer.set_past_key_values(past_kv)
+                if warm_start_lengths is None:
+                    self.buffer.record_cache_append(appended)
+                else:
+                    self.buffer.set_kv_valid_lengths(warm_start_lengths)
+                if self._pending_bos_discard_mask.any():
+                    # The act above put those rows' bos in the cache and it was
+                    # their whole history, so discarding it leaves them owning
+                    # nothing — the same state a fresh `reset()` discard reaches.
+                    self.buffer.invalidate_cache_rows(self._pending_bos_discard_mask)
+                    self._pending_bos_discard_mask[:] = False
 
         last_step = ensure_tensor_heads(next_action)[:, -1]
         env_action, buffer_action = self._decode(last_step.detach().cpu().numpy())

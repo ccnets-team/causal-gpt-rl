@@ -58,6 +58,53 @@ def cache_has_history(past_key_values) -> bool:
     return False
 
 
+def cached_position_count(past_key_values) -> int:
+    """How many positions a cache holds, for sizing a mask over it.
+
+    A separate reading of the same layouts `cache_has_history` walks. The two are
+    deliberately not folded together: that one is on every cached step of every
+    rollout and predates this, and leaving it untouched is worth more than the
+    duplication costs.
+    """
+    if past_key_values is None:
+        return 0
+    layers = getattr(past_key_values, "layers", None)
+    if layers:
+        for layer in layers:
+            keys = getattr(layer, "keys", None)
+            if keys is not None and hasattr(keys, "shape"):
+                return int(keys.shape[-2])
+    key_cache = getattr(past_key_values, "key_cache", None)
+    if key_cache and key_cache[0] is not None and hasattr(key_cache[0], "shape"):
+        return int(key_cache[0].shape[-2])
+    if isinstance(past_key_values, (tuple, list)) and past_key_values:
+        first_layer = past_key_values[0]
+        if isinstance(first_layer, (tuple, list)) and first_layer:
+            key_tensor = first_layer[0]
+            if hasattr(key_tensor, "size"):
+                return int(key_tensor.size(-2))
+    return 0
+
+
+def build_cached_attention_mask(past_valid_len, past_len: int, new_len: int, device):
+    """`[B, past_len + new_len]` mask keeping each row's own suffix of the cache.
+
+    Every row shares one cached tensor, so a row restarted mid-batch still has
+    the previous episode's keys sitting in its slot. This mask is what stops it
+    from attending to them. `past_valid_len` counts, per row, how many of the
+    cached positions belong to the row's current episode; the newly supplied
+    tokens are always valid.
+    """
+    valid = torch.as_tensor(past_valid_len, device=device).reshape(-1).long()
+    valid = valid.clamp(min=0, max=int(past_len))
+    positions = torch.arange(int(past_len), device=device).unsqueeze(0)
+    past = positions >= (int(past_len) - valid).unsqueeze(1)
+    new = torch.ones(
+        valid.shape[0], int(new_len), dtype=torch.bool, device=device
+    )
+    return torch.cat([past, new], dim=1)
+
+
 def prepare_cache_warm_start_inputs(
     full_input: torch.Tensor,
     padding_mask: torch.Tensor | None = None,

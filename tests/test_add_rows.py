@@ -75,7 +75,12 @@ def test_add_rows_appends_seeded_rows():
     np.testing.assert_array_equal(buf.actions[2], np.zeros_like(buf.actions[2]))
 
 
-def test_add_rows_leaves_existing_rows_untouched_and_drops_cache():
+def test_add_rows_drops_a_cache_layout_it_cannot_grow():
+    """Growth needs real key/value tensors; anything else falls back to a drop.
+
+    The fallback is the pre-existing behavior — the next step recomputes from
+    the buffer — so an unrecognized cache costs accuracy nothing, only a step.
+    """
     buf = _make_buffer(num_agents=2)
     buf.update_data(np.ones((2, 2), np.float32), np.zeros((2, 1), np.float32), 1.0)
     buf.update_data(np.full((2, 2), 2.0, np.float32), np.ones((2, 1), np.float32))
@@ -84,12 +89,12 @@ def test_add_rows_leaves_existing_rows_untouched_and_drops_cache():
     before_states = buf.states.copy()
     before_actions = buf.actions.copy()
 
-    buf.add_rows(np.array([[7.0, 8.0]], dtype=np.float32))
+    survived = buf.add_rows(np.array([[7.0, 8.0]], dtype=np.float32))
 
     # Existing rows byte-identical.
     np.testing.assert_array_equal(buf.states[:2], before_states)
     np.testing.assert_array_equal(buf.actions[:2], before_actions)
-    # Shared cache invalidated (rebuilt at the new batch size next step).
+    assert survived is False
     assert buf.get_past_key_values() is None
 
 

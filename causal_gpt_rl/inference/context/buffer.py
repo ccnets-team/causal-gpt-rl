@@ -53,13 +53,31 @@ class ContextBuffer:
         # as update_data fills the buffer with actual rollout data.
         self.is_bos = np.ones((self.num_agents, self._internal_len, 1), dtype=np.float32)
         self.masks = np.zeros((self.num_agents, self._internal_len), dtype=np.float32)
-        self.cache = ContextCache(kv_cache_max_len=kv_cache_max_len)
+        self.cache = ContextCache(
+            kv_cache_max_len=kv_cache_max_len, num_agents=self.num_agents
+        )
 
     def set_kv_cache_max_len(self, kv_cache_max_len: int | None) -> None:
         self.cache.set_kv_cache_max_len(kv_cache_max_len)
 
     def set_past_key_values(self, past_key_values) -> None:
         self.cache.set_past_key_values(past_key_values)
+
+    def record_cache_append(self, appended: int) -> None:
+        self.cache.record_append(appended)
+
+    def set_kv_valid_lengths(self, lengths) -> None:
+        self.cache.set_valid_lengths(lengths)
+
+    def get_kv_valid_lengths(self):
+        return self.cache.valid_lengths()
+
+    def cache_has_partial_rows(self) -> bool:
+        return self.cache.has_partial_rows()
+
+    def invalidate_cache_rows(self, reset_mask) -> None:
+        """Drop rows' cached history while leaving their buffered window alone."""
+        self.cache.invalidate_rows(reset_mask)
 
     def get_past_key_values(self):
         return self.cache.get_past_key_values()
@@ -88,12 +106,14 @@ class ContextBuffer:
         self.actions[reset_mask] = 0.0
         self.is_bos[reset_mask] = 1.0
         self.masks[reset_mask] = 0.0
-        # Cache entries are shared across agents in the current implementation,
-        # so a partial reset must invalidate the shared cache to avoid mixing
-        # a fresh episode with stale keys/values from a previous one.
-        self.cache.reset()
+        # The cached keys/values are one tensor shared by every row, so the flagged
+        # rows' entries cannot be cut out of it. They are marked as owned by nobody
+        # instead: the next forward masks them away, which is what keeps a fresh
+        # episode from reading the previous one while every other row keeps its
+        # history untouched.
+        self.cache.invalidate_rows(reset_mask)
 
-    def add_rows(self, initial_states: np.ndarray) -> None:
+    def add_rows(self, initial_states: np.ndarray) -> bool:
         """Append new agent rows, each seeded as a fresh BOS episode.
 
         `initial_states` has shape ``(k, state_size)``: the first observation of
@@ -101,9 +121,12 @@ class ContextBuffer:
         reset-and-seeded row (see `reset_context` + `update_data` with
         ``is_bos=1``): the observation occupies the visible slot (-2) and the
         trailing staged slot (-1), the previous action is zero, and ``is_bos``
-        marks an episode start. Existing rows are left byte-untouched; the
-        shared KV cache is invalidated so it is recomputed at the new batch
-        size on the next step (same discipline as `reset_context_rows`).
+        marks an episode start. Existing rows are left byte-untouched, cache
+        included: the shared cache grows by `k` rows that own none of it (same
+        discipline as `reset_context_rows`).
+
+        Returns True when the existing rows' cache survived, False when the
+        cache had to be dropped and the caller must recompute it.
         """
         states = np.asarray(initial_states, dtype=self.state_type)
         if states.ndim != 2 or states.shape[1] != self.state_size:
@@ -133,9 +156,10 @@ class ContextBuffer:
         self.is_bos = np.concatenate([self.is_bos, new_is_bos], axis=0)
         self.masks = np.concatenate([self.masks, new_masks], axis=0)
         self.num_agents += k
-        # Shared cache spans all rows and can't be grown in place; drop it so the
-        # next step recomputes cleanly at the new batch size.
-        self.cache.reset()
+        # The shared cache spans all rows, so it grows with them: `k` zero-filled
+        # slots that own no history. Nothing reads those zeros — the next forward
+        # masks them — and the pre-existing rows keep their keys and values.
+        return self.cache.add_agent_rows(k)
 
     def update_data(
         self,

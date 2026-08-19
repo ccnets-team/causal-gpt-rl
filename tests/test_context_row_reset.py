@@ -50,7 +50,7 @@ class TestPerRowIsBos(unittest.TestCase):
 
 
 class TestResetContextRows(unittest.TestCase):
-    def test_wipes_only_masked_rows_and_drops_cache(self):
+    def test_wipes_only_masked_rows_and_keeps_the_cache(self):
         buf = _make_buffer()
         # Fill some history for all rows.
         buf.update_data(np.ones((3, 2), np.float32), np.zeros((3, 1), np.float32), 1.0)
@@ -69,8 +69,10 @@ class TestResetContextRows(unittest.TestCase):
         np.testing.assert_array_equal(buf.states[1], np.zeros_like(buf.states[1]))
         np.testing.assert_array_equal(buf.masks[1], np.zeros_like(buf.masks[1]))
         np.testing.assert_array_equal(buf.is_bos[1], np.ones_like(buf.is_bos[1]))
-        # Shared cache is invalidated (recomputed from the buffer next step).
-        self.assertIsNone(buf.get_past_key_values())
+        # The shared cache is kept: the reset row is recorded as owning none of
+        # it, which is what lets the surviving rows go on reading theirs.
+        self.assertEqual(buf.get_past_key_values(), ("stub-cache",))
+        np.testing.assert_array_equal(buf.get_kv_valid_lengths(), np.zeros(3))
 
     def test_noop_mask_leaves_everything(self):
         buf = _make_buffer()

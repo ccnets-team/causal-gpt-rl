@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- A row finishing its episode no longer costs the other rows their history.
+  `reset_rows` and `add_rows` dropped the batch's shared KV cache and rebuilt it
+  from the rolling window, which holds `context_length` tokens and nothing more,
+  so whatever a rollout had retained past that window was gone: in a 50-row
+  Humanoid batch at `kv_cache_max_len=1000`, one seed falling over took every
+  seed still running back to 32 tokens, and `kv=256`, `kv=512` and `kv=1000`
+  came out as the same measurement. The cache is kept now — each row records how
+  much of it is its own and the next forward masks the rest away, so its
+  neighbours are untouched — exactly, on any backbone. On a rotary backbone
+  (`Llama`, and every published bundle) the restarted row also starts exactly as
+  a fresh runner does, `bos_cache_mode` included; with learned absolute positions
+  (`GPT-2`) it still carries the position it restarted at and differs by ~1e-2,
+  which is better than the ~4e-2 it was but not the same thing.
+
+  Those two are the only functions whose behavior changes, and neither changes
+  signature; `predict_incremental_cached` takes one new optional argument and is
+  byte-identical without it. A caller that never restarts part of a batch cannot
+  reach the new path at all: 2880 actions spanning both BOS modes, three
+  retention settings and two batch widths are bit-identical to 0.16.0. While the
+  mask is live it costs roughly 30% of a policy step, for as long as the
+  restarted row takes to catch up with the cache length; against that, the
+  recompute every partial restart used to pay is gone.
+
 - An exported ONNX no longer carries the exporting machine's filesystem.
   `torch.onnx` stamps every node it emits with a `pkg.torch.onnx.stack_trace`
   entry holding absolute paths and source lines from wherever the export ran, so

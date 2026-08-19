@@ -258,9 +258,22 @@ runner.reset_rows(done)
 runner.observe(next_state)
 ```
 
-The shared KV cache is rebuilt on the next action so surviving rows keep their
-history. Calling this method before the runner has been reset raises
-`RuntimeError`, and a mask whose length is not `num_envs` raises `ValueError`.
+Surviving rows keep their cached history exactly, including whatever they
+retained past `context_length`. The cached keys and values are one tensor shared
+by every row, so a restarted row's columns cannot be cut out of it; it is
+recorded as owning none of the cache instead and the next action masks its
+previous episode away. Nothing is rebuilt, and no row's action changes because a
+neighbour restarted.
+
+On a rotary backbone (`Llama`, the default) a restarted row also starts exactly
+as a freshly reset runner does, `bos_cache_mode` included, because masking its
+past is indistinguishable from never having had one. A backbone with learned
+absolute positions (`GPT-2`) still carries the position it restarted at, so its
+first steps differ from a fresh runner by ~1e-2; the surviving rows are exact
+either way.
+
+Calling this method before the runner has been reset raises `RuntimeError`, and
+a mask whose length is not `num_envs` raises `ValueError`.
 
 ### `add_rows`
 
@@ -275,6 +288,13 @@ Append new episode rows to a live runner. Existing rows keep their context and
 observations when the bundle declares an observation space. The next action
 contains the original and newly added rows. Calling this method before the
 runner has been reset raises `RuntimeError`.
+
+The shared KV cache grows with the batch: the new rows take slots that own no
+history and are masked away, so the existing rows keep their cached context
+untouched, as in [`reset_rows`](#reset_rows). A cache object this cannot grow —
+not one this package builds — falls back to rebuilding from the rolling window,
+which does cut retention to `context_length`. `reset_rows` has no such
+fallback.
 
 ## Evaluation
 
