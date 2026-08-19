@@ -38,9 +38,9 @@ from minari import create_dataset_from_buffers
 from minari.data_collector import EpisodeBuffer
 
 try:  # Supports both ``python -m collection.build_minari`` and the documented path.
-    from ._contract import ContractError, validate_dataset_id, validate_raw_directory
+    from ._internal.contract import ContractError, validate_dataset_id, validate_raw_directory
 except ImportError:  # pragma: no cover - exercised by CLI subprocess tests
-    from _contract import ContractError, validate_dataset_id, validate_raw_directory
+    from _internal.contract import ContractError, validate_dataset_id, validate_raw_directory
 
 
 def _build_observation_space(obs_channels):

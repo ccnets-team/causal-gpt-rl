@@ -29,10 +29,10 @@ import numpy as np
 from causal_gpt_rl import __version__ as _RUNTIME_VERSION
 from causal_gpt_rl.inference.spaces import serialize_space
 
-from ._contract import ContractError, normalize_spec, validate_episode
+from ._internal.contract import ContractError, normalize_spec, validate_episode
 
 # `spec.json` keys the packager reads. Everything else in the file is
-# provenance, which `_contract.normalize_spec` passes through untouched.
+# provenance, which `_internal.contract.normalize_spec` passes through untouched.
 _CONTRACT_KEYS = (
     "action_kind",
     "obs_channels",

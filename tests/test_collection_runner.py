@@ -2,8 +2,8 @@
 
 The pairing, the terminal observation, and the two ways an episode closes are
 what the wrapper exists to get right, so they are checked against
-`_contract.validate_raw_directory` — the same gate the packager applies — rather
-than against the wrapper's own idea of a correct file.
+`_internal.contract.validate_raw_directory` — the same gate the packager
+applies — rather than against the wrapper's own idea of a correct file.
 """
 
 import json
@@ -13,7 +13,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-from collection._contract import ContractError, validate_raw_directory
+from collection._internal.contract import ContractError, validate_raw_directory
 from collection.runner import CollectionRunner
 
 

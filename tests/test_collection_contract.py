@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from collection._contract import (
+from collection._internal.contract import (
     ContractError,
     validate_dataset_id,
     validate_raw_directory,
