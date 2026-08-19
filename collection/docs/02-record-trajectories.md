@@ -1,6 +1,6 @@
 # Record Trajectories
 
-This is entry point 2 on the [path](../README.md#where-you-join) — you have an
+This is entry point 2 on the [path](README.md#where-you-join) — you have an
 environment and a policy model that drives it, and you need the five arrays.
 
 ## What runs, and what is only a sketch

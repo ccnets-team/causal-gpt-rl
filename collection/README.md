@@ -1,90 +1,56 @@
 # Collection
 
-Turn recorded episodes into the [Minari](https://minari.farama.org) dataset that
-declares the observation and action spaces your model will use. You own the
-encoding and choose those spaces; this directory records, checks, and packages
-that interface.
+Packages recorded episodes — from any source — into an env-less
+[Minari](https://minari.farama.org) dataset, and records them for the one policy
+source this repository versions: a bundle of ours. Two functions and nothing
+else.
 
-![From any source to an offline RL dataset — three entry points join a single path: with only an environment you first get a policy model, then record trajectories, then package; with an environment and a policy model you join at recording; with trajectories already recorded you join at packaging. All three end at the same env-less Minari dataset, and any offline-RL method can train on it as a separate, optional step](docs/assets/any-source-to-offline-rl-dataset.svg)
+What the episodes have to contain, where they can come from, and why you would
+record a second time, are in [`docs/`](docs/README.md).
 
-## Where you join
+## What's here
 
-The three entry points are not separate routes: each one joins the same path
-with an earlier stage already done.
+| | |
+|---|---|
+| `build_minari.py` | CLI and `build_dataset()` — a raw directory becomes a verified Minari dataset. Any source. |
+| `runner.py` | `CollectionRunner` — records the episodes one of our bundles drives. |
+| `_internal/` | Implementation detail, no stability guarantee. |
+| `docs/` | The input contract, the packaging path, and the collection cycle. |
 
-| | You already have | Still ahead of you |
-|---|---|---|
-| **1** | an environment | get a policy model → record trajectories → package |
-| **2** | an environment and a policy model | record trajectories → package |
-| **3** | recorded trajectories | package |
+## Package a raw directory
 
-A *policy model* here is whatever drives the environment while you record — a
-network you trained (SB3's PPO, say), or any controller you can already call for
-an action. It is not the model you get back from training; that one is
-downstream of this whole picture — until a
-[later cycle](docs/improving-the-next-dataset.md) brings it back as one.
+```bash
+python collection/build_minari.py --raw raw/ --dataset-id <namespace>/<name>-v0
+```
 
-Packaging is what `collection/` does for every source, and it is
-**source-agnostic**: whatever produced the episodes — a simulator, a game build,
-a logged control system, a replayed production trace — if its fixed-shape numeric
-trajectories fit [the contract](docs/01-the-input-contract.md), you can package
-them. Raw pixels, audio, and text are encoded on your side before this boundary.
+Every episode is checked before Minari creates anything, and the result is
+loaded back and verified against the spaces that were declared. Flags,
+multi-agent recordings, and how to read what came out are in
+[Packaging](docs/03-packaging.md); what the directory must contain is
+[The Input Contract](docs/01-the-input-contract.md).
 
-Recording is the one earlier stage it also covers, and along a different axis:
-when the policy driving the episode is a model of ours, this directory records
-the episodes too — [below](#recording-with-a-policy-of-ours). That stage is
-indexed by the *policy*, where everything else on this page is indexed by the
-*environment*, so it is a section of its own rather than another entry in the
-table.
-
-## What ships for the earlier stages
-
-Getting a policy model and recording trajectories are sibling concerns, and
-mostly not this directory's. What this repository actually provides for them, by
-source:
-
-| Source | 1 · get a policy model | 2 · record trajectories | 3 · package |
-|---|---|---|---|
-| Unity ML-Agents | stock policies in the [envs repo](https://huggingface.co/datasets/ccnets/causal-gpt-rl-unity-envs) | [`examples/unity_collection/collect.py`](../examples/unity_collection/collect.py) | ✓ |
-| Gymnasium | — | code sketch only, no runnable script | ✓ |
-| Any other source | — | — | ✓ |
-
-Packaging is the column that holds for every source. For stages 1 and 2 outside
-Unity you bring your own policy model and your own loop — SB3's PPO, a scripted
-controller, whatever already drives your system. Nothing here integrates with
-those; what the loop has to produce is in
-[Record Trajectories](docs/02-record-trajectories.md).
-
-## Recording with a policy of ours
-
-Every row of that table assumes the policy is yours. When it is instead a model
-this repository produced, stage 2 stops being your loop to write:
-`CollectionRunner` wraps the runner the bundle loads into and records what it
-drives, in whatever environment you point it at.
+## Record with one of our bundles
 
 ```python
+from causal_gpt_rl.inference import load_runner
+from collection import CollectionRunner
+
 runner = CollectionRunner(load_runner("bundle/"), "raw/")
 ```
 
-That is the second collection cycle, and the only one where a policy source can
-be integrated rather than contracted — SB3, CleanRL and RLlib each expose a
-different API on a different release cadence, ours is the one this repository
-versions. Why you would run it, the loop in full, and what it writes:
-[Improving the Next Dataset](docs/improving-the-next-dataset.md).
+The wrapper keeps the runner's calls — `reset` / `act` / `observe` — and writes
+what they drive. The loop in full, what it records, and its boundaries are in
+[Improving the Next Dataset](docs/improving-the-next-dataset.md). Runnable
+forms: [`examples/record_dataset.ipynb`](../examples/record_dataset.ipynb) and
+[`examples/deploy/record.py`](../examples/deploy/record.py).
 
-## Docs
+## Environments
 
-[`docs/`](docs/README.md) is the packaging path in three parts — the input
-contract, recording trajectories, then packaging and checking the result — plus
-[Improving the Next Dataset](docs/improving-the-next-dataset.md) beside it,
-which is where `CollectionRunner` is documented.
+| For | Install |
+|---|---|
+| Packaging | `minari==0.5.3` |
+| Recording | `causal-gpt-rl` (torch) |
 
-Diagrams live in [`docs/assets/`](docs/assets/).
-
-## Not here
-
-Environment stepping, policy-model training, quality-tier synthesis, and noise
-calibration. Those live with the source that needs them —
-[`examples/unity_collection/`](../examples/unity_collection/) is the worked one.
-Training on the finished dataset is a separate, optional step and is not part of
-this directory either.
+Neither pulls in the other. `import collection` costs nothing until you touch
+`build_dataset` or `CollectionRunner`, so a packaging environment needs no torch
+and a recording environment needs no Minari.

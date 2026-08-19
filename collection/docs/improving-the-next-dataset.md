@@ -15,7 +15,7 @@ cycle.
 
 ![Collecting better RL data with transformer context extrapolation — train a transformer policy on the current dataset, deploy it with a longer context, collect new experience, and use that experience as the next dataset](assets/collecting-better-rl-data-with-context-extrapolation.svg)
 
-This closes the one gap the [entry table](../README.md#where-you-join) leaves
+This closes the one gap the [entry table](README.md#where-you-join) leaves
 open. Entry point 1 has an environment and still owes you a policy model; after
 a cycle you have one, and it is what the previous dataset produced.
 
