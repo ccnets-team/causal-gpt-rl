@@ -15,6 +15,7 @@ Copyright (c) 2026 CCNets, Inc. All rights reserved.
 """
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -39,6 +40,17 @@ from .state_normalizer import StateNormalizer
 # generalizes past it, which is environment-dependent, so the caller opts in
 # explicitly.
 DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER = 1
+
+# Slots the rolling buffer allocates on the cached path. The model reads one
+# token per step there — `predict_incremental_cached` slices its input to
+# `[:, -1:]` once the cache holds history — so the window is staging, not
+# context, and the context lives in the KV cache instead. Two is the floor:
+# `update_data` puts a new observation in the trailing slot with no action
+# beside it yet, and only the next roll pairs it into the `(state, action)`
+# token the model consumes. `ContextBuffer` counts visible tokens and allocates
+# one more, so it is handed `CACHED_CONTEXT_BUFFER_SLOTS - 1`. The windowed path
+# reads the whole window and keeps `context_length + 1` slots instead.
+CACHED_CONTEXT_BUFFER_SLOTS = 2
 
 
 class PolicyRunner:
@@ -156,7 +168,10 @@ class PolicyRunner:
                 self._multi_discrete_start = md_start
         self.context_length = int(context_length)
         self.num_envs = int(num_envs)
-        self.use_windowed = bool(use_windowed)
+        # Fixed here for the runner's life: it selects the inference path, and
+        # the path decides how much rolling window the buffer below allocates.
+        # See the `use_windowed` property for what an assignment does instead.
+        self._use_windowed = bool(use_windowed)
         # BOS KV-cache retention (serving convention — NOT a weight/architecture
         # property). "discard" (default) reproduces legacy behavior: the
         # episode-start bos token's KV is dropped after the first act, so the
@@ -188,9 +203,14 @@ class PolicyRunner:
         self.state_normalizer = self._resolve_state_normalizer(state_normalizer)
 
         kv_limit = None if self.use_windowed else self.kv_cache_max_len
+        buffer_tokens = (
+            self.context_length
+            if self.use_windowed
+            else CACHED_CONTEXT_BUFFER_SLOTS - 1
+        )
         self.buffer = ContextBuffer(
             num_agents=self.num_envs,
-            context_length=self.context_length,
+            context_length=buffer_tokens,
             state_size=self.state_size,
             action_size=self.action_size,
             kv_cache_max_len=kv_limit,
@@ -198,11 +218,6 @@ class PolicyRunner:
         self._last_buffer_action: Optional[np.ndarray] = None
         self._is_reset = False
         self._reset_kv_after_next_act = False
-        # Set by a structural cache invalidation (`reset_rows` / `add_rows`) to
-        # make the next act re-prime the cache from the full masked window
-        # instead of collapsing every row to its newest token (which would wipe
-        # surviving rows' history). Consumed on that act. See `_step`.
-        self._needs_full_warmstart = False
         # Rows flagged by `reset_rows` to be seeded as a fresh episode on the
         # next observe; empty (all-False) in the common all-envs-in-lockstep case.
         self._pending_bos_mask = np.zeros(self.num_envs, dtype=bool)
@@ -214,6 +229,34 @@ class PolicyRunner:
         self.model.eval()
         if self.state_normalizer is not None:
             self.state_normalizer.to(self.model.device).eval()
+
+    @property
+    def use_windowed(self) -> bool:
+        """Whether full-window inference is enabled. Fixed at construction."""
+        return self._use_windowed
+
+    @use_windowed.setter
+    def use_windowed(self, value) -> None:
+        """Refuse a mode switch, without raising, and say the mode did not move.
+
+        The two paths need different amounts of rolling window — windowed reads
+        all of it, cached stages two tokens — so the buffer is sized once, from
+        the mode, and a live switch would be reading a window that is not there.
+        Switching also used to lose history silently: the flip left the cache
+        empty while the warm-start collapsed every row to its newest token, and
+        flipping back stacked new tokens onto a cache missing every windowed
+        step. Ignoring the assignment leaves the runner where it is, still
+        correct for the mode it was built in; `warnings.warn` rather than an
+        exception so callers that set the attribute keep running.
+        """
+        if bool(value) == self._use_windowed:
+            return
+        warnings.warn(
+            "use_windowed is fixed at construction and was NOT changed (still "
+            f"{self._use_windowed}); build a new runner to switch inference mode",
+            UserWarning,
+            stacklevel=2,
+        )
 
     def _resolve_state_normalizer(
         self,
@@ -243,9 +286,6 @@ class PolicyRunner:
         # discard: drop the bos token's KV after the first act (legacy).
         # retain: keep it so the bos token persists in the cache alongside bos=0.
         self._reset_kv_after_next_act = self.bos_cache_mode == "discard"
-        # A fresh reset seeds only the lone bos token, so act#0's slice-to-last
-        # is already a full warm-start; no structural recompute is pending.
-        self._needs_full_warmstart = False
         self._pending_bos_mask[:] = False
         self._pending_bos_discard_mask[:] = False
 
@@ -305,13 +345,29 @@ class PolicyRunner:
         The shared KV cache grows with the batch — the new rows take slots that
         own no history and are masked away — so existing rows keep their cached
         context too, the same discipline as `reset_rows`. A cache layout that
-        cannot be grown falls back to one warm-start recompute from the buffer.
+        cannot be grown raises before anything changes: the cached path keeps no
+        rolling window to rebuild a dropped cache from, and the batch is left
+        exactly as it was.
         Because the batch size is fixed at construction elsewhere,
         this is the only way to raise it on a live runner; use `reset()` to
         restart the whole batch instead. Call after `reset()`.
         """
         if not self._is_reset:
             raise RuntimeError("Call reset(initial_state) before add_rows().")
+        # Asked before anything is widened. Growing the cache is what can fail,
+        # and the cached path keeps no rolling window to rebuild a dropped cache
+        # from, so failing halfway would leave a wider batch with no history —
+        # the silent truncation this refuses in the first place. Refusing here
+        # leaves the runner exactly as it was, so the failed call costs the
+        # caller neither its batch width nor its cached history.
+        if not self.buffer.can_grow_cache_rows():
+            raise RuntimeError(
+                "add_rows() cannot grow the shared KV cache for this cache "
+                "layout, and the cached path keeps no rolling window to rebuild "
+                "it from. The batch is unchanged; call reset() to restart it at "
+                "the wider size. Supported layouts expose `layers` "
+                "(transformers >= 4.46) or `key_cache` (4.40-4.45)."
+            )
         new_states = self._format_states_for_rows(initial_states)
         k = int(new_states.shape[0])
         cache_survived = self.buffer.add_rows(new_states)
@@ -332,11 +388,18 @@ class PolicyRunner:
                 ],
                 axis=0,
             )
-        # Only a cache that could not be grown needs the next act to warm-start
-        # over the full masked window instead of each row's newest token.
+        # Unreachable: the pre-check above already refused every layout the grow
+        # rejects. If it ever fires the two have drifted, and by now the batch is
+        # wider with its cache dropped — clearing `_is_reset` stops an `act()`
+        # from quietly re-priming those rows off two staged tokens.
         if not cache_survived:
-            self._needs_full_warmstart = True
-            self._reset_kv_after_next_act = False
+            self._is_reset = False
+            raise RuntimeError(
+                "add_rows() grew the batch but lost the shared KV cache, which "
+                "can_grow_cache_rows() said would survive. The batch is now "
+                f"{self.num_envs} rows with no cached history; call reset() "
+                "before act()."
+            )
 
     @torch.inference_mode()
     def act(self, state=None) -> np.ndarray:
@@ -388,24 +451,17 @@ class PolicyRunner:
             # per-row bookkeeping needs; a full recompute instead states each
             # row's owned length outright.
             appended = 1
-            warm_start_lengths = None
             if not had_history:
-                if self._needs_full_warmstart:
-                    # A structural invalidation (reset_rows / add_rows) dropped
-                    # the shared cache while the buffer still holds real history
-                    # for the surviving / pre-existing rows. Hand the model the
-                    # full masked window so its warm-start re-primes each row
-                    # over its own valid length; slicing to the last token here
-                    # would wipe those rows' context.
-                    self._needs_full_warmstart = False
-                    warm_start_lengths = mask_t.sum(dim=1).detach().cpu().numpy()
-                else:
-                    # Fresh reset (act#0 over the lone bos) or the discard drop
-                    # (act#1): only the newest token needs (re)processing.
-                    states_t = states_t[:, -1:]
-                    actions_t = actions_t[:, -1:]
-                    is_bos_t = is_bos_t[:, -1:]
-                    mask_t = mask_t[:, -1:]
+                # Fresh reset (act#0 over the lone bos) or the discard drop
+                # (act#1): only the newest token needs (re)processing. Nothing
+                # else reaches an empty cache — `reset_rows` keeps the shared
+                # cache and `add_rows` refuses a layout it cannot grow, so the
+                # full-window re-prime those two once needed is gone along with
+                # the window it read.
+                states_t = states_t[:, -1:]
+                actions_t = actions_t[:, -1:]
+                is_bos_t = is_bos_t[:, -1:]
+                mask_t = mask_t[:, -1:]
             # Rows that restarted, or joined, own less of the shared cache than it
             # holds; the model needs their lengths to mask the rest away. When every
             # row owns all of it there is nothing to mask and nothing is passed,
@@ -435,10 +491,7 @@ class PolicyRunner:
                 self._pending_bos_discard_mask[:] = False
             else:
                 self.buffer.set_past_key_values(past_kv)
-                if warm_start_lengths is None:
-                    self.buffer.record_cache_append(appended)
-                else:
-                    self.buffer.set_kv_valid_lengths(warm_start_lengths)
+                self.buffer.record_cache_append(appended)
                 if self._pending_bos_discard_mask.any():
                     # The act above put those rows' bos in the cache and it was
                     # their whole history, so discarding it leaves them owning

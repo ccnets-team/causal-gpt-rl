@@ -44,6 +44,54 @@
   at several retentions if every tier draws the same initial states, and any
   value between the two would leave most episodes unseeded.
 
+- A cached rollout no longer carries a rolling window it does not read. Once the
+  KV cache holds history, `predict_incremental_cached` slices its input to the
+  newest token, so the `context_length + 1` window the buffer allocated was
+  staging rather than context — the context is the cache. The cached path now
+  stages two tokens, which is the floor: an observation lands in the trailing
+  slot with no action beside it and only the next roll pairs it into the
+  `(state, action)` token the model reads. At Humanoid-v5 widths (348-wide
+  observations, `context_length=32`, `kv_cache_max_len=1000`) `get_context()`
+  drops from 464 to 4.8 microseconds at 64 rows and from 2.1 milliseconds to 19
+  microseconds at 256; a whole policy step drops 19% at 64 rows and 25% at 256,
+  because the window was also being converted to a tensor, moved to the device,
+  and normalized before all but one token of it was discarded. Policy actions and
+  `act_with_info`'s auxiliary output are bit-identical to the previous buffer
+  across `reset_rows`, `add_rows`, both `bos_cache_mode` values, retention set
+  above and below the trained window, and both backbone families — measured, not
+  argued, at exactly zero rather than within a tolerance. Full-window runners
+  (`use_windowed=True`) read the whole window and still allocate it.
+  `context_length` is untouched: it is the bundle's trained window, and
+  provenance records it. What does change shape is `runner.buffer` itself —
+  `buffer.states` is now `(rows, 2, width)` and `buffer.context_length` reports
+  the staging depth rather than the model's window — so code reaching into the
+  buffer sees the smaller arrays.
+
+  `add_rows()` now refuses a cache layout it cannot grow instead of rebuilding
+  from the window, which is no longer there to rebuild from. It asks before it
+  widens anything, so the refusal costs a caller neither its batch width nor its
+  cached history. Only a cache exposing neither `layers` (transformers >= 4.46)
+  nor `key_cache` (4.40-4.45) reaches that path; every supported `DynamicCache`
+  grows in place and leaves the pre-existing rows untouched, which is what 0.17.0
+  established. This is the one call that 0.17.0 accepted and this release does
+  not — it accepted it by cutting every surviving row's history to
+  `context_length`, which is the behavior 0.17.0 set out to remove.
+
+- `use_windowed` is fixed at construction. It selects the inference path and the
+  path sizes the buffer, so a live switch would read a window that is not
+  allocated. Assigning it never worked anyway: switching to the cached path left
+  the cache empty while the warm-start collapsed every row to its newest token
+  (actions off by 5.5e-2), and switching back stacked new tokens onto a cache
+  missing every windowed step (4.1e-3) — both silent. The attribute is now a
+  property whose setter warns and leaves the runner in the mode it was built in,
+  rather than raising, so callers that set it keep running and keep getting
+  correct results for that mode; re-asserting the current mode stays silent. Two
+  consequences of it being a property rather than an attribute: under `-W error`
+  the assignment raises, and `use_windowed` no longer appears in
+  `vars(runner)`. Under default filters the warning prints once per call site,
+  so it is a notice rather than a guard. Reading `use_windowed` is unchanged, and
+  constructing with either value is unchanged.
+
 ## 0.17.0
 
 - A row finishing its episode no longer costs the other rows their history.

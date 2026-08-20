@@ -10,6 +10,23 @@ import numpy as np
 import torch
 
 
+def can_grow_cache_batch(past_key_values) -> bool:
+    """Whether `_grow_cache_batch` would find a layout it can append rows to.
+
+    Pure inspection — the same two probes the grow makes, without the mutation.
+    A caller that cannot recover from a dropped cache asks this first and
+    refuses before it has changed anything, rather than unwinding afterwards.
+    """
+    if past_key_values is None:
+        return True
+    if getattr(past_key_values, "layers", None):
+        return True
+    return (
+        getattr(past_key_values, "key_cache", None) is not None
+        and getattr(past_key_values, "value_cache", None) is not None
+    )
+
+
 def _grow_cache_batch(past_key_values, extra_rows: int) -> bool:
     """Append `extra_rows` zero-filled rows to a cache's batch axis, in place.
 
@@ -18,12 +35,15 @@ def _grow_cache_batch(past_key_values, extra_rows: int) -> bool:
     hides them. The zeros are storage, not content — without that mask they
     would dilute attention rather than be ignored.
 
-    Returns False for a cache layout this cannot grow, leaving it untouched so
-    the caller can fall back to dropping the cache and recomputing.
+    Returns False for a cache layout this cannot grow, leaving it untouched.
+    `can_grow_cache_batch` is the single source of that answer, so a caller can
+    ask before committing to the change.
     """
     k = int(extra_rows)
     if k <= 0:
         return True
+    if not can_grow_cache_batch(past_key_values):
+        return False
 
     def _grown(tensor):
         pad = torch.zeros(
@@ -162,12 +182,20 @@ class ContextCache:
             )
         self._valid_len[mask] = 0
 
+    def can_grow_agent_rows(self) -> bool:
+        """Whether `add_agent_rows` would keep the existing rows' cache.
+
+        Asked before the batch is widened, so a caller that cannot survive a
+        dropped cache refuses while nothing has changed yet.
+        """
+        return can_grow_cache_batch(self.past_key_values)
+
     def add_agent_rows(self, extra_rows: int) -> bool:
         """Grow the batch by `extra_rows` fresh rows that own no history.
 
         Returns True when the existing rows' cache survived, False when the
-        layout could not be grown and the cache was dropped instead — the caller
-        then recomputes it, which is what every partial restart used to do.
+        layout could not be grown and the cache was dropped instead. Ask
+        `can_grow_agent_rows()` first if a dropped cache is not recoverable.
         """
         k = int(extra_rows)
         if k <= 0:

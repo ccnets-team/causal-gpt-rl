@@ -79,6 +79,9 @@ class ContextBuffer:
         """Drop rows' cached history while leaving their buffered window alone."""
         self.cache.invalidate_rows(reset_mask)
 
+    def can_grow_cache_rows(self) -> bool:
+        return self.cache.can_grow_agent_rows()
+
     def get_past_key_values(self):
         return self.cache.get_past_key_values()
 

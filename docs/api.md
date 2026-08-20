@@ -85,7 +85,7 @@ unless reproducing a specific deployment setup or measuring long rollouts.
 | `device` | Torch device used for inference. |
 | `num_envs` | Number of independent environments evaluated in one batch. |
 | `kv_cache_max_len` | Retained KV-cache length, in tokens. `None` uses the bundle's `context_length`; larger values run, but pay off only where the policy generalizes past it — see [The trained window is not a ceiling](environment-dynamics-in-transformer.md#the-trained-window-is-not-a-ceiling). |
-| `use_windowed` | Recompute the full context window on each step instead of using the KV cache. |
+| `use_windowed` | Recompute the full context window on each step instead of using the KV cache. Fixed for the runner's life — see the attribute below. |
 | `bos_cache_mode` | Override the bundle's BOS cache mode with `"retain"` or `"discard"`. |
 
 Returns a ready-to-use [`PolicyRunner`](#policyrunner).
@@ -184,7 +184,7 @@ This delayed pairing is specific to this model. The high-level
 | `action_size` | Flat model action width. |
 | `obs_space` | Declared Gymnasium observation space, or `None`. |
 | `action_space` | Declared Gymnasium action space, or `None`. |
-| `use_windowed` | Whether full-window inference is enabled. |
+| `use_windowed` | Whether full-window inference is enabled. Read-only in effect: it selects the inference path and the path sizes the rolling buffer, so assigning it warns and leaves the mode unchanged. Build a new runner to switch. |
 | `bos_cache_mode` | Resolved BOS cache mode. |
 
 ### `reset`
@@ -292,9 +292,10 @@ runner has been reset raises `RuntimeError`.
 The shared KV cache grows with the batch: the new rows take slots that own no
 history and are masked away, so the existing rows keep their cached context
 untouched, as in [`reset_rows`](#reset_rows). A cache object this cannot grow —
-not one this package builds — falls back to rebuilding from the rolling window,
-which does cut retention to `context_length`. `reset_rows` has no such
-fallback.
+not one this package builds — raises `RuntimeError`. That is checked before the
+batch is widened, so a refused call leaves `num_envs`, the rows, and their cached
+history exactly as they were. There is no rebuild from the rolling window to fall
+back to: the cached path stages two tokens rather than carrying a window.
 
 ## Evaluation
 
