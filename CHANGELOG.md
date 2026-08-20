@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.0
 
 - A row finishing its episode no longer costs the other rows their history.
   `reset_rows` and `add_rows` dropped the batch's shared KV cache and rebuilt it
