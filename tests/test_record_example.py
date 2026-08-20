@@ -262,58 +262,82 @@ class _FakeVecEnv:
         pass
 
 
-def _vec_collector(tmp_path, num_envs):
-    return CollectionRunner(_VecStubRunner(num_envs), tmp_path)
+def _vec_collector(tmp_path, num_envs, share=1):
+    return CollectionRunner(
+        _VecStubRunner(num_envs), tmp_path, episodes_per_row=share
+    )
 
 
 def test_the_vector_loop_writes_one_episode_per_row_ending(tmp_path):
     env = _FakeVecEnv([2, 3, 4])
     collector = _vec_collector(tmp_path, 3)
 
-    results = record.record_vector_episodes(
-        env, collector, episodes=4, seed_start=0
-    )
+    results = record.record_vector_episodes(env, collector, seed_start=0)
 
-    # Rows finish at 2, 3, 4 and 4 steps, so the target is reached on the step
-    # row 0 ends for the second time.
-    assert [r["steps"] for r in results[:4]] == [2, 3, 4, 2]
-    assert [r["row"] for r in results[:4]] == [0, 1, 2, 0]
-    assert all(r["terminated"] for r in results[:4])
+    # Rows finish at 2, 3 and 4 steps, each writing the one episode it owes.
+    assert [r["steps"] for r in results] == [2, 3, 4]
+    assert [r["row"] for r in results] == [0, 1, 2]
+    assert all(r["terminated"] for r in results)
     # Reward is 1.0 a step, and the step that seeds a row pays none of it.
-    assert [r["return"] for r in results[:4]] == [2.0, 3.0, 4.0, 2.0]
+    assert [r["return"] for r in results] == [2.0, 3.0, 4.0]
 
 
-def test_a_row_mid_episode_at_the_target_is_flushed_as_a_truncation(tmp_path):
-    env = _FakeVecEnv([2, 3, 4])
-    collector = _vec_collector(tmp_path, 3)
+def test_the_count_is_exact_and_nothing_is_flushed(tmp_path):
+    # Rows whose episodes are short would otherwise churn out repeats while the
+    # long ones are still on their first, and whatever was in flight when a
+    # total landed would be flushed. Retiring each row at its share does both.
+    env = _FakeVecEnv([3, 4, 5, 6, 12, 14, 16, 18])
+    collector = _vec_collector(tmp_path, 8)
 
-    results = record.record_vector_episodes(
-        env, collector, episodes=4, seed_start=0
-    )
+    results = record.record_vector_episodes(env, collector, seed_start=0)
 
-    # Asking for 4 gets 5: row 1 was one transition into its second episode when
-    # the target landed, and close() writes what a row has rather than dropping
-    # it. The summary counts it the same as the files do.
-    assert collector.episodes_written == 5
-    assert len(results) == 5
-    assert results[-1] == {
-        "row": 1,
-        "return": 1.0,
-        "steps": 1,
-        "terminated": False,
-        "truncated": True,
-    }
+    assert collector.episodes_written == 8
+    assert len(list(tmp_path.glob("ep_*.npz"))) == 8
+    assert sorted(r["row"] for r in results) == list(range(8))
+    assert all(r["terminated"] for r in results), "nothing was cut short"
 
 
-def test_only_the_first_episodes_are_seeded(tmp_path):
-    env = _FakeVecEnv([2, 2, 2])
-    collector = _vec_collector(tmp_path, 3)
+def test_a_share_above_one_writes_it_for_every_row(tmp_path):
+    env = _FakeVecEnv([2, 3])
+    collector = _vec_collector(tmp_path, 2, share=3)
 
-    record.record_vector_episodes(env, collector, episodes=3, seed_start=7)
+    results = record.record_vector_episodes(env, collector, seed_start=0)
+
+    assert collector.episodes_written == 6
+    assert collector.row_episodes.tolist() == [3, 3]
+    assert sorted(r["row"] for r in results) == [0, 0, 0, 1, 1, 1]
+
+
+def test_only_each_rows_first_episode_carries_a_seed(tmp_path):
+    env = _FakeVecEnv([2, 2])
+    collector = _vec_collector(tmp_path, 2, share=2)
+
+    results = record.record_vector_episodes(env, collector, seed_start=7)
 
     # One seed per row on the one reset the loop performs; the auto-resets after
-    # it are the env's and take none.
-    assert env.seeds == [7, 8, 9]
+    # it are the env's and take none. Each result says which it is, because that
+    # is what decides whether two runs can be compared episode for episode.
+    assert env.seeds == [7, 8]
+    firsts = [r for r in results if r["seed"] is not None]
+    assert sorted(r["seed"] for r in firsts) == [7, 8]
+    assert len(results) - len(firsts) == 2, "the repeats are marked unseeded"
+
+
+def test_a_share_of_one_leaves_every_episode_seeded(tmp_path):
+    env = _FakeVecEnv([2, 5, 3])
+    collector = _vec_collector(tmp_path, 3, share=1)
+
+    results = record.record_vector_episodes(env, collector, seed_start=100)
+
+    assert sorted(r["seed"] for r in results) == [100, 101, 102]
+
+
+def test_a_collector_without_a_share_is_refused(tmp_path):
+    env = _FakeVecEnv([2, 2])
+    collector = CollectionRunner(_VecStubRunner(2), tmp_path)
+
+    with pytest.raises(ValueError, match="episodes_per_row"):
+        record.record_vector_episodes(env, collector, seed_start=0)
 
 
 def test_a_vector_env_raising_both_flags_is_recorded_as_a_termination(tmp_path):
@@ -322,11 +346,9 @@ def test_a_vector_env_raising_both_flags_is_recorded_as_a_termination(tmp_path):
     env = _FakeVecEnv([3, 3], both_flags=True)
     collector = _vec_collector(tmp_path, 2)
 
-    results = record.record_vector_episodes(
-        env, collector, episodes=2, seed_start=0
-    )
+    results = record.record_vector_episodes(env, collector, seed_start=0)
 
-    assert [(r["terminated"], r["truncated"]) for r in results[:2]] == [
+    assert [(r["terminated"], r["truncated"]) for r in results] == [
         (True, False),
         (True, False),
     ]
@@ -339,11 +361,9 @@ def test_a_vector_env_truncation_alone_stays_a_truncation(tmp_path):
     env = _FakeVecEnv([3, 3], truncate=True)
     collector = _vec_collector(tmp_path, 2)
 
-    results = record.record_vector_episodes(
-        env, collector, episodes=2, seed_start=0
-    )
+    results = record.record_vector_episodes(env, collector, seed_start=0)
 
-    assert [(r["terminated"], r["truncated"]) for r in results[:2]] == [
+    assert [(r["terminated"], r["truncated"]) for r in results] == [
         (False, True),
         (False, True),
     ]
@@ -352,27 +372,32 @@ def test_a_vector_env_truncation_alone_stays_a_truncation(tmp_path):
     assert episode["truncations"].tolist() == [False, False, True]
 
 
-def test_only_the_rows_that_ended_are_restarted(tmp_path):
+def test_a_retired_row_is_still_restarted_but_no_longer_written(tmp_path):
+    # Row 0 ends every 2 steps and row 1 once at 7, so row 0 goes on ending
+    # after it has written its one. It keeps being driven — the batch is one
+    # forward — and the runner keeps restarting it; only the files stop.
     env = _FakeVecEnv([2, 7])
-    collector = _vec_collector(tmp_path, 2)
+    collector = _vec_collector(tmp_path, 2, share=1)
 
-    record.record_vector_episodes(env, collector, episodes=3, seed_start=0)
+    results = record.record_vector_episodes(env, collector, seed_start=0)
 
-    # Row 0 ends twice before row 1 ends once, and row 1 is never restarted
-    # alongside it.
-    assert [mask.tolist() for mask in collector.runner.restarts] == [
-        [True, False],
-        [True, False],
-    ]
+    assert collector.row_episodes.tolist() == [1, 1]
+    assert len(results) == 2
+    assert len(collector.runner.restarts) > 1, "row 0 restarted more than once"
+    assert all(mask.tolist() == [True, False] for mask in collector.runner.restarts)
+
+
+def test_the_share_of_a_total_rounds_up(tmp_path):
+    assert record.share_per_row(8, 8) == 1
+    assert record.share_per_row(24, 8) == 3
+    assert record.share_per_row(100, 8) == 13  # 104 written, an exact overshoot
 
 
 def test_the_vector_run_output_survives_a_legacy_code_page(tmp_path, capsys):
     env = _FakeVecEnv([2, 3])
-    collector = _vec_collector(tmp_path, 2)
+    collector = _vec_collector(tmp_path, 2, share=2)
 
-    results = record.record_vector_episodes(
-        env, collector, episodes=2, seed_start=0
-    )
+    results = record.record_vector_episodes(env, collector, seed_start=0)
     summarize(results, tmp_path)
 
     printed = capsys.readouterr().out

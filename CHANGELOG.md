@@ -10,18 +10,39 @@
   ends on carries its true final observation and flags, the next carries the new
   episode's seed with a zero reward and an ignored action, and `reset_rows` is
   called between them so the ended episode leaves the row's context. A batched
-  run therefore needs no `final_observation` handling from the caller, and
-  `spec.json`'s provenance records the `num_envs` that produced the directory.
+  run therefore needs no `final_observation` handling from the caller.
   `num_envs == 1` keeps the single-env contract unchanged. The previous refusal
   justified itself with a parity claim that `tests/test_partial_restart_parity.py`
   measures at 0.0 for the rotary backbones every bundle uses; the boundary was
   the recorder tracking one episode, and that is what changed.
 
-  `examples/deploy/record.py` gains `--num-envs`. Above 1 it builds the env with
-  `gym.make_vec` and `--max-steps` becomes each sub-env's `max_episode_steps`,
-  because only the environment can restart a row it truncates. `--seed-start`
-  then seeds only the first `--num-envs` episodes; the auto-resets after them are
-  the env's and take no seed.
+  `episodes_per_row` is each row's share, and it is what makes a batched count
+  exact. A row that has written its share is retired: it keeps being driven,
+  because the batch is one forward and a single row cannot leave it, but nothing
+  it does after that reaches a file, `close()`'s flush included. Stopping on a
+  total instead overshoots twice over — rows whose episodes are short churn
+  through repeats while the long ones are still on their first, and whatever is
+  in flight when the total lands is written as a truncation. Eight rows asked
+  for eight episodes produced fourteen files that way, only four of them a
+  seeded episode that ran to termination; with a share of one it is eight files,
+  all seeded, none cut short.
+
+  The share is also what keeps seeds meaningful. A vector env is seeded once, at
+  `reset`, so only each row's first episode carries a seed the caller chose;
+  every later one is the env restarting itself, and where it goes depends on how
+  many steps the policy took before it — which is exactly what differs between
+  two runs being compared. `episodes_per_row=1` is therefore the form to record
+  with when seeds have to line up across runs, and it makes `num_envs` the
+  episode count. `spec.json`'s provenance records both values.
+
+  `examples/deploy/record.py` gains `--num-envs`: above 1 it builds the env with
+  `gym.make_vec`, `--max-steps` becomes each sub-env's `max_episode_steps`
+  because only the environment can restart a row it truncates, and each row
+  records `ceil(--episodes / --num-envs)` episodes so the total is exact rather
+  than an overshoot of unknown size. `examples/mujoco_collection/record_tiers.py`
+  gains it too, restricted to 1 or `--episodes`: that ladder is only one policy
+  at several retentions if every tier draws the same initial states, and any
+  value between the two would leave most episodes unseeded.
 
 ## 0.17.0
 

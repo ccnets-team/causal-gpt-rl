@@ -16,7 +16,11 @@ Example:
 
 `--num-envs` records from a vectorized env instead, one episode file per row.
 Rows end at different steps and the env resets them itself, so episodes are
-numbered in the order they finish rather than by row.
+numbered in the order they finish rather than by row. Each row records
+`ceil(--episodes / --num-envs)` of them and then retires, which is what keeps
+the total exact; because a vector env is seeded once, only each row's first
+episode carries a `--seed-start` seed, so `--num-envs == --episodes` is the form
+to use when the seeds have to line up across runs.
 
 Retention above the bundle's `context_length` is what this cycle turns on, and
 whether it pays is environment-dependent — across the published bundles it helps
@@ -74,8 +78,10 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1,
         help="Environments to record in one batch. Above 1 the env is built "
-        "with gym.make_vec and --seed-start seeds only the first --num-envs "
-        "episodes; the auto-resets after them are unseeded.",
+        "with gym.make_vec and each row records ceil(--episodes / --num-envs) "
+        "episodes, so the total is exact. A vector env is seeded once, so only "
+        "each row's first episode carries a --seed-start seed; pass "
+        "--num-envs == --episodes to have every episode seeded.",
     )
     p.add_argument("--seed-start", type=int, default=0)
     p.add_argument(
@@ -181,30 +187,47 @@ def record_episodes(
     return results
 
 
+def share_per_row(episodes: int, num_envs: int) -> int:
+    """Each row's share of `episodes`, and with it the exact total written.
+
+    The total is `num_envs * share`, which is `episodes` exactly when the two
+    divide and rounds up otherwise. Rounding up rather than down keeps
+    `--episodes` a floor the run is guaranteed to clear.
+    """
+    return -(-int(episodes) // int(num_envs))
+
+
 def record_vector_episodes(
     venv,
     collector: CollectionRunner,
     *,
-    episodes: int,
     seed_start: int,
 ) -> list[dict]:
-    """Drive a vectorized env until at least `episodes` files are written.
+    """Drive a vectorized env until every row has written its share.
 
-    "At least" because rows that end on the same step are all written before the
-    target is checked again, and the rows still mid-episode at that point are
-    flushed too; `summarize` reports what actually landed.
+    The collector's `episodes_per_row` is the stop condition, so the count is
+    exact: rows that finish early retire instead of churning out unseeded
+    repeats, and nothing is in flight to be flushed at the end. `--max-steps`
+    rides in the sub-envs' own `TimeLimit` (see `main`) rather than being applied
+    here, because only the env can restart a row it truncates.
 
-    Rows end at different steps and the env resets them itself, so there is no
-    per-episode loop here: the recorder closes and numbers each row's episode as
-    it finishes. `--max-steps` rides in the sub-envs' own `TimeLimit` (see
-    `main`) rather than being applied here, because only the env can restart a
-    row it truncates.
+    A vector env is seeded once, at reset, so only each row's first episode
+    carries a seed the caller chose; the rest are the env restarting itself.
+    Each result says which it is, because it is what decides whether two runs
+    can be compared episode for episode.
 
     The returns and lengths tracked alongside are for the printed summary; the
-    files are the recorder's. A row being seeded after an auto-reset contributes
-    no transition — zero reward, no flags, its action ignored — so it is left
-    out of the tally for that step.
+    files are the collector's, and which rows wrote is read back from it so the
+    two cannot drift. A row being seeded after an auto-reset contributes no
+    transition — zero reward, no flags, its action ignored — so it is left out of
+    the tally for that step.
     """
+    if collector.episodes_per_row is None:
+        raise ValueError(
+            "record_vector_episodes needs a collector built with "
+            "episodes_per_row; without a share per row there is no stop "
+            "condition that lands on an exact count."
+        )
     rows = venv.num_envs
     returns = np.zeros(rows, dtype=np.float64)
     lengths = np.zeros(rows, dtype=np.int64)
@@ -214,7 +237,8 @@ def record_vector_episodes(
     observations, _ = venv.reset(seed=[seed_start + row for row in range(rows)])
     collector.reset(observations, record=True)
 
-    while collector.episodes_written < episodes:
+    while not collector.all_rows_retired:
+        written = collector.row_episodes
         actions = collector.act()
         observations, rewards, terminations, truncations, _ = venv.step(actions)
         terminations = np.asarray(terminations, dtype=bool)
@@ -230,11 +254,15 @@ def record_vector_episodes(
         returns[live] += np.asarray(rewards, dtype=np.float64)[live]
         lengths[live] += 1
 
-        done = (terminations | truncations) & live
-        for row in np.flatnonzero(done):
+        # Which rows actually wrote — a retired row can end its episode without
+        # a file landing, so the flags alone would over-count.
+        for row in np.flatnonzero(collector.row_episodes > written):
+            row = int(row)
+            seed = seed_start + row if written[row] == 0 else None
             results.append(
                 {
-                    "row": int(row),
+                    "row": row,
+                    "seed": seed,
                     "return": float(returns[row]),
                     "steps": int(lengths[row]),
                     "terminated": bool(terminations[row]),
@@ -242,34 +270,14 @@ def record_vector_episodes(
                 }
             )
             print(
-                f"[ep {len(results):03d}] row={row} return={returns[row]:.2f} "
-                f"steps={lengths[row]} "
-                f"{'terminated' if terminations[row] else 'truncated'}"
+                f"[ep {len(results):03d}] row={row} "
+                + (f"seed={seed}" if seed is not None else "unseeded")
+                + f" return={returns[row]:.2f} steps={lengths[row]} "
+                + ("terminated" if terminations[row] else "truncated")
             )
-        seeding = done
+        seeding = (terminations | truncations) & live
 
-    # Rows still mid-episode when the target was reached are flushed by close()
-    # as truncations. They are real trajectories, just cut short, so they belong
-    # in the summary the same as the rest.
-    open_rows = [
-        row for row in range(rows) if lengths[row] > 0 and not seeding[row]
-    ]
     collector.close()
-    for row in open_rows:
-        results.append(
-            {
-                "row": row,
-                "return": float(returns[row]),
-                "steps": int(lengths[row]),
-                "terminated": False,
-                "truncated": True,
-            }
-        )
-    if open_rows:
-        print(
-            f"[flush] {len(open_rows)} row(s) were mid-episode at the target and "
-            "were written as truncations"
-        )
     return results
 
 
@@ -327,17 +335,29 @@ def main() -> None:
         env = gym.make(args.env_id)
     try:
         runner, bundle_id = load_policy(args)
+        share = share_per_row(args.episodes, args.num_envs) if args.num_envs > 1 else None
         collector = CollectionRunner(
-            runner, args.out, bundle=bundle_id, resume=args.resume
+            runner,
+            args.out,
+            bundle=bundle_id,
+            resume=args.resume,
+            episodes_per_row=share,
         )
         print(collector)
         if args.num_envs > 1:
-            # This one closes the collector itself: the rows still mid-episode
-            # at the target are part of what it reports.
+            total = args.num_envs * share
+            print(
+                f"[batch] {args.num_envs} rows x {share} episode(s) = {total} "
+                f"episodes; seeds {args.seed_start}.."
+                f"{args.seed_start + args.num_envs - 1} cover the first episode "
+                "of each row"
+                + ("" if share == 1 else ", the rest are unseeded auto-resets")
+            )
+            # This one closes the collector itself: with a share per row there
+            # is nothing in flight left to flush.
             results = record_vector_episodes(
                 env,
                 collector,
-                episodes=args.episodes,
                 seed_start=args.seed_start,
             )
         else:

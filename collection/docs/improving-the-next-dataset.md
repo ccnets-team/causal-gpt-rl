@@ -96,11 +96,13 @@ A runner loaded with `num_envs > 1` records the same files from a vectorized
 env, one episode per row:
 
 ```python
-runner = CollectionRunner(load_runner("bundle/", num_envs=8), "raw/")
+runner = CollectionRunner(
+    load_runner("bundle/", num_envs=8), "raw/", episodes_per_row=1
+)
 
 observations, _ = venv.reset(seed=list(range(8)))
 runner.reset(observations)
-while runner.episodes_written < 100:
+while not runner.all_rows_retired:
     actions = runner.act()
     observations, rewards, terms, truncs, _ = venv.step(actions)
     runner.observe(observations, rewards, terms, truncs)
@@ -116,9 +118,27 @@ recorder owns that one-step wait — it closes the row on the first, and on the
 second seeds a new episode without recording a transition, calling the runner's
 `reset_rows` so the ended episode leaves the row's context before it does.
 
+`episodes_per_row` is each row's share, and it is what makes the count exact. A
+row that has written its share is *retired*: it keeps being driven, because the
+batch is one forward and a single row cannot leave it, but nothing it does after
+that reaches a file — including the flush `close()` performs. Stopping on a
+total instead overshoots twice over, because rows whose episodes are short churn
+through several while the long ones are still on their first, and whatever is in
+flight when the total lands is written as a truncation. Recording eight rows
+with a total of eight produced fourteen files that way, only four of them a
+seeded episode that ran to termination.
+
+The share is also what keeps seeds meaningful. A vector env is seeded once, at
+`reset`, so only each row's **first** episode carries a seed the caller chose;
+every later one is the env restarting itself, and where it goes depends on how
+many steps the policy took before it — which is exactly what differs between two
+runs being compared. `episodes_per_row=1` is therefore the form to record with
+when the seeds have to line up across runs, and it makes `num_envs` the episode
+count.
+
 Nothing about the files changes: a batch is a faster way to fill a raw
 directory, not a different kind of one. `spec.json`'s provenance records the
-`num_envs` a run used.
+`num_envs` and `episodes_per_row` a run used.
 
 ### Boundaries
 

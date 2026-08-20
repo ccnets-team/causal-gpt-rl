@@ -10,7 +10,10 @@ published dataset repositories are laid out::
     <namespace>/expert-v0/data/main_data.hdf5
 
 Every tier runs the same seeds, so the ladder is one policy at three retentions
-rather than three unrelated draws. Which retention belongs to which tier is a
+rather than three unrelated draws. `--num-envs` records a tier as one batch
+instead of one episode at a time, and must be 1 or equal to `--episodes`: a
+vector env takes its seeds at reset and auto-resets unseeded after that, so one
+episode per row is the only batched form that keeps the draws shared. Which retention belongs to which tier is a
 measurement, not a guess: `calibrate_retention.py` reports the normalized score
 of each level and picks them.
 
@@ -38,7 +41,7 @@ from causal_gpt_rl.inference import load_runner, load_runner_from_hub
 # `collection/` sits beside `examples/` in the repository; it is the packager
 # and, here, the recorder -- not part of the installed runtime package.
 from collection import CollectionRunner
-from examples.deploy.record import record_episodes
+from examples.deploy.record import record_episodes, record_vector_episodes
 
 DEFAULT_REPO_ID = "ccnets/causal-gpt-rl"
 
@@ -95,6 +98,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--episodes", type=int, default=100, help="Episodes per tier.")
     p.add_argument("--seed-start", type=int, default=0)
     p.add_argument(
+        "--num-envs",
+        type=int,
+        default=1,
+        help="Environments per tier, recorded as one batch. Must be 1 or equal "
+        "to --episodes: a vector env is seeded once, so anything between would "
+        "leave most episodes unseeded and the tiers would no longer be the same "
+        "draws.",
+    )
+    p.add_argument(
         "--max-steps",
         type=int,
         default=1000,
@@ -125,6 +137,19 @@ def parse_args() -> argparse.Namespace:
         p.error(f"--episodes must be >= 1, got {args.episodes}")
     if args.max_steps < 1:
         p.error(f"--max-steps must be >= 1, got {args.max_steps}")
+    if args.num_envs < 1:
+        p.error(f"--num-envs must be >= 1, got {args.num_envs}")
+    if 1 < args.num_envs != args.episodes:
+        # The ladder is one policy at several retentions, which only holds if
+        # every tier draws the same initial states. A vector env takes its seeds
+        # at reset and auto-resets unseeded after that, so one episode per row is
+        # the only batched form where every episode is still a chosen seed.
+        p.error(
+            f"--num-envs {args.num_envs} would seed only {args.num_envs} of "
+            f"{args.episodes} episodes per tier, so the tiers would not be the "
+            "same draws. Pass --num-envs 1, or --num-envs equal to --episodes "
+            f"({args.episodes})."
+        )
     if args.version < 0:
         p.error(f"--version must be >= 0, got {args.version}")
     if args.namespace is None:
@@ -133,14 +158,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_policy(args: argparse.Namespace, retention: int):
-    """A fresh single-env runner at one retention, and its bundle identity."""
+    """A fresh runner at one retention, and its bundle identity."""
     if args.bundle is not None:
         if not args.bundle.is_dir():
             raise FileNotFoundError(args.bundle)
         runner = load_runner(
             args.bundle,
             device=args.device,
-            num_envs=1,
+            num_envs=args.num_envs,
             kv_cache_max_len=retention,
         )
         return runner, str(args.bundle)
@@ -149,7 +174,7 @@ def load_policy(args: argparse.Namespace, retention: int):
         repo_id=args.repo_id,
         subfolder=subfolder,
         device=args.device,
-        num_envs=1,
+        num_envs=args.num_envs,
         kv_cache_max_len=retention,
     )
     return runner, f"{args.repo_id}/{subfolder}"
@@ -158,7 +183,14 @@ def load_policy(args: argparse.Namespace, retention: int):
 def record_tier(args: argparse.Namespace, name: str, retention: int) -> dict:
     """Record one tier's episodes into its own raw directory."""
     raw_dir = args.out / name
-    env = gym.make(args.env_id)
+    if args.num_envs > 1:
+        # One episode per row, so every episode is a seeded one; the cap rides in
+        # each sub-env's own TimeLimit because only the env can restart a row.
+        env = gym.make_vec(
+            args.env_id, num_envs=args.num_envs, max_episode_steps=args.max_steps
+        )
+    else:
+        env = gym.make(args.env_id)
     try:
         runner, bundle_id = load_policy(args, retention)
         print(
@@ -166,15 +198,26 @@ def record_tier(args: argparse.Namespace, name: str, retention: int) -> dict:
             f"trained={runner.context_length} -> {raw_dir}",
             flush=True,
         )
-        collector = CollectionRunner(runner, raw_dir, bundle=bundle_id)
-        results = record_episodes(
-            env,
-            collector,
-            episodes=args.episodes,
-            max_steps=args.max_steps,
-            seed_start=args.seed_start,
+        collector = CollectionRunner(
+            runner,
+            raw_dir,
+            bundle=bundle_id,
+            episodes_per_row=1 if args.num_envs > 1 else None,
         )
-        collector.close()
+        if args.num_envs > 1:
+            # Closes the collector itself once every row has written its one.
+            results = record_vector_episodes(
+                env, collector, seed_start=args.seed_start
+            )
+        else:
+            results = record_episodes(
+                env,
+                collector,
+                episodes=args.episodes,
+                max_steps=args.max_steps,
+                seed_start=args.seed_start,
+            )
+            collector.close()
     finally:
         env.close()
 
@@ -261,6 +304,7 @@ def main() -> None:
     print(
         f"[tiers] {args.env_id} -> {args.namespace}/<tier>-v{args.version}  "
         f"seeds {args.seed_start}..{args.seed_start + args.episodes - 1}"
+        + (f"  ({args.num_envs} rows per tier)" if args.num_envs > 1 else "")
     )
 
     tiers = [record_tier(args, name, retention) for name, retention in args.tiers]

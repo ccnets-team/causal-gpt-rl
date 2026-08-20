@@ -255,16 +255,36 @@ class CollectionRunner:
     A batched runner records the same files from a vectorized env — one episode
     per row, `observe` taking the arrays `step` returns::
 
-        runner = CollectionRunner(load_runner(bundle, num_envs=8), "raw/")
+        runner = CollectionRunner(
+            load_runner(bundle, num_envs=8), "raw/", episodes_per_row=1
+        )
         observations, _ = venv.reset(seed=list(range(8)))
         runner.reset(observations)
-        while ...:
+        while not runner.all_rows_retired:
             actions = runner.act()
             observations, rewards, terms, truncs, _ = venv.step(actions)
             runner.observe(observations, rewards, terms, truncs)
+        runner.close()
 
     Rows end at different steps, so each closes and writes on its own step;
     `ep_%06d.npz` are numbered in the order they finish, not by row.
+
+    `episodes_per_row` is each row's share, and it is what makes a count exact.
+    A row that has written its share is *retired*: it keeps being driven, because
+    the batch is one forward and a single row cannot leave it, but nothing it
+    does after that reaches a file — including the flush `close()` performs.
+    Without a share, a run stopped on a total instead overshoots twice over:
+    rows whose episodes are short churn through several while long ones are
+    still on their first, and whatever is in flight when the total lands is
+    flushed as a truncation.
+
+    The share is also what keeps seeds meaningful. A vector env is seeded once,
+    at `reset`, so only each row's *first* episode carries a seed the caller
+    chose; every later one is the env restarting itself, and its trajectory
+    depends on how many steps the policy took before it — which is exactly what
+    differs between two runs being compared. `episodes_per_row=1` is therefore
+    the form to record with when the seeds have to line up across runs, and it
+    makes `num_envs` the episode count.
 
     Gymnasium's vector autoreset is `NEXT_STEP`: the step a row ends on carries
     its true final observation and flags, and the *following* step carries the
@@ -305,6 +325,7 @@ class CollectionRunner:
         *,
         bundle: Optional[str] = None,
         resume: bool = False,
+        episodes_per_row: Optional[int] = None,
     ):
         self.num_envs = int(getattr(runner, "num_envs", 1))
         if self.num_envs <= 0:
@@ -322,6 +343,19 @@ class CollectionRunner:
         # At one env the shipped single-env contract is kept unchanged.
         self._vectorized = self.num_envs > 1
         self.out_dir = Path(out_dir)
+
+        if episodes_per_row is not None and int(episodes_per_row) < 1:
+            raise ContractError(
+                f"episodes_per_row must be >= 1, got {episodes_per_row}"
+            )
+        self.episodes_per_row = (
+            None if episodes_per_row is None else int(episodes_per_row)
+        )
+        # What each row has written, and which rows are done writing. A retired
+        # row keeps being driven — the batch is one forward and one row cannot
+        # leave it — but nothing it does after its share reaches a file.
+        self._row_episodes = np.zeros(self.num_envs, dtype=np.int64)
+        self._retired = np.zeros(self.num_envs, dtype=bool)
 
         self._encode_observation = _ObservationEncoder(
             runner.obs_space, runner.state_size
@@ -365,6 +399,27 @@ class CollectionRunner:
         self._observations: list[list[np.ndarray]] = [[] for _ in range(self.num_envs)]
         self._actions: list[list[np.ndarray]] = [[] for _ in range(self.num_envs)]
         self._rewards: list[list[float]] = [[] for _ in range(self.num_envs)]
+
+    @property
+    def row_episodes(self) -> np.ndarray:
+        """How many episodes each row has written, as a copy."""
+        return self._row_episodes.copy()
+
+    @property
+    def all_rows_retired(self) -> bool:
+        """True once every row has written its `episodes_per_row` share.
+
+        Always False without a share to reach, so a loop driven by this needs
+        `episodes_per_row` set — which is the point: it is the only stop
+        condition that lands on an exact count instead of overshooting one.
+        """
+        if self.episodes_per_row is None:
+            return False
+        return bool(self._retired.all())
+
+    def _records(self, row: int) -> bool:
+        """Whether this row's steps still reach a file."""
+        return self._recording and not self._retired[row]
 
     # -- batch rows ------------------------------------------------------
 
@@ -437,7 +492,7 @@ class CollectionRunner:
         rows = self._observation_rows(observation) if self._recording else None
         for row in range(self.num_envs):
             self._open[row] = True
-            if self._recording:
+            if self._records(row):
                 self._seed_row(row, rows[row])
 
     def act(self, state=None):
@@ -465,7 +520,7 @@ class CollectionRunner:
                 # A row mid-autoreset has its action ignored by the env, and the
                 # step it belongs to seeds the new episode rather than being a
                 # transition of either one.
-                if not self._awaiting[row]:
+                if not self._awaiting[row] and self._records(row):
                     self._pending_action[row] = self._encode_action(rows[row])
         return action
 
@@ -500,10 +555,10 @@ class CollectionRunner:
         for row in range(self.num_envs):
             if restarting[row]:
                 self._open[row] = True
-                if self._recording:
+                if self._records(row):
                     self._seed_row(row, rows[row])
                 continue
-            if not self._recording:
+            if not self._records(row):
                 continue
             if self._pending_action[row] is None:
                 raise RuntimeError(
@@ -574,12 +629,12 @@ class CollectionRunner:
         truncated: bool = False,
         aborted: bool = False,
     ) -> None:
-        if aborted and self._recording:
+        if aborted and self._records(row):
             # A dangling act() has no transition to belong to, and an episode
             # cut short really is a truncation — the honest flag, not a stand-in.
             self._pending_action[row] = None
             terminated, truncated = False, True
-        if self._recording and self._actions[row]:
+        if self._records(row) and self._actions[row]:
             self._write_episode(row, terminated=terminated, truncated=truncated)
         self._open[row] = False
         self._observations[row] = []
@@ -608,6 +663,12 @@ class CollectionRunner:
         np.savez(path, **arrays)
         self._next_index += 1
         self.episodes_written += 1
+        self._row_episodes[row] += 1
+        if (
+            self.episodes_per_row is not None
+            and self._row_episodes[row] >= self.episodes_per_row
+        ):
+            self._retired[row] = True
 
     def _existing_episode_indices(self) -> list[int]:
         indices = []
@@ -639,6 +700,7 @@ class CollectionRunner:
             "bundle": bundle,
             "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "num_envs": self.num_envs,
+            "episodes_per_row": self.episodes_per_row,
             "context_length": int(self.runner.context_length),
             "kv_cache_max_len": int(self.runner.kv_cache_max_len),
             "bos_cache_mode": getattr(self.runner, "bos_cache_mode", None),

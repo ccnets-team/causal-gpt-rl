@@ -735,6 +735,109 @@ def test_a_batched_run_records_how_many_envs_produced_it(tmp_path):
     assert spec["provenance"][0]["num_envs"] == 2
 
 
+# -- each row's share ---------------------------------------------------
+#
+# `episodes_per_row` retires a row once it has written its share. It keeps being
+# driven, because the batch is one forward and a single row cannot leave it, but
+# nothing it does after that reaches a file. Without it a run stopped on a total
+# overshoots twice over: short-episode rows churn out repeats while long ones are
+# still on their first, and whatever is in flight when the total lands is flushed.
+
+
+def test_a_row_stops_writing_once_it_has_written_its_share(tmp_path):
+    runner = _StubRunner(actions=_batched_actions(4), num_envs=2)
+    collector = CollectionRunner(runner, tmp_path, episodes_per_row=1)
+
+    collector.reset(_batched_observation(0))
+    # Row 0 ends first and writes the one episode it owes.
+    collector.act()
+    collector.observe(_batched_observation(1), [1.0, 1.0], [True, False], [False, False])
+    assert collector.row_episodes.tolist() == [1, 0]
+    # Row 0's auto-reset seed. It is retired, so nothing is buffered for it.
+    collector.act()
+    collector.observe(_batched_observation(2), [0.0, 1.0], [False, False], [False, False])
+    # Row 0 ends again; row 1 finally ends too. Only row 1's lands.
+    collector.act()
+    collector.observe(_batched_observation(3), [1.0, 1.0], [True, True], [False, False])
+
+    assert collector.row_episodes.tolist() == [1, 1]
+    assert collector.episodes_written == 2
+    assert collector.all_rows_retired
+    assert len(list(tmp_path.glob("ep_*.npz"))) == 2
+    # The runner is still driven and still restarted for the retired row.
+    assert [call[1].tolist() for call in runner.calls if call[0] == "reset_rows"] == [
+        [True, False]
+    ]
+
+
+def test_close_flushes_a_live_row_but_not_a_retired_one(tmp_path):
+    collector = CollectionRunner(
+        _StubRunner(actions=_batched_actions(4), num_envs=2),
+        tmp_path,
+        episodes_per_row=1,
+    )
+
+    collector.reset(_batched_observation(0))
+    collector.act()
+    collector.observe(_batched_observation(1), [1.0, 1.0], [True, False], [False, False])
+    collector.act()
+    collector.observe(_batched_observation(2), [0.0, 1.0], [False, False], [False, False])
+    collector.close()
+
+    # Row 0 was mid-episode too, but retired: only row 1's partial is written.
+    assert collector.episodes_written == 2
+    first = _load(tmp_path / "ep_000000.npz")
+    second = _load(tmp_path / "ep_000001.npz")
+    assert first["terminations"].tolist() == [True]
+    assert second["truncations"].tolist() == [False, True]
+    assert collector.row_episodes.tolist() == [1, 1]
+
+
+def test_all_rows_retired_is_false_without_a_share(tmp_path):
+    collector = CollectionRunner(
+        _StubRunner(actions=_batched_actions(2), num_envs=2), tmp_path
+    )
+    collector.reset(_batched_observation(0))
+    collector.act()
+    collector.observe(_batched_observation(1), [1.0, 1.0], [True, True], [False, False])
+
+    # Two episodes are written and every row has ended, but with no share to
+    # reach there is nothing for a loop to stop on.
+    assert collector.episodes_written == 2
+    assert collector.all_rows_retired is False
+
+
+def test_a_share_below_one_is_refused(tmp_path):
+    with pytest.raises(ContractError, match="episodes_per_row must be >= 1"):
+        CollectionRunner(
+            _StubRunner(actions=_box_actions()), tmp_path, episodes_per_row=0
+        )
+
+
+def test_the_share_is_recorded_in_the_provenance(tmp_path):
+    CollectionRunner(
+        _StubRunner(actions=_batched_actions(2), num_envs=2),
+        tmp_path,
+        episodes_per_row=3,
+    )
+
+    spec = json.loads((tmp_path / "spec.json").read_text(encoding="utf-8"))
+    assert spec["provenance"][0]["episodes_per_row"] == 3
+
+
+def test_a_single_env_run_can_carry_a_share_too(tmp_path):
+    collector = CollectionRunner(
+        _StubRunner(actions=_box_actions()), tmp_path, episodes_per_row=1
+    )
+
+    _drive(collector, steps=2, terminated=True)
+    assert collector.all_rows_retired
+    # The second episode is driven and dropped, the way a retired row's is.
+    _drive(collector, steps=2, terminated=True, start=10)
+
+    assert collector.episodes_written == 1
+
+
 # -- a batch of rows, through a real vector env -------------------------
 
 
