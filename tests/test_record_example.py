@@ -195,3 +195,185 @@ def test_the_help_text_survives_a_legacy_code_page(capsys, monkeypatch):
         record.parse_args()
 
     capsys.readouterr().out.encode("cp949")
+
+
+# -- the vector loop ----------------------------------------------------
+
+
+class _VecStubRunner(_StubRunner):
+    """The same surface, batched, with the per-row restart a vector run needs."""
+
+    def __init__(self, num_envs):
+        self.num_envs = num_envs
+        self.restarts = []
+
+    def act(self):
+        return np.zeros((self.num_envs, 2), dtype=np.float32)
+
+    def reset_rows(self, done_mask):
+        self.restarts.append(np.asarray(done_mask).copy())
+
+
+class _FakeVecEnv:
+    """A vector env with Gymnasium's `NEXT_STEP` auto-reset.
+
+    Each row ends after its own number of steps: the step it ends on carries the
+    true final observation and flags, and the next one carries the new episode's
+    first observation with a zero reward, no flags, and that row's action
+    ignored. Reproducing that here is the point — the loop's one-step wait is
+    what a same-step reset would get wrong.
+    """
+
+    def __init__(self, lengths, *, truncate=False, both_flags=False):
+        self.num_envs = len(lengths)
+        self.lengths = list(lengths)
+        self.truncate = truncate
+        self.both_flags = both_flags
+        self.seeds = None
+        self._step = np.zeros(self.num_envs, dtype=np.int64)
+        self._seeding = np.zeros(self.num_envs, dtype=bool)
+
+    def reset(self, seed=None):
+        self.seeds = seed
+        self._step[:] = 0
+        self._seeding[:] = False
+        return np.zeros((self.num_envs, 2), dtype=np.float32), {}
+
+    def step(self, actions):
+        observations = np.zeros((self.num_envs, 2), dtype=np.float32)
+        rewards = np.ones(self.num_envs, dtype=np.float32)
+        terminated = np.zeros(self.num_envs, dtype=bool)
+        truncated = np.zeros(self.num_envs, dtype=bool)
+        for row in range(self.num_envs):
+            if self._seeding[row]:
+                self._seeding[row] = False
+                self._step[row] = 0
+                rewards[row] = 0.0
+                continue
+            self._step[row] += 1
+            observations[row] = float(self._step[row])
+            if self._step[row] >= self.lengths[row]:
+                terminated[row] = self.both_flags or not self.truncate
+                truncated[row] = self.both_flags or self.truncate
+                self._seeding[row] = True
+        return observations, rewards, terminated, truncated, {}
+
+    def close(self):
+        pass
+
+
+def _vec_collector(tmp_path, num_envs):
+    return CollectionRunner(_VecStubRunner(num_envs), tmp_path)
+
+
+def test_the_vector_loop_writes_one_episode_per_row_ending(tmp_path):
+    env = _FakeVecEnv([2, 3, 4])
+    collector = _vec_collector(tmp_path, 3)
+
+    results = record.record_vector_episodes(
+        env, collector, episodes=4, seed_start=0
+    )
+
+    # Rows finish at 2, 3, 4 and 4 steps, so the target is reached on the step
+    # row 0 ends for the second time.
+    assert [r["steps"] for r in results[:4]] == [2, 3, 4, 2]
+    assert [r["row"] for r in results[:4]] == [0, 1, 2, 0]
+    assert all(r["terminated"] for r in results[:4])
+    # Reward is 1.0 a step, and the step that seeds a row pays none of it.
+    assert [r["return"] for r in results[:4]] == [2.0, 3.0, 4.0, 2.0]
+
+
+def test_a_row_mid_episode_at_the_target_is_flushed_as_a_truncation(tmp_path):
+    env = _FakeVecEnv([2, 3, 4])
+    collector = _vec_collector(tmp_path, 3)
+
+    results = record.record_vector_episodes(
+        env, collector, episodes=4, seed_start=0
+    )
+
+    # Asking for 4 gets 5: row 1 was one transition into its second episode when
+    # the target landed, and close() writes what a row has rather than dropping
+    # it. The summary counts it the same as the files do.
+    assert collector.episodes_written == 5
+    assert len(results) == 5
+    assert results[-1] == {
+        "row": 1,
+        "return": 1.0,
+        "steps": 1,
+        "terminated": False,
+        "truncated": True,
+    }
+
+
+def test_only_the_first_episodes_are_seeded(tmp_path):
+    env = _FakeVecEnv([2, 2, 2])
+    collector = _vec_collector(tmp_path, 3)
+
+    record.record_vector_episodes(env, collector, episodes=3, seed_start=7)
+
+    # One seed per row on the one reset the loop performs; the auto-resets after
+    # it are the env's and take none.
+    assert env.seeds == [7, 8, 9]
+
+
+def test_a_vector_env_raising_both_flags_is_recorded_as_a_termination(tmp_path):
+    # A Gymnasium TimeLimit raises both when the wrapped env terminates on its
+    # last allowed step; the recorded transition has to say one thing.
+    env = _FakeVecEnv([3, 3], both_flags=True)
+    collector = _vec_collector(tmp_path, 2)
+
+    results = record.record_vector_episodes(
+        env, collector, episodes=2, seed_start=0
+    )
+
+    assert [(r["terminated"], r["truncated"]) for r in results[:2]] == [
+        (True, False),
+        (True, False),
+    ]
+    episode = _episode(tmp_path / "ep_000000.npz")
+    assert episode["terminations"].tolist() == [False, False, True]
+    assert not episode["truncations"].any()
+
+
+def test_a_vector_env_truncation_alone_stays_a_truncation(tmp_path):
+    env = _FakeVecEnv([3, 3], truncate=True)
+    collector = _vec_collector(tmp_path, 2)
+
+    results = record.record_vector_episodes(
+        env, collector, episodes=2, seed_start=0
+    )
+
+    assert [(r["terminated"], r["truncated"]) for r in results[:2]] == [
+        (False, True),
+        (False, True),
+    ]
+    episode = _episode(tmp_path / "ep_000000.npz")
+    assert not episode["terminations"].any()
+    assert episode["truncations"].tolist() == [False, False, True]
+
+
+def test_only_the_rows_that_ended_are_restarted(tmp_path):
+    env = _FakeVecEnv([2, 7])
+    collector = _vec_collector(tmp_path, 2)
+
+    record.record_vector_episodes(env, collector, episodes=3, seed_start=0)
+
+    # Row 0 ends twice before row 1 ends once, and row 1 is never restarted
+    # alongside it.
+    assert [mask.tolist() for mask in collector.runner.restarts] == [
+        [True, False],
+        [True, False],
+    ]
+
+
+def test_the_vector_run_output_survives_a_legacy_code_page(tmp_path, capsys):
+    env = _FakeVecEnv([2, 3])
+    collector = _vec_collector(tmp_path, 2)
+
+    results = record.record_vector_episodes(
+        env, collector, episodes=2, seed_start=0
+    )
+    summarize(results, tmp_path)
+
+    printed = capsys.readouterr().out
+    printed.encode("cp949")  # raises if anything non-ASCII slipped in

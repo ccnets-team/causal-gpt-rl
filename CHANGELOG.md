@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- `CollectionRunner` records a batch. A runner loaded with `num_envs > 1` now
+  writes one episode file per row from a vectorized env, `observe` taking the
+  arrays `step` returns; rows end at different steps, so each closes and is
+  numbered as it finishes rather than by row. Gymnasium's vector auto-reset is
+  `NEXT_STEP`, and the recorder owns the one-step wait it implies: the step a row
+  ends on carries its true final observation and flags, the next carries the new
+  episode's seed with a zero reward and an ignored action, and `reset_rows` is
+  called between them so the ended episode leaves the row's context. A batched
+  run therefore needs no `final_observation` handling from the caller, and
+  `spec.json`'s provenance records the `num_envs` that produced the directory.
+  `num_envs == 1` keeps the single-env contract unchanged. The previous refusal
+  justified itself with a parity claim that `tests/test_partial_restart_parity.py`
+  measures at 0.0 for the rotary backbones every bundle uses; the boundary was
+  the recorder tracking one episode, and that is what changed.
+
+  `examples/deploy/record.py` gains `--num-envs`. Above 1 it builds the env with
+  `gym.make_vec` and `--max-steps` becomes each sub-env's `max_episode_steps`,
+  because only the environment can restart a row it truncates. `--seed-start`
+  then seeds only the first `--num-envs` episodes; the auto-resets after them are
+  the env's and take no seed.
+
 ## 0.17.0
 
 - A row finishing its episode no longer costs the other rows their history.

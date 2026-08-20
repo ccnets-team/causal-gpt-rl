@@ -39,7 +39,9 @@ runner = CollectionRunner(load_runner("bundle/"), "raw/")
 ```
 
 The wrapper keeps the runner's calls — `reset` / `act` / `observe` — and writes
-what they drive. The loop in full, what it records, and its boundaries are in
+what they drive. A runner loaded with `num_envs > 1` records a vectorized env
+the same way, one episode file per row. The loop in full, what it records, and
+its boundaries are in
 [Improving the Next Dataset](docs/improving-the-next-dataset.md). Runnable
 forms: [`examples/record_dataset.ipynb`](../examples/record_dataset.ipynb) and
 [`examples/deploy/record.py`](../examples/deploy/record.py).

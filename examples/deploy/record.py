@@ -14,6 +14,10 @@ Example:
         --env-id Hopper-v5 --out raw/ --episodes 20 --kv-cache-max-len 256
     python collection/build_minari.py --raw raw/ --dataset-id review/hopper-v0
 
+`--num-envs` records from a vectorized env instead, one episode file per row.
+Rows end at different steps and the env resets them itself, so episodes are
+numbered in the order they finish rather than by row.
+
 Retention above the bundle's `context_length` is what this cycle turns on, and
 whether it pays is environment-dependent — across the published bundles it helps
 some and hurts others. Measure the retention you mean to record at before
@@ -65,6 +69,14 @@ def parse_args() -> argparse.Namespace:
         help="Bundle subfolder in the repo. Defaults to the lowercased env id.",
     )
     p.add_argument("--episodes", type=int, default=20)
+    p.add_argument(
+        "--num-envs",
+        type=int,
+        default=1,
+        help="Environments to record in one batch. Above 1 the env is built "
+        "with gym.make_vec and --seed-start seeds only the first --num-envs "
+        "episodes; the auto-resets after them are unseeded.",
+    )
     p.add_argument("--seed-start", type=int, default=0)
     p.add_argument(
         "--max-steps",
@@ -92,6 +104,8 @@ def parse_args() -> argparse.Namespace:
         p.error(f"--episodes must be >= 1, got {args.episodes}")
     if args.max_steps < 1:
         p.error(f"--max-steps must be >= 1, got {args.max_steps}")
+    if args.num_envs < 1:
+        p.error(f"--num-envs must be >= 1, got {args.num_envs}")
     return args
 
 
@@ -103,7 +117,7 @@ def load_policy(args: argparse.Namespace) -> tuple[object, str]:
         runner = load_runner(
             args.bundle,
             device=args.device,
-            num_envs=1,
+            num_envs=args.num_envs,
             kv_cache_max_len=args.kv_cache_max_len,
         )
         return runner, str(args.bundle)
@@ -112,7 +126,7 @@ def load_policy(args: argparse.Namespace) -> tuple[object, str]:
         repo_id=args.repo_id,
         subfolder=subfolder,
         device=args.device,
-        num_envs=1,
+        num_envs=args.num_envs,
         kv_cache_max_len=args.kv_cache_max_len,
     )
     return runner, f"{args.repo_id}/{subfolder}"
@@ -167,6 +181,98 @@ def record_episodes(
     return results
 
 
+def record_vector_episodes(
+    venv,
+    collector: CollectionRunner,
+    *,
+    episodes: int,
+    seed_start: int,
+) -> list[dict]:
+    """Drive a vectorized env until at least `episodes` files are written.
+
+    "At least" because rows that end on the same step are all written before the
+    target is checked again, and the rows still mid-episode at that point are
+    flushed too; `summarize` reports what actually landed.
+
+    Rows end at different steps and the env resets them itself, so there is no
+    per-episode loop here: the recorder closes and numbers each row's episode as
+    it finishes. `--max-steps` rides in the sub-envs' own `TimeLimit` (see
+    `main`) rather than being applied here, because only the env can restart a
+    row it truncates.
+
+    The returns and lengths tracked alongside are for the printed summary; the
+    files are the recorder's. A row being seeded after an auto-reset contributes
+    no transition — zero reward, no flags, its action ignored — so it is left
+    out of the tally for that step.
+    """
+    rows = venv.num_envs
+    returns = np.zeros(rows, dtype=np.float64)
+    lengths = np.zeros(rows, dtype=np.int64)
+    seeding = np.zeros(rows, dtype=bool)
+    results: list[dict] = []
+
+    observations, _ = venv.reset(seed=[seed_start + row for row in range(rows)])
+    collector.reset(observations, record=True)
+
+    while collector.episodes_written < episodes:
+        actions = collector.act()
+        observations, rewards, terminations, truncations, _ = venv.step(actions)
+        terminations = np.asarray(terminations, dtype=bool)
+        # A terminal state is the stronger claim, so it clears truncation — a
+        # TimeLimit can raise both flags on the same step, and recording both
+        # would say two different things about one transition.
+        truncations = np.asarray(truncations, dtype=bool) & ~terminations
+        collector.observe(observations, rewards, terminations, truncations)
+
+        returns[seeding] = 0.0
+        lengths[seeding] = 0
+        live = ~seeding
+        returns[live] += np.asarray(rewards, dtype=np.float64)[live]
+        lengths[live] += 1
+
+        done = (terminations | truncations) & live
+        for row in np.flatnonzero(done):
+            results.append(
+                {
+                    "row": int(row),
+                    "return": float(returns[row]),
+                    "steps": int(lengths[row]),
+                    "terminated": bool(terminations[row]),
+                    "truncated": bool(truncations[row]),
+                }
+            )
+            print(
+                f"[ep {len(results):03d}] row={row} return={returns[row]:.2f} "
+                f"steps={lengths[row]} "
+                f"{'terminated' if terminations[row] else 'truncated'}"
+            )
+        seeding = done
+
+    # Rows still mid-episode when the target was reached are flushed by close()
+    # as truncations. They are real trajectories, just cut short, so they belong
+    # in the summary the same as the rest.
+    open_rows = [
+        row for row in range(rows) if lengths[row] > 0 and not seeding[row]
+    ]
+    collector.close()
+    for row in open_rows:
+        results.append(
+            {
+                "row": row,
+                "return": float(returns[row]),
+                "steps": int(lengths[row]),
+                "terminated": False,
+                "truncated": True,
+            }
+        )
+    if open_rows:
+        print(
+            f"[flush] {len(open_rows)} row(s) were mid-episode at the target and "
+            "were written as truncations"
+        )
+    return results
+
+
 def _installed(package: str) -> str:
     try:
         return _pkg_version(package)
@@ -211,21 +317,38 @@ def main() -> None:
         + "  ".join(f"{name}={_installed(name)}" for name in STACK)
     )
 
-    env = gym.make(args.env_id)
+    if args.num_envs > 1:
+        # The per-episode cap rides in each sub-env's own TimeLimit: only the
+        # env can restart a row it truncates, so the loop cannot apply one.
+        env = gym.make_vec(
+            args.env_id, num_envs=args.num_envs, max_episode_steps=args.max_steps
+        )
+    else:
+        env = gym.make(args.env_id)
     try:
         runner, bundle_id = load_policy(args)
         collector = CollectionRunner(
             runner, args.out, bundle=bundle_id, resume=args.resume
         )
         print(collector)
-        results = record_episodes(
-            env,
-            collector,
-            episodes=args.episodes,
-            max_steps=args.max_steps,
-            seed_start=args.seed_start,
-        )
-        collector.close()
+        if args.num_envs > 1:
+            # This one closes the collector itself: the rows still mid-episode
+            # at the target are part of what it reports.
+            results = record_vector_episodes(
+                env,
+                collector,
+                episodes=args.episodes,
+                seed_start=args.seed_start,
+            )
+        else:
+            results = record_episodes(
+                env,
+                collector,
+                episodes=args.episodes,
+                max_steps=args.max_steps,
+                seed_start=args.seed_start,
+            )
+            collector.close()
         summarize(results, args.out)
     finally:
         env.close()

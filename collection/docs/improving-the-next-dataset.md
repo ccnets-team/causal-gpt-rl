@@ -90,14 +90,50 @@ identity you passed, `context_length`, `kv_cache_max_len` and `bos_cache_mode`.
 The packager ignores keys it does not know; without them nothing afterwards can
 say which policy, at which retention, produced the episodes.
 
+### A batch of environments
+
+A runner loaded with `num_envs > 1` records the same files from a vectorized
+env, one episode per row:
+
+```python
+runner = CollectionRunner(load_runner("bundle/", num_envs=8), "raw/")
+
+observations, _ = venv.reset(seed=list(range(8)))
+runner.reset(observations)
+while runner.episodes_written < 100:
+    actions = runner.act()
+    observations, rewards, terms, truncs, _ = venv.step(actions)
+    runner.observe(observations, rewards, terms, truncs)
+runner.close()
+```
+
+Rows end at different steps, so each closes and writes on its own step and
+`ep_%06d.npz` are numbered in the order they finish, not by row. Gymnasium's
+vector auto-reset is `NEXT_STEP`: the step a row ends on carries its true final
+observation and flags, and the *following* step carries the new episode's first
+observation with a zero reward, no flags, and that row's action ignored. The
+recorder owns that one-step wait — it closes the row on the first, and on the
+second seeds a new episode without recording a transition, calling the runner's
+`reset_rows` so the ended episode leaves the row's context before it does.
+
+Nothing about the files changes: a batch is a faster way to fill a raw
+directory, not a different kind of one. `spec.json`'s provenance records the
+`num_envs` a run used.
+
 ### Boundaries
 
-- **One environment.** `num_envs > 1` is refused: a batched forward does not
-  reduce identically to a single-env one, so a batch is not a faster way to
-  record the same rollout.
-- **An auto-resetting env must pass the true final observation.** When
+- **One environment keeps the single-env contract exactly**, auto-reset
+  included: a closed episode ends the run and the next `reset()` starts the next
+  one. A one-row vector env should use the loop above this section, not the
+  batched one.
+- **A single-env auto-resetting env must pass the true final observation.** When
   `env.step` already returns the next episode's first state, only the caller can
-  still reach the real one.
+  still reach the real one. A batched run needs no such handling — `NEXT_STEP`
+  hands the real one over on the step it belongs to.
+- **`--max-steps` is the env's in a batch.** Only the environment can restart a
+  row it truncates, so a per-episode cap has to ride in each sub-env's own
+  `TimeLimit` (`gym.make_vec(..., max_episode_steps=...)`) rather than in the
+  loop.
 - **`record=False`** drives the policy without writing — warm-up episodes, or a
   loop that records only some of them.
 - **Runnable forms.** [`examples/record_dataset.ipynb`](../../examples/record_dataset.ipynb)

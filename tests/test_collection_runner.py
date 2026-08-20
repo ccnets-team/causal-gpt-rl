@@ -69,6 +69,9 @@ class _StubRunner:
     def observe(self, observation):
         self.calls.append(("observe", observation))
 
+    def reset_rows(self, done_mask):
+        self.calls.append(("reset_rows", np.asarray(done_mask).copy()))
+
 
 def _box_actions(count=4):
     return [np.full(2, 0.1 * (i + 1), dtype=np.float32) for i in range(count)]
@@ -387,10 +390,15 @@ def test_an_unbounded_action_box_is_refused_up_front(tmp_path):
         )
 
 
-def test_a_batched_runner_is_refused(tmp_path):
-    with pytest.raises(ContractError, match="records one environment"):
+def test_a_batched_runner_without_per_row_restarts_is_refused(tmp_path):
+    # Rows end at different steps, so ending one episode without ending every
+    # row's needs `reset_rows`. A runner without it cannot record a batch.
+    class _NoRestartRunner(_StubRunner):
+        reset_rows = None
+
+    with pytest.raises(ContractError, match="reset_rows"):
         CollectionRunner(
-            _StubRunner(actions=_box_actions(), num_envs=4), tmp_path
+            _NoRestartRunner(actions=_box_actions(), num_envs=4), tmp_path
         )
 
 
@@ -575,6 +583,213 @@ def test_two_policy_runner_conventions_the_wrapper_absorbs(tmp_path):
     _, actions, _, _, _ = runner.buffer.get_context()
     np.testing.assert_allclose(actions[0, -1], np.zeros(2, dtype=np.float32))
     assert np.asarray(action).shape == (2,)
+
+
+# -- a batch of rows ----------------------------------------------------
+#
+# A vectorized env autoresets in `NEXT_STEP` mode: the step a row ends on
+# carries its true final observation and flags, and the next one carries the new
+# episode's first observation with a zero reward, no flags, and that row's
+# action ignored. These drive that shape by hand; the integration test at the
+# bottom drives it through a real `SyncVectorEnv` instead.
+
+
+def _batched_actions(steps, num_envs=2):
+    """Distinct per (step, row), so a misfiled action is visible in the file."""
+    return [
+        np.stack(
+            [np.full(2, 0.1 * (step + 1) - 0.5 * row, dtype=np.float32)
+             for row in range(num_envs)]
+        )
+        for step in range(steps)
+    ]
+
+
+def _batched_observation(step, num_envs=2):
+    return np.stack(
+        [np.full(2, float(step) + row, dtype=np.float32) for row in range(num_envs)]
+    )
+
+
+def test_rows_that_end_at_different_steps_each_write_their_own_episode(tmp_path):
+    actions = _batched_actions(4)
+    runner = _StubRunner(actions=actions, num_envs=2)
+    collector = CollectionRunner(runner, tmp_path)
+
+    collector.reset(_batched_observation(0))
+    # step 0: both running.
+    collector.act()
+    collector.observe(_batched_observation(1), [0.0, 0.0], [False, False], [False, False])
+    # step 1: row 0 terminates on its true final observation.
+    collector.act()
+    collector.observe(_batched_observation(2), [1.0, 1.0], [True, False], [False, False])
+    # step 2: row 0's autoreset seed — zero reward, no flags, action ignored.
+    collector.act()
+    collector.observe(_batched_observation(3), [0.0, 2.0], [False, False], [False, False])
+    # step 3: row 1 terminates; row 1 has run four transitions to row 0's two.
+    collector.act()
+    collector.observe(_batched_observation(4), [3.0, 3.0], [False, True], [False, False])
+    collector.close()
+
+    # Numbered in the order rows finish: row 0's first episode, then row 1's,
+    # then row 0's second flushed by close().
+    first = _load(tmp_path / "ep_000000.npz")
+    second = _load(tmp_path / "ep_000001.npz")
+    third = _load(tmp_path / "ep_000002.npz")
+
+    assert first["actions"].shape == (2, 2)
+    np.testing.assert_allclose(
+        first["actions"], np.stack([actions[0][0], actions[1][0]])
+    )
+    np.testing.assert_allclose(
+        first["observations"],
+        np.stack([_batched_observation(s)[0] for s in range(3)]),
+    )
+    assert first["terminations"].tolist() == [False, True]
+
+    assert second["actions"].shape == (4, 2)
+    np.testing.assert_allclose(
+        second["actions"], np.stack([actions[s][1] for s in range(4)])
+    )
+    assert second["rewards"].tolist() == [0.0, 1.0, 2.0, 3.0]
+    assert second["terminations"].tolist() == [False, False, False, True]
+
+    # Row 0's second episode: seeded at step 2, one transition at step 3, cut
+    # short by close() — which is a truncation, not a termination.
+    assert third["actions"].shape == (1, 2)
+    np.testing.assert_allclose(third["actions"][0], actions[3][0])
+    assert third["truncations"].tolist() == [True]
+
+    files, _ = validate_raw_directory(tmp_path)
+    assert len(files) == 3
+
+
+def test_the_action_of_an_ignored_autoreset_step_is_not_recorded(tmp_path):
+    actions = _batched_actions(3)
+    collector = CollectionRunner(_StubRunner(actions=actions, num_envs=2), tmp_path)
+
+    collector.reset(_batched_observation(0))
+    collector.act()
+    collector.observe(_batched_observation(1), [0.0, 0.0], [True, False], [False, False])
+    # Row 0 is mid-autoreset here: the env ignores actions[1][0], so the file
+    # must not carry it, and the observation seeds the next episode instead of
+    # closing a transition.
+    collector.act()
+    collector.observe(_batched_observation(2), [0.0, 1.0], [False, False], [False, False])
+    collector.act()
+    collector.observe(_batched_observation(3), [2.0, 2.0], [True, True], [False, False])
+    collector.close()
+
+    reborn = _load(tmp_path / "ep_000001.npz")
+    np.testing.assert_allclose(reborn["actions"], actions[2][0].reshape(1, 2))
+    np.testing.assert_allclose(
+        reborn["observations"],
+        np.stack([_batched_observation(2)[0], _batched_observation(3)[0]]),
+    )
+    assert reborn["rewards"].tolist() == [2.0]
+
+
+def test_only_the_rows_that_ended_are_restarted_in_the_runner(tmp_path):
+    runner = _StubRunner(actions=_batched_actions(3), num_envs=2)
+    collector = CollectionRunner(runner, tmp_path)
+
+    collector.reset(_batched_observation(0))
+    collector.act()
+    collector.observe(_batched_observation(1), [0.0, 0.0], [True, False], [False, False])
+    collector.act()
+    collector.observe(_batched_observation(2), [0.0, 1.0], [False, False], [False, False])
+
+    restarts = [call for call in runner.calls if call[0] == "reset_rows"]
+    assert len(restarts) == 1, "the surviving row must not be restarted"
+    assert restarts[0][1].tolist() == [True, False]
+    # And it happens before the runner is fed, so the ended episode leaves the
+    # row's context rather than preceding the new one.
+    order = [name for name, _ in runner.calls]
+    assert order.index("reset_rows") < len(order) - 1
+    assert order[order.index("reset_rows") + 1] == "observe"
+
+
+def test_a_batch_argument_must_carry_one_value_per_row(tmp_path):
+    collector = CollectionRunner(
+        _StubRunner(actions=_batched_actions(2), num_envs=2), tmp_path
+    )
+    collector.reset(_batched_observation(0))
+    collector.act()
+
+    with pytest.raises(ContractError, match="rewards for 2 envs"):
+        collector.observe(_batched_observation(1), [0.0], [False, False], [False, False])
+
+
+def test_a_batched_observation_of_the_wrong_width_is_refused(tmp_path):
+    collector = CollectionRunner(
+        _StubRunner(actions=_batched_actions(2), num_envs=2), tmp_path
+    )
+    with pytest.raises(ContractError, match="observations for 2 envs"):
+        collector.reset(np.zeros((3, 2), dtype=np.float32))
+
+
+def test_a_batched_run_records_how_many_envs_produced_it(tmp_path):
+    CollectionRunner(_StubRunner(actions=_batched_actions(2), num_envs=2), tmp_path)
+
+    spec = json.loads((tmp_path / "spec.json").read_text(encoding="utf-8"))
+    assert spec["provenance"][0]["num_envs"] == 2
+
+
+# -- a batch of rows, through a real vector env -------------------------
+
+
+class _CountdownEnv(gym.Env):
+    """Terminates after a fixed number of steps, so rows stagger by construction."""
+
+    observation_space = gym.spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+    action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
+
+    def __init__(self, length: int):
+        self.length = length
+        self._t = 0
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        self._t = 0
+        return np.zeros(3, dtype=np.float32), {}
+
+    def step(self, action):
+        self._t += 1
+        observation = np.full(3, 0.01 * self._t, dtype=np.float32)
+        return observation, float(self._t), self._t >= self.length, False, {}
+
+
+def test_a_real_vector_env_rollout_splits_into_one_file_per_episode(tmp_path):
+    pytest.importorskip("torch")
+    venv = gym.vector.SyncVectorEnv(
+        [lambda length=length: _CountdownEnv(length) for length in (2, 3)]
+    )
+    # The recorder owns a one-step wait that only NEXT_STEP autoreset needs.
+    # Pin the mode rather than assume it, so a Gymnasium default change is a
+    # failure here instead of a silently mispaired dataset.
+    assert str(venv.metadata["autoreset_mode"]).endswith("NEXT_STEP")
+
+    collector = CollectionRunner(_policy_runner(num_envs=2), tmp_path)
+    try:
+        observations, _ = venv.reset(seed=[0, 1])
+        collector.reset(observations)
+        for _ in range(8):
+            actions = collector.act()
+            observations, rewards, terminations, truncations, _ = venv.step(actions)
+            collector.observe(observations, rewards, terminations, truncations)
+        collector.close()
+    finally:
+        venv.close()
+
+    files, spec = validate_raw_directory(tmp_path)
+    # Row 0 ends every 2 steps and row 1 every 3, interleaved by finish order.
+    lengths = [len(_load(path)["actions"]) for path in sorted(files)]
+    assert lengths == [2, 3, 2, 3, 2]
+    assert spec["obs_channels"] == [3]
+    for path in files:
+        episode = _load(path)
+        assert episode["terminations"][-1], "each row ended on a terminal state"
+        assert not episode["truncations"].any()
 
 
 # -- the packager's library entry point ---------------------------------

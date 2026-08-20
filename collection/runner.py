@@ -233,7 +233,7 @@ def _declared_action_space(runner):
 
 
 class CollectionRunner:
-    """Record what a `PolicyRunner` drives, one environment at a time.
+    """Record what a `PolicyRunner` drives, one episode file per env row.
 
     Wraps the runner and keeps its calls — `reset` / `act` / `observe`. What it
     adds is the episode file: the pairing, the terminal observation, and the two
@@ -252,22 +252,50 @@ class CollectionRunner:
                 done = terminated or truncated
                 runner.observe(observation, reward, terminated, truncated)
 
+    A batched runner records the same files from a vectorized env — one episode
+    per row, `observe` taking the arrays `step` returns::
+
+        runner = CollectionRunner(load_runner(bundle, num_envs=8), "raw/")
+        observations, _ = venv.reset(seed=list(range(8)))
+        runner.reset(observations)
+        while ...:
+            actions = runner.act()
+            observations, rewards, terms, truncs, _ = venv.step(actions)
+            runner.observe(observations, rewards, terms, truncs)
+
+    Rows end at different steps, so each closes and writes on its own step;
+    `ep_%06d.npz` are numbered in the order they finish, not by row.
+
+    Gymnasium's vector autoreset is `NEXT_STEP`: the step a row ends on carries
+    its true final observation and flags, and the *following* step carries the
+    new episode's first observation with a zero reward, no flags, and that row's
+    action ignored. The recorder owns that one-step wait — it closes the row on
+    the first, and on the second seeds a new episode without recording a
+    transition, calling the runner's `reset_rows` so the ended episode leaves
+    the row's context before it does. A batched run therefore needs no
+    `final_observation` handling from the caller.
+
     The action recorded for a step is the one `act()` returned for the state
     last given, paired at this boundary rather than read back out of the model's
     context — that context token is `(state, previous action)`, one step off
     from what the contract wants, and holds model-space values besides.
 
     The terminal observation is recorded but not fed back: the contract needs
-    `T + 1` observations, and the runner has no use for the last one.
+    `T + 1` observations, and the runner has no use for the last one. In a batch
+    a row that ended does carry it for one step, until the `reset_rows` above
+    wipes the row — the runner is fed the whole batch or none of it.
 
     Any entry point that leaves the recording state ambiguous is refused rather
     than inherited — `act(state)`, and an `observe()` before the first `reset()`
     — because both would drive the policy and drop the step without an error.
 
-    Boundaries: one environment (`num_envs == 1`); an auto-resetting env must
-    hand `observe` the true final observation, since only the caller can still
-    reach it; and the action is recorded exactly as emitted, so perturbing it
-    before `env.step` would record a policy that never ran.
+    Boundaries: `num_envs == 1` keeps the single-env contract exactly, autoreset
+    included — a closed episode ends the run and the next `reset()` starts the
+    next one, so a one-row vector env should use the loop above rather than the
+    batched one. A single-env auto-resetting env must still hand `observe` the
+    true final observation, since only the caller can reach it. And the action
+    is recorded exactly as emitted, so perturbing it before `env.step` would
+    record a policy that never ran.
     """
 
     def __init__(
@@ -278,14 +306,21 @@ class CollectionRunner:
         bundle: Optional[str] = None,
         resume: bool = False,
     ):
-        if int(getattr(runner, "num_envs", 1)) != 1:
+        self.num_envs = int(getattr(runner, "num_envs", 1))
+        if self.num_envs <= 0:
+            raise ContractError(f"num_envs must be > 0, got {self.num_envs}")
+        # The batched flow restarts rows in place; without that call there is no
+        # way to end one row's episode without ending every row's.
+        if self.num_envs > 1 and not callable(getattr(runner, "reset_rows", None)):
             raise ContractError(
-                f"CollectionRunner records one environment, but this runner has "
-                f"num_envs={runner.num_envs}. A batched rollout does not reduce "
-                "identically to a single-env one, so it is not a faster way to "
-                "record the same data."
+                f"Recording {self.num_envs} envs needs a runner with "
+                "reset_rows(done_mask) to restart rows in place; this one has "
+                "none. Record it one environment at a time."
             )
         self.runner = runner
+        # Per-row episode boundaries only mean something with rows to stagger.
+        # At one env the shipped single-env contract is kept unchanged.
+        self._vectorized = self.num_envs > 1
         self.out_dir = Path(out_dir)
 
         self._encode_observation = _ObservationEncoder(
@@ -321,29 +356,89 @@ class CollectionRunner:
         )
 
         self._recording = False
-        self._episode_open = False
-        self._pending_action: Optional[np.ndarray] = None
-        self._observations: list[np.ndarray] = []
-        self._actions: list[np.ndarray] = []
-        self._rewards: list[float] = []
+        self._started = False
+        self._open = np.zeros(self.num_envs, dtype=bool)
+        # Rows whose episode ended last step; the next observation is the new
+        # episode's first, not a transition of the old one.
+        self._awaiting = np.zeros(self.num_envs, dtype=bool)
+        self._pending_action: list[Optional[np.ndarray]] = [None] * self.num_envs
+        self._observations: list[list[np.ndarray]] = [[] for _ in range(self.num_envs)]
+        self._actions: list[list[np.ndarray]] = [[] for _ in range(self.num_envs)]
+        self._rewards: list[list[float]] = [[] for _ in range(self.num_envs)]
+
+    # -- batch rows ------------------------------------------------------
+
+    def _observation_rows(self, observation) -> list:
+        """The batch's observation -> one per-env observation per row.
+
+        The convention `PolicyRunner._format_state` reads, because the object
+        handed here is the one passed straight through to the runner: a declared
+        observation space means `num_envs` structured observations, a bundle
+        without one means an array whose leading axis is the batch.
+        """
+        if self.num_envs == 1:
+            return [observation]
+        if self.runner.obs_space is None:
+            arr = np.asarray(observation, dtype=np.float32)
+            if arr.ndim < 1 or arr.shape[0] != self.num_envs:
+                raise ContractError(
+                    f"Expected observations for {self.num_envs} envs, got an "
+                    f"array of shape {arr.shape}"
+                )
+            return [arr[i] for i in range(self.num_envs)]
+        rows = list(observation)
+        if len(rows) != self.num_envs:
+            raise ContractError(
+                f"Expected {self.num_envs} per-env observations, got {len(rows)}"
+            )
+        return rows
+
+    def _action_rows(self, action) -> list:
+        """`act()`'s return -> one env-ready action per row.
+
+        Every action space the contract covers decodes to a batched form whose
+        leading axis is the row: an array for the homogeneous families, a list
+        of `num_envs` containers when the bundle declared a Tuple. The per-head
+        list `PolicyRunner` returns for an undeclared mixed schedule is not one
+        of them, and cannot arrive here — `_declared_action_space` refuses that
+        bundle first. The length check is what keeps that reasoning falsifiable.
+        """
+        if self.num_envs == 1:
+            return [action]
+        if len(action) != self.num_envs:
+            raise ContractError(
+                f"act() returned {len(action)} actions for {self.num_envs} envs"
+            )
+        return [action[i] for i in range(self.num_envs)]
+
+    def _step_values(self, values, what: str) -> np.ndarray:
+        """A step's reward / flag, scalar or per row, as a `(num_envs,)` array."""
+        arr = np.asarray(values).reshape(-1)
+        if arr.shape[0] != self.num_envs:
+            raise ContractError(
+                f"Expected {what} for {self.num_envs} envs, got {arr.shape[0]}"
+            )
+        return arr
 
     # -- the loop --------------------------------------------------------
 
     def reset(self, observation, *, record: bool = True) -> None:
-        """Start an episode: flush the previous one, then seed the runner.
+        """Start an episode on every row: flush what is open, then seed.
 
         `record` sits on this call because it is already the episode boundary —
         the same call clears the runner's context, so the two spans coincide.
         """
-        self._close_episode(aborted=True)
+        self._close_open_rows(aborted=True)
         self.runner.reset(observation)
-        self._pending_action = None
-        self._episode_open = True
+        self._started = True
         self._recording = bool(record)
-        if self._recording:
-            self._observations = [self._encode_observation(observation)]
-            self._actions = []
-            self._rewards = []
+        self._awaiting[:] = False
+        self._pending_action = [None] * self.num_envs
+        rows = self._observation_rows(observation) if self._recording else None
+        for row in range(self.num_envs):
+            self._open[row] = True
+            if self._recording:
+                self._seed_row(row, rows[row])
 
     def act(self, state=None):
         """The next action, unchanged — and the one this step records."""
@@ -356,16 +451,22 @@ class CollectionRunner:
                 "Pass the observation to observe(observation, reward, "
                 "terminated, truncated) and call act() with no argument."
             )
-        if not self._episode_open:
+        if not self._started:
             raise RuntimeError("Call reset(observation) before act().")
-        if self._pending_action is not None:
+        if any(pending is not None for pending in self._pending_action):
             raise RuntimeError(
                 "act() called twice in a row; each recorded action needs the "
                 "observe(...) of what it did."
             )
         action = self.runner.act()
         if self._recording:
-            self._pending_action = self._encode_action(action)
+            rows = self._action_rows(action)
+            for row in range(self.num_envs):
+                # A row mid-autoreset has its action ignored by the env, and the
+                # step it belongs to seeds the new episode rather than being a
+                # transition of either one.
+                if not self._awaiting[row]:
+                    self._pending_action[row] = self._encode_action(rows[row])
         return action
 
     def observe(
@@ -375,29 +476,72 @@ class CollectionRunner:
         terminated: bool = False,
         truncated: bool = False,
     ) -> None:
-        """Record the step the last `act()` produced, and close on a flag."""
-        if not self._episode_open:
+        """Record the step the last `act()` produced, and close rows on a flag.
+
+        Batched, each argument carries one value per row; single-env, each is
+        the scalar it has always been.
+        """
+        if not self._started:
             raise RuntimeError("Call reset(observation) before observe().")
-        done = bool(terminated) or bool(truncated)
-        if self._recording:
-            if self._pending_action is None:
+        rewards = self._step_values(reward, "rewards")
+        terminations = self._step_values(terminated, "terminations").astype(bool)
+        truncations = self._step_values(truncated, "truncations").astype(bool)
+        done = terminations | truncations
+
+        # Rows that ended last step: this observation is their new episode's
+        # first. Restart them in the runner before it is fed, so the ended
+        # episode leaves their context instead of preceding the new one.
+        restarting = self._awaiting.copy()
+        if restarting.any():
+            self.runner.reset_rows(restarting)
+            self._awaiting[:] = False
+
+        rows = self._observation_rows(observation) if self._recording else None
+        for row in range(self.num_envs):
+            if restarting[row]:
+                self._open[row] = True
+                if self._recording:
+                    self._seed_row(row, rows[row])
+                continue
+            if not self._recording:
+                continue
+            if self._pending_action[row] is None:
                 raise RuntimeError(
                     "observe() without a preceding act(); there is no action for "
                     "this observation to pair with."
                 )
-            self._observations.append(self._encode_observation(observation))
-            self._actions.append(self._pending_action)
-            self._rewards.append(float(reward))
-            self._pending_action = None
-        if not done:
-            # The runner has no use for a terminal state; the contract does.
+            self._observations[row].append(self._encode_observation(rows[row]))
+            self._actions[row].append(self._pending_action[row])
+            self._rewards[row].append(float(rewards[row]))
+            self._pending_action[row] = None
+
+        # A seeded row reports no flags on the step that seeds it, so a `done`
+        # there would be the previous episode's; `restarting` masks it out.
+        closing = done & ~restarting
+        for row in np.flatnonzero(closing):
+            self._close_row(
+                int(row),
+                terminated=bool(terminations[row]),
+                truncated=bool(truncations[row]),
+            )
+
+        if self._vectorized:
+            self._awaiting |= closing
+        elif closing.all():
+            # One env has no row to stagger against: the episode ending ends the
+            # run, and the next `reset()` starts the next one.
+            self._recording = False
+            self._started = False
+
+        if not done.all():
+            # The runner has no use for a terminal state; the contract does. It
+            # is fed the whole batch or none of it, so a row that ended keeps its
+            # terminal observation until the `reset_rows` above wipes the row.
             self.runner.observe(observation)
-        else:
-            self._close_episode(terminated=bool(terminated), truncated=bool(truncated))
 
     def close(self) -> None:
-        """Flush an episode still open, the way a mid-episode reset would."""
-        self._close_episode(aborted=True)
+        """Flush the episodes still open, the way a mid-episode reset would."""
+        self._close_open_rows(aborted=True)
 
     def __enter__(self) -> "CollectionRunner":
         return self
@@ -407,8 +551,24 @@ class CollectionRunner:
 
     # -- episode files ---------------------------------------------------
 
-    def _close_episode(
+    def _seed_row(self, row: int, observation) -> None:
+        """Begin a row's episode at `observation`, discarding what it held."""
+        self._observations[row] = [self._encode_observation(observation)]
+        self._actions[row] = []
+        self._rewards[row] = []
+        self._pending_action[row] = None
+
+    def _close_open_rows(self, *, aborted: bool = False) -> None:
+        for row in range(self.num_envs):
+            if self._open[row]:
+                self._close_row(row, aborted=aborted)
+        self._recording = False
+        self._started = False
+        self._awaiting[:] = False
+
+    def _close_row(
         self,
+        row: int,
         *,
         terminated: bool = False,
         truncated: bool = False,
@@ -417,28 +577,27 @@ class CollectionRunner:
         if aborted and self._recording:
             # A dangling act() has no transition to belong to, and an episode
             # cut short really is a truncation — the honest flag, not a stand-in.
-            self._pending_action = None
+            self._pending_action[row] = None
             terminated, truncated = False, True
-        if self._recording and self._actions:
-            self._write_episode(terminated=terminated, truncated=truncated)
-        self._recording = False
-        self._episode_open = False
-        self._observations = []
-        self._actions = []
-        self._rewards = []
-        self._pending_action = None
+        if self._recording and self._actions[row]:
+            self._write_episode(row, terminated=terminated, truncated=truncated)
+        self._open[row] = False
+        self._observations[row] = []
+        self._actions[row] = []
+        self._rewards[row] = []
+        self._pending_action[row] = None
 
-    def _write_episode(self, *, terminated: bool, truncated: bool) -> None:
-        transitions = len(self._actions)
+    def _write_episode(self, row: int, *, terminated: bool, truncated: bool) -> None:
+        transitions = len(self._actions[row])
         dtype = np.int64 if self._action_kind == "discrete" else np.float32
         terminations = np.zeros(transitions, dtype=bool)
         truncations = np.zeros(transitions, dtype=bool)
         terminations[-1] = terminated
         truncations[-1] = truncated
         arrays = {
-            "observations": np.stack(self._observations).astype(np.float32),
-            "actions": np.stack(self._actions).astype(dtype),
-            "rewards": np.asarray(self._rewards, dtype=np.float32),
+            "observations": np.stack(self._observations[row]).astype(np.float32),
+            "actions": np.stack(self._actions[row]).astype(dtype),
+            "rewards": np.asarray(self._rewards[row], dtype=np.float32),
             "terminations": terminations,
             "truncations": truncations,
         }
@@ -479,6 +638,7 @@ class CollectionRunner:
             "causal_gpt_rl": _RUNTIME_VERSION,
             "bundle": bundle,
             "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "num_envs": self.num_envs,
             "context_length": int(self.runner.context_length),
             "kv_cache_max_len": int(self.runner.kv_cache_max_len),
             "bos_cache_mode": getattr(self.runner, "bos_cache_mode", None),
@@ -524,6 +684,6 @@ class CollectionRunner:
         return (
             f"CollectionRunner(out_dir={str(self.out_dir)!r}, "
             f"action_kind={self._action_kind!r}, "
-            f"obs_channels={self.spec['obs_channels']}, "
+            f"obs_channels={self.spec['obs_channels']}, num_envs={self.num_envs}, "
             f"episodes_written={self.episodes_written}, runner={self.runner!r})"
         )
