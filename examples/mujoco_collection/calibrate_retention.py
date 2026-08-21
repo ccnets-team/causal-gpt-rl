@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import gymnasium as gym
@@ -53,6 +54,17 @@ DEFAULT_GRID = (16, 32, 64, 128, 256, 512, 1000)
 
 # Below this the grid has not produced a ladder, whatever the closest picks say.
 MIN_LADDER_SPREAD = 20.0
+
+# Printed in place of tier picks when the grid produced no usable score at all,
+# which is the collapsed twin of the spread note above. ASCII only, like
+# everything this script prints: a console on a legacy code page raises
+# UnicodeEncodeError on the write, which would fail a run whose measurements
+# are already done.
+NO_LADDER_NOTE = (
+    "\n  [note] no retention beat the random reference, so every normalized\n"
+    "         score is undefined and there are no tiers to cut here. What to\n"
+    "         change is the bundle or the environment, not the retention."
+)
 
 
 class RandomPolicy:
@@ -197,6 +209,17 @@ def normalized(value: float, random_ref: float, expert_ref: float) -> float:
     return 100.0 * (value - random_ref) / spread
 
 
+def ladder_collapsed(rows: list[dict]) -> bool:
+    """True when the grid produced no usable normalized score.
+
+    `normalized` returns NaN for a policy that did not beat uniform sampling,
+    and it collapses the whole grid at once: the denominator is the best row's
+    margin over random, which every row shares. Reading that NaN back rather
+    than re-deriving the comparison keeps one definition of "no ladder".
+    """
+    return all(math.isnan(row["norm"]) for row in rows)
+
+
 def print_curve(rows: list[dict], episodes: int, expert_retention: int) -> None:
     print(
         f"\n{'retention':>9} {'return':>12} {'std':>10} {'worst':>12} "
@@ -303,7 +326,18 @@ def main() -> None:
         row["norm"] = normalized(row["return_mean"], random_ref, expert["return_mean"])
 
     print_curve(rows, args.episodes, expert["retention"])
-    report_picks(rows, args, expert)
+    # Neither the picks nor the next command survive an all-NaN curve. `pick`
+    # is a min over abs(norm - target), and with every key NaN each comparison
+    # is False, so it returns the first grid entry — the smallest retention,
+    # printed as both tiers. `report_picks`' own spread guard cannot catch that
+    # either: NaN < MIN_LADDER_SPREAD is False, so the guidance is suppressed
+    # exactly where it applies. The measurements above still print; they cost a
+    # run, and they are what says there is nothing here.
+    collapsed = ladder_collapsed(rows)
+    if collapsed:
+        print(NO_LADDER_NOTE)
+    else:
+        report_picks(rows, args, expert)
 
     if args.json is not None:
         args.json.parent.mkdir(parents=True, exist_ok=True)
@@ -327,8 +361,9 @@ def main() -> None:
         )
         print(f"\nwrote {args.json}")
 
-    print("\nNext:")
-    print(next_command(args, rows, expert))
+    if not collapsed:
+        print("\nNext:")
+        print(next_command(args, rows, expert))
 
 
 if __name__ == "__main__":
