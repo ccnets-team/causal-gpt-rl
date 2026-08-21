@@ -44,6 +44,24 @@
   at several retentions if every tier draws the same initial states, and any
   value between the two would leave most episodes unseeded.
 
+- The recorder is reachable from `collection/`, and its retention knob is named
+  for what it retains. `collection/record.py` runs the same recording as
+  `python -m examples.deploy.record`: it puts the checkout root on `sys.path`
+  and calls that module's `main()`, so nothing about the run differs. What
+  changes is that the directory owning the recorder is also where a run starts
+  from. It stays a checkout-only entry point, because `collection/` is a
+  directory of this repository rather than part of the installed
+  `causal-gpt-rl` package.
+
+  The knob is `--context-length` now, with `--kv-cache-max-len` kept as an
+  alias, so command lines already written keep running. It has never been the
+  model's window: it sets how much history the KV cache retains through a
+  rollout, and the trained window is fixed in the bundle and not settable from
+  the CLI at all. Because the two names now sit close together, a run prints
+  both numbers on a `[context]` line before it starts, so the distinction is in
+  the log kept beside the dataset. A value below 1 is refused while arguments
+  are parsed, rather than after a bundle has loaded.
+
 - A cached rollout no longer carries a rolling window it does not read. Once the
   KV cache holds history, `predict_incremental_cached` slices its input to the
   newest token, so the `context_length + 1` window the buffer allocated was
