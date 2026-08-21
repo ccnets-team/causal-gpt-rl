@@ -27,7 +27,10 @@ classifiers = [
 ]
 dependencies = [
   "torch>=2.0",
-  "transformers>=4.30",
+  # 4.56 is where `DynamicCache(config=...)` works, which `build_kv_cache`
+  # calls unconditionally: 4.55 and below raise TypeError building the cache,
+  # so every cached rollout fails. Measured by running the suite against each.
+  "transformers>=4.56",
   "safetensors>=0.4.5",
   "numpy>=1.24,<3",
   "gymnasium>=1.0",

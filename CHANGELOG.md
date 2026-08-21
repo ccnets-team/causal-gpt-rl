@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The `transformers` floor is 4.56, raised from 4.30. It was never a range this
+  package ran on: `build_kv_cache` calls `DynamicCache(config=...)`
+  unconditionally, and below 4.56 that raises `TypeError` while the cache is
+  being built, so every cached rollout fails. The floor is measured rather than
+  read off a signature — the suite passes whole on 4.56.0 and fails 41 tests on
+  4.55.4 and 4.54.1, and 4.53 and below cannot take the keyword at all. Nothing
+  about the package changed here; the range it declares now matches the range
+  it works on, so a resolver refuses the install instead of pip succeeding and
+  the first rollout failing.
+
 - `examples/mujoco_collection/record_context_grid.py` records one dataset per
   rollout context length. The tier recipe names a length per tier and the
   calibration script measures a curve and discards the rollouts; this is the
