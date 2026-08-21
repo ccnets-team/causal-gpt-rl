@@ -104,12 +104,58 @@ way. Minari refuses to overwrite an existing dataset id — a re-recording needs
 The recipe ends at the packaged datasets. Set `MINARI_DATASETS_PATH` before
 packaging to keep them somewhere other than `~/.minari`.
 
+## The grid behind the dial
+
+The ladder above names one context length per tier. Which lengths those are is a
+measurement, and
+[`record_context_grid.py`](record_context_grid.py) is the recording form of it:
+the same policy at several lengths, one dataset each, on the same seeds.
+
+```bash
+python -m examples.mujoco_collection.record_context_grid \
+    --env-id Humanoid-v5 --out raw/humanoid \
+    --context 8,16,32,64,128 --episodes 100 --build
+```
+
+```text
+ccnets/humanoid/kv0008-v0
+ccnets/humanoid/kv0016-v0
+...
+```
+
+`--episodes` is both the episode count and the batch width — a level is one
+batch of that many rows recording one episode each, so every episode carries a
+seed the caller chose rather than an unseeded auto-reset, and every level runs
+the same width. Both are what make the levels comparable at all, so neither is
+a separate knob to get wrong.
+
+The summary compares the grid against itself:
+
+```text
+ context  episodes  transitions                 return      worst   length  terminated
+      16        12         2295      1333.02 +- 236.28     549.58    191.2           1
+      64        12         2400      1406.46 +- 11.11     1378.29    200.0           0
+
+spread across the grid: 73.45, against a within-level spread of up to 236.28
+  [note] the levels differ by less than the episodes within one of them.
+```
+
+That note is the point. A grid whose levels sit closer together than the
+episodes inside one of them has not separated anything, and the means are the
+last column to trust — read the worst episode and the terminated count first.
+
+Against [`calibrate_retention.py`](calibrate_retention.py), which measures a
+curve and throws the rollouts away, this keeps them: every level is a packaged
+dataset, so the one that wins can be trained on rather than re-recorded.
+
 ## Boundaries
 
-**One environment at a time.** `CollectionRunner` records `num_envs == 1`,
-deliberately: a batched rollout does not reduce identically to a single-env one,
-so it is not a faster way to record the same data. A tier of 200 episodes is 200
-sequential rollouts.
+**A batch is a width, not a shortcut.** `CollectionRunner` records a
+vectorized env, one episode file per row, so a tier of 200 episodes can be 200
+rows instead of 200 sequential rollouts. What it is not is free: the width is
+part of the measurement, because rows reduce floating point in a different order
+than a single env does. Compare levels recorded at one width, or do not compare
+them.
 
 **The ladder is measured, not assumed.** Retention is not monotonic — more
 history helps some environments and hurts others, and the best level is often

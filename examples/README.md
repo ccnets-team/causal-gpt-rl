@@ -85,6 +85,7 @@ recording the next one — and it needs nothing but the bundle and the env.
 | [`record_dataset.ipynb`](record_dataset.ipynb) | Hub bundle → recorded episodes → a Minari dataset read back, in one runtime. Start here. |
 | [`deploy/record.py`](deploy/record.py) | The same run as a script, for longer collections. |
 | [`mujoco_collection/`](mujoco_collection/) | One bundle → a `simple` / `medium` / `expert` ladder, packaged under one namespace. Calibrates the retention behind each tier first, and says when there is no ladder to cut. |
+| [`mujoco_collection/record_context_grid.py`](mujoco_collection/record_context_grid.py) | One bundle → one dataset per rollout context length, all on the same seeds and one batch width. The grid the ladder's tiers are picked from, kept rather than measured and discarded. |
 
 ```bash
 python -m examples.deploy.record --env-id Hopper-v5 --out raw/ \

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `examples/mujoco_collection/record_context_grid.py` records one dataset per
+  rollout context length. The tier recipe names a length per tier and the
+  calibration script measures a curve and discards the rollouts; this is the
+  form that keeps them, so the level that wins is a packaged dataset rather than
+  a number to re-record. `--context` takes the grid (`8,16,32` or `8-16`, sorted
+  and deduplicated, since a grid is an axis), and `--episodes` is both the
+  episode count and the batch width: a level is one batch of that many rows
+  recording one episode each. Neither is optional in the sense that matters — a
+  vector env is seeded once, so a narrower batch would leave most episodes to
+  unseeded auto-resets, and two levels recorded at different widths reduce
+  floating point in a different order. Every level runs the same seeds, which is
+  what separates the grid from the seed draw. The summary reports the spread
+  across the grid against the widest spread within a level, and says so when the
+  first is smaller — a grid that has not separated anything should not be read
+  off its means. No runtime change: the script drives `CollectionRunner` and
+  `record_vector_episodes` as they are.
+
 - `CollectionRunner` records a batch. A runner loaded with `num_envs > 1` now
   writes one episode file per row from a vectorized env, `observe` taking the
   arrays `step` returns; rows end at different steps, so each closes and is
