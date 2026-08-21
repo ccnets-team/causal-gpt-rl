@@ -55,11 +55,13 @@
   `examples/deploy/record.py` gains `--num-envs`: above 1 it builds the env with
   `gym.make_vec`, `--max-steps` becomes each sub-env's `max_episode_steps`
   because only the environment can restart a row it truncates, and each row
-  records `ceil(--episodes / --num-envs)` episodes so the total is exact rather
-  than an overshoot of unknown size. `examples/mujoco_collection/record_tiers.py`
-  gains it too, restricted to 1 or `--episodes`: that ladder is only one policy
-  at several retentions if every tier draws the same initial states, and any
-  value between the two would leave most episodes unseeded.
+  records `ceil(--episodes / --num-envs)` episodes, which makes `--episodes` a
+  floor the run clears by a known amount rather than an unknown one — the
+  total is `--num-envs` times that share, and it is `--episodes` exactly when
+  the two divide. `examples/mujoco_collection/record_tiers.py` gains it too,
+  restricted to 1 or `--episodes`: that ladder is only one policy at several
+  retentions if every tier draws the same initial states, and any value
+  between the two would leave most episodes unseeded.
 
 - The recorder is reachable from `collection/`, and its retention knob is named
   for what it retains. `collection/record.py` runs the same recording as
