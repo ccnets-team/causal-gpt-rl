@@ -18,7 +18,10 @@ import pytest
 
 from collection.runner import CollectionRunner
 from examples.mujoco_collection import record_context_grid as grid
-from tests.test_record_example import _FakeVecEnv, _VecStubRunner
+# A sibling test module, imported bare: `tests/` has no `__init__.py`, so
+# `tests.test_record_example` resolves against whatever regular `tests`
+# package is installed on sys.path instead of this directory.
+from test_record_example import _FakeVecEnv, _VecStubRunner
 
 
 # -- the grid -----------------------------------------------------------
