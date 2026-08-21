@@ -11,6 +11,7 @@ The rest of the recording is `CollectionRunner`'s and is tested there.
 
 import sys
 
+import gymnasium as gym
 import numpy as np
 import pytest
 
@@ -266,6 +267,9 @@ class _FakeVecEnv:
 
     def __init__(self, lengths, *, truncate=False, both_flags=False):
         self.num_envs = len(lengths)
+        # The mode this fake implements, stated the way a real vector env
+        # states it. The loop reads it and refuses anything else.
+        self.metadata = {"autoreset_mode": gym.vector.AutoresetMode.NEXT_STEP}
         self.lengths = list(lengths)
         self.truncate = truncate
         self.both_flags = both_flags
@@ -378,6 +382,33 @@ def test_a_collector_without_a_share_is_refused(tmp_path):
 
     with pytest.raises(ValueError, match="episodes_per_row"):
         record.record_vector_episodes(env, collector, seed_start=0)
+
+
+def test_a_same_step_vector_env_is_refused(tmp_path):
+    # Under SAME_STEP the step a row ends on already carries the new episode's
+    # first observation, so the loop's one-step wait would pair every episode
+    # after the first with the wrong transition — and the files would still
+    # validate. Refused before anything is written rather than found later.
+    env = _FakeVecEnv([2, 3])
+    env.metadata = {"autoreset_mode": gym.vector.AutoresetMode.SAME_STEP}
+    collector = _vec_collector(tmp_path, 2)
+
+    with pytest.raises(ValueError, match="NEXT_STEP"):
+        record.record_vector_episodes(env, collector, seed_start=0)
+
+    assert not list(tmp_path.glob("ep_*.npz"))
+
+
+def test_a_vector_env_that_states_no_mode_is_taken_at_its_word(tmp_path):
+    # The check refuses a stated mismatch, not an unstated one: a duck-typed
+    # vector env publishing no metadata keeps working.
+    env = _FakeVecEnv([2, 3])
+    del env.metadata
+    collector = _vec_collector(tmp_path, 2)
+
+    results = record.record_vector_episodes(env, collector, seed_start=0)
+
+    assert [r["steps"] for r in results] == [2, 3]
 
 
 def test_a_vector_env_raising_both_flags_is_recorded_as_a_termination(tmp_path):

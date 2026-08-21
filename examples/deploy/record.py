@@ -79,7 +79,9 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Environments to record in one batch. Above 1 the env is built "
         "with gym.make_vec and each row records ceil(--episodes / --num-envs) "
-        "episodes, so the total is exact. A vector env is seeded once, so only "
+        "episodes, so --episodes is a floor the run clears: the total is "
+        "num-envs * that share, which is --episodes exactly when the two "
+        "divide and rounds up otherwise. A vector env is seeded once, so only "
         "each row's first episode carries a --seed-start seed; pass "
         "--num-envs == --episodes to have every episode seeded.",
     )
@@ -234,6 +236,18 @@ def record_vector_episodes(
             "record_vector_episodes needs a collector built with "
             "episodes_per_row; without a share per row there is no stop "
             "condition that lands on an exact count."
+        )
+    # The one-step wait below is only correct under NEXT_STEP. A SAME_STEP env
+    # hands back the new episode's first observation on the step the old one
+    # ends, so every episode after the first would be recorded one transition
+    # out of step — and the files would still pass validation, which is what
+    # makes checking worth a line. A vector env that publishes no metadata is
+    # taken at its word; this refuses a stated mismatch, not an unstated one.
+    mode = getattr(venv, "metadata", {}).get("autoreset_mode")
+    if mode is not None and mode != gym.vector.AutoresetMode.NEXT_STEP:
+        raise ValueError(
+            f"record_vector_episodes needs a NEXT_STEP vector env, got {mode}. "
+            "Build it with gym.make_vec, which is NEXT_STEP by default."
         )
     rows = venv.num_envs
     returns = np.zeros(rows, dtype=np.float64)
