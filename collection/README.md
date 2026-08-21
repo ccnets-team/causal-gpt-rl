@@ -31,6 +31,16 @@ multi-agent recordings, and how to read what came out are in
 
 ## Record with one of our bundles
 
+Record straight from the command line:
+
+```bash
+python collection/record.py --env-id Humanoid-v5 --out raw/humanoid \
+    --episodes 100 --context-length 128
+```
+
+`--context-length` is the history retained during rollout. The trained context
+window remains fixed by the bundle. `--kv-cache-max-len` is an equivalent alias.
+
 ```python
 from causal_gpt_rl.inference import load_runner
 from collection import CollectionRunner

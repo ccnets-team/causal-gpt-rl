@@ -11,7 +11,7 @@ directory of this repository, not part of the `causal-gpt-rl` package.
 
 Example:
     python -m examples.deploy.record \
-        --env-id Hopper-v5 --out raw/ --episodes 20 --kv-cache-max-len 256
+        --env-id Hopper-v5 --out raw/ --episodes 20 --context-length 256
     python collection/build_minari.py --raw raw/ --dataset-id review/hopper-v0
 
 `--num-envs` records from a vectorized env instead, one episode file per row.
@@ -92,11 +92,13 @@ def parse_args() -> argparse.Namespace:
         "TimeLimit usually fires first.",
     )
     p.add_argument(
+        "--context-length",
         "--kv-cache-max-len",
+        dest="kv_cache_max_len",
         type=int,
         default=None,
-        help="KV cache cap. Defaults to the bundle's context length; raising it "
-        "is what a second collection cycle turns on.",
+        help="Rollout context retained in the KV cache. Defaults to the bundle's "
+        "trained context length. --kv-cache-max-len is kept as an alias.",
     )
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument(
@@ -112,6 +114,11 @@ def parse_args() -> argparse.Namespace:
         p.error(f"--max-steps must be >= 1, got {args.max_steps}")
     if args.num_envs < 1:
         p.error(f"--num-envs must be >= 1, got {args.num_envs}")
+    if args.kv_cache_max_len is not None and args.kv_cache_max_len < 1:
+        p.error(
+            "--context-length must be >= 1, got "
+            f"{args.kv_cache_max_len}"
+        )
     return args
 
 
@@ -335,6 +342,10 @@ def main() -> None:
         env = gym.make(args.env_id)
     try:
         runner, bundle_id = load_policy(args)
+        print(
+            f"[context] trained={runner.context_length}  "
+            f"rollout={runner.kv_cache_max_len}"
+        )
         share = share_per_row(args.episodes, args.num_envs) if args.num_envs > 1 else None
         collector = CollectionRunner(
             runner,

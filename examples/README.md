@@ -88,7 +88,7 @@ recording the next one — and it needs nothing but the bundle and the env.
 
 ```bash
 python -m examples.deploy.record --env-id Hopper-v5 --out raw/ \
-    --episodes 20 --kv-cache-max-len 256
+    --episodes 20 --context-length 256
 python collection/build_minari.py --raw raw/ --dataset-id review/hopper-v0
 ```
 

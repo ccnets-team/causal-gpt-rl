@@ -197,6 +197,46 @@ def test_the_help_text_survives_a_legacy_code_page(capsys, monkeypatch):
     capsys.readouterr().out.encode("cp949")
 
 
+def test_context_length_cli_sets_kv_cache_retention(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "record",
+            "--env-id",
+            "Humanoid-v5",
+            "--out",
+            "raw",
+            "--context-length",
+            "128",
+        ],
+    )
+
+    args = record.parse_args()
+
+    assert args.kv_cache_max_len == 128
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_context_length_cli_rejects_non_positive_values(monkeypatch, value):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "record",
+            "--env-id",
+            "Humanoid-v5",
+            "--out",
+            "raw",
+            "--context-length",
+            value,
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        record.parse_args()
+
+
 # -- the vector loop ----------------------------------------------------
 
 
