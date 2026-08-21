@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.18.0
 
 - The `transformers` floor is 4.56, raised from 4.30. It was never a range this
   package ran on: `build_kv_cache` calls `DynamicCache(config=...)`
