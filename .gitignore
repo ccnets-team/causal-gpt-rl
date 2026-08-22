@@ -45,3 +45,24 @@ bundles/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+
+# Unity
+unity/test-project/[Ll]ibrary/
+unity/test-project/[Tt]emp/
+unity/test-project/[Oo]bj/
+unity/test-project/[Bb]uild/
+unity/test-project/[Ll]ogs/
+unity/test-project/[Uu]serSettings/
+unity/test-project/Packages/packages-lock.json
+unity/test-project/Assets/CGRLTests/Fixtures/
+unity/test-project/Assets/CGRLTests/Fixtures.meta
+# The global models/ rule above hides this directory; re-include it so the .meta
+# files survive. They carry the GUIDs the performance scene binds to, so dropping
+# them would break the scene every time a model is re-staged. The models
+# themselves stay out.
+!unity/test-project/Assets/CGRLTests/Performance/Models/
+unity/test-project/Assets/CGRLTests/Performance/Models/*.onnx
+unity/fixtures/
+unity/builds/
+unity/logs/
+unity/work/
