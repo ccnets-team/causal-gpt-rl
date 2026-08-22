@@ -5,9 +5,9 @@ using System.Collections.ObjectModel;
 namespace CCNets.CausalGPTRL
 {
     /// <summary>
-    /// How a raw model output splits into heads. Continuous columns come first, then one
-    /// branch per discrete head — the order the exported graph emits and the order
-    /// `evaluate_onnx._decode` reads.
+    /// Describes how raw model output is divided into action heads. Continuous columns come
+    /// first, followed by one branch per discrete head, matching both the exported graph and
+    /// `evaluate_onnx._decode`.
     /// </summary>
     public sealed class ActionLayout
     {
@@ -49,8 +49,8 @@ namespace CCNets.CausalGPTRL
         public int ContinuousSize { get; }
 
         /// <summary>
-        /// Class count per discrete head, in declared order. Sizes, not the heads themselves —
-        /// `[3, 3, 3]` is three heads of three classes each.
+        /// Number of classes in each discrete head, in declared order. For example,
+        /// `[3, 3, 3]` represents three heads with three classes each.
         /// </summary>
         public IReadOnlyList<int> BranchSizes { get; }
 
@@ -61,8 +61,8 @@ namespace CCNets.CausalGPTRL
         public IReadOnlyList<float> High { get; }
 
         /// <summary>
-        /// The model's action width: continuous columns plus every branch's logits. Same
-        /// quantity the Python runner calls `action_size`.
+        /// The model's action width: continuous columns plus the logits from every branch.
+        /// This is equivalent to `action_size` in the Python runner.
         /// </summary>
         public int ActionSize
         {
@@ -75,14 +75,14 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
-        /// The environment action width: continuous columns plus ONE index per branch.
-        /// Narrower than <see cref="ActionSize"/> whenever the policy has discrete heads.
+        /// The environment action width: continuous columns plus one index per branch.
+        /// This is narrower than <see cref="ActionSize"/> whenever the policy has discrete heads.
         /// The Python runner has no attribute for it; `evaluate_onnx` computes it inline.
         /// </summary>
         public int EnvironmentActionSize => ContinuousSize + BranchSizes.Count;
 
         /// <summary>
-        /// Derives the layout from the bundle's action specs. The declared container is not
+        /// Creates a layout from the bundle's action specs. The declared container is not
         /// consulted: branch sizes are the head sizes, and this runtime emits 0-based indices
         /// (see BundleValidator, which refuses a container declaring an offset).
         /// </summary>
@@ -119,10 +119,10 @@ namespace CCNets.CausalGPTRL
     }
 
     /// <summary>
-    /// One decode: what the environment is given, and what the window is fed back. They are
-    /// different values, and conflating them breaks the rollout — continuous is clipped for
-    /// the environment but fed back raw, and a branch becomes an index for the environment
-    /// but a one-hot row for the window.
+    /// Contains one decoded action for both the environment and the rolling context window.
+    /// These values differ: continuous values are clipped for the environment but fed back
+    /// unchanged, while each discrete branch becomes an index for the environment and a
+    /// one-hot row for the window.
     /// </summary>
     public sealed class DecodedAction
     {
@@ -135,9 +135,9 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
-        /// Row-major, <see cref="ActionLayout.EnvironmentActionSize"/> per row. Branch results
-        /// sit here as whole numbers in float columns — the shape the Python reference hands
-        /// the environment, and what the fixtures record. Game code should prefer
+        /// Row-major, with <see cref="ActionLayout.EnvironmentActionSize"/> values per row.
+        /// Branch results are stored as integer-valued floats, matching the Python reference
+        /// and the recorded fixtures. Game code should prefer
         /// <see cref="Continuous"/> and <see cref="Discrete"/>.
         /// </summary>
         public float[] EnvironmentAction { get; }
@@ -148,7 +148,7 @@ namespace CCNets.CausalGPTRL
         public ActionLayout Layout { get; }
         public int BatchSize { get; }
 
-        /// <summary>One row's continuous columns. A view, not a copy.</summary>
+        /// <summary>Returns a read-only view of one row's continuous columns.</summary>
         public ReadOnlySpan<float> Continuous(int row)
         {
             RequireRow(row);
@@ -157,8 +157,7 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
-        /// One branch's chosen class for one row, as the integer a game actually applies.
-        /// Allocation-free, because this is read every frame for every agent.
+        /// Returns the selected class index for one branch of one row without allocating.
         /// </summary>
         public int Discrete(int row, int branch)
         {
@@ -171,7 +170,7 @@ namespace CCNets.CausalGPTRL
             return (int)EnvironmentAction[row * Layout.EnvironmentActionSize + Layout.ContinuousSize + branch];
         }
 
-        /// <summary>Every branch for one row, into a caller-owned buffer.</summary>
+        /// <summary>Copies every branch index for one row into a caller-provided buffer.</summary>
         public void CopyDiscrete(int row, int[] destination)
         {
             if (destination == null) throw new ArgumentNullException(nameof(destination));

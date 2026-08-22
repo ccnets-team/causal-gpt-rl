@@ -1,51 +1,52 @@
-# What the runtime cannot check for you
+# Integration contracts not validated at runtime
 
-Read this before shipping.
+Read this before deployment.
 
 The runtime validates **sizes**. The properties below are invisible to a size
-check, so nothing here will fail loudly — a mismatch produces a policy that runs
-happily and acts wrongly. Each one is held by contract between the code that
-packs your data and the bundle you are running.
+check. A mismatch may therefore produce valid inference with incorrect actions.
+Integration code must enforce these contracts between the scene and the bundle.
 
-| Boundary | Status |
+| Contract | Runtime behaviour or integration requirement |
 |---|---|
-| A wrong branch split with the same total width | Undetected. `[3,3,3]` and `[2,2,5]` are both width 9 |
-| A wrong observation packing with the same total width | Undetected |
-| The **order** of continuous components, and the environment's own scaling and range | Undetected. The decode knows only "clip to `[-1, 1]`" |
-| Stability of the agent → row mapping | Outside the runtime. Your adapter owns it |
-| What happens when active agents outnumber the fixed batch | Undefined so far |
-| Inputs, mask, and output-ignoring rules for inactive or padded rows | Undefined so far |
-| First decision offset, and ordering around terminal and reset | Undefined so far |
-| Decision interval, action repeat, `fixedDeltaTime`, when observations are sampled | Undefined so far |
-| The **order** of discrete heads, and what an index means in your environment | Undetected. We emit an argmax index; we do not know that "2" means turn left |
-| Units, normalisation, clipping — the **value** semantics of observations | Undetected. Only sizes are compared |
+| Branch split when different layouts have the same total width | Not validated. `[3,3,3]` and `[2,2,5]` are both width 9 |
+| Observation packing when different layouts have the same total width | Not validated |
+| Order, scaling, and range of continuous components | Not validated. The decoder only clips to `[-1, 1]` |
+| Stable agent-to-row mapping | The integration adapter must preserve the mapping |
+| Active agents exceeding the fixed batch size | Not defined by this API; integration code must keep active rows within the fixed batch |
+| Inputs, masks, and ignored outputs for inactive or padded rows | Not defined by this API; integration code must define and apply a consistent policy |
+| First-decision offset and ordering around terminal and reset events | Not defined by this API; integration code must define the timing |
+| Decision interval, action repeat, `fixedDeltaTime`, and observation sampling time | Not defined by this API; integration code must keep these consistent with training |
+| Order and meaning of discrete heads | Not validated. The decoder emits an argmax index but cannot determine its environment semantics |
+| Units, normalisation, and clipping of observations | Not validated. Only tensor sizes are compared |
 | Decision cadence across active rows, and the batch barrier | **Lockstep is required.** Every row must report before the next batched action. Staggered per-agent decisions, or a different action repeat per row, cannot be expressed through this API — your adapter must synchronise them or hold the previous action |
-| Pairing a different ONNX with a config of the same shape | Undetected |
+| Pairing an ONNX model with a different config of the same shape | Not validated |
 
-## Why the last one is hard to fix
+## Why model and config identity is not validated
 
 Recording a hash of the `.onnx` file in the bundle is not enough. That hash
 belongs to the original file; what the runtime receives is a `ModelAsset` that
-Unity has already imported — not the original bytes. Closing it needs one of:
+Unity has already imported — not the original bytes. Addressing this requires
+one of:
 
 1. a companion asset written at import time carrying the original hash, or
 2. an export id embedded in the ONNX metadata and still readable after import.
 
-Both belong with a deployment manifest, which does not exist yet.
+A future deployment manifest could carry this identity metadata.
 
-## What "accepted" means for observations
+## What acceptance guarantees for observations
 
 An all-continuous state spec is accepted. **That is not a statement that your
 packing is correct.** Swapping two `Box` leaves keeps the total size identical.
-Acceptance rests on the contract that you concatenate in declared order — the
-same order used when the trajectories behind the bundle were recorded.
+Integration code must concatenate fields in declared order — the same order used
+when the trajectories behind the bundle were recorded.
 
-The long-term fix is ordered channel metadata and a schema fingerprint in the
-artifact, so the validator can check a **schema id instead of a size**. Until
-then, this is yours.
+An artifact format with ordered channel metadata and a schema fingerprint would
+allow the validator to check a **schema ID instead of a size**. Until then,
+integration code must preserve the packing order.
 
-## The honest summary
+## Summary
 
-Sizes are checked. Order, meaning, timing, and identity are not. If you change
-how you pack observations, or which ONNX you pair with which config, no error
-will tell you — the agent will simply get worse.
+The runtime validates sizes, not order, meaning, timing, or model/config
+identity. Integration tests must validate changes to observation packing and
+model/config pairing because the runtime may continue without reporting an
+error.

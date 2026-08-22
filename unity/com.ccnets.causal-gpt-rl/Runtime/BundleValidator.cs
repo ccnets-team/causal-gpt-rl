@@ -4,9 +4,7 @@ using System.Collections.Generic;
 namespace CCNets.CausalGPTRL
 {
     /// <summary>
-    /// Raised when a bundle declares something this runtime cannot serve. Refusing is
-    /// deliberate: a silently mis-decoded action is far more expensive to find than a
-    /// load that fails at startup with a reason.
+    /// Raised when a bundle contains a configuration that this runtime does not support.
     /// </summary>
     public sealed class BundleValidationException : Exception
     {

@@ -12,11 +12,11 @@ this package adds on top is that reading it back does not stall a frame either �
 `RequestAction` schedules and `GetAction` collects. The two are separate claims
 that happen to share a word.
 
-| Path | What it is | Ships to customers |
+| Path | Role | Distributed |
 |---|---|---|
-| [com.ccnets.causal-gpt-rl/](com.ccnets.causal-gpt-rl/) | The UPM package | **Yes** — this is the only path a customer installs |
-| [test-project/](test-project/) | Unity project used to run the tests | No |
-| [tools/](tools/) | Fixture generation, staging, batch test and build helpers | No |
+| [com.ccnets.causal-gpt-rl/](com.ccnets.causal-gpt-rl/) | **Installable UPM package** | **Yes — the only path an installation resolves** |
+| [test-project/](test-project/) | Unity test project | No |
+| [tools/](tools/) | Fixture, test, and build tooling | No |
 
 ## Installing the package
 
@@ -26,14 +26,15 @@ Unity registers the subfolder containing `package.json` as the package root, so
 the repository being a Python project does not matter. Append `#<revision>` to
 pin; path comes first, revision second.
 
-> **A `?path=` URL installs from a commit even with no tag.** Anything merged
-> here is installable, which is why promotion and release are effectively the
-> same event.
+> **A `?path=` URL can install this subdirectory from any commit; a tag is not
+> required.** Anything merged here is therefore installable, which makes
+> publishing this directory and releasing it the same event. Pin a revision for
+> reproducible installs.
 
 ## Running the tests
 
-The test project does not carry fixtures — they are large and regenerated
-rather than committed. Generate, stage, then run:
+Fixtures are not committed because they are large and reproducible. Generate
+and stage them before running the tests:
 
 ```powershell
 # 1. deterministic fixtures, using ONNX Runtime as the reference
@@ -76,18 +77,19 @@ The staging label becomes the file name under `Models/`, and
 fixed, not examples. A missing model fails the build with a named error rather
 than measuring nothing.
 
-**Neither the models nor the harness scene are committed.** `PerformanceBuild`
-builds the scene from an empty one on every run, wiring the models by asset
-path, and saves over `Performance.unity`. Asset GUIDs play no part, so the
-models' `.meta` files carry nothing worth keeping and Unity is free to drop them
-whenever `Models/` is empty. Committing the scene would only produce a diff
-after every build.
+**The staged models and generated harness scene are local artifacts and are not
+committed.** `PerformanceBuild` builds the scene from an empty one on every run,
+wires the models by asset path, and saves over `Performance.unity`. Asset GUIDs
+play no part, so the models' `.meta` files carry nothing worth keeping and Unity
+is free to drop them whenever `Models/` is empty. Committing the scene would
+only produce a diff after every build.
 
 The harness reports p50/p95. Its allocation column is **not measured** — the
 Mono counter reports 0 B, which is false — and tensor upload cost is excluded
 because tensors are reused outside the loop.
 
-## What is not here
+## External artifacts
 
-Bundles, policy `.onnx` files, and generated fixtures. They come from the model
-repository or from a release artifact, never from this repository's history.
+Bundles, policy `.onnx` files, and generated fixtures are intentionally excluded
+from version control. Obtain them from the model repository or a release
+artifact.

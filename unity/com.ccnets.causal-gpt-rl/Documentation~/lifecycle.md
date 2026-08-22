@@ -18,7 +18,7 @@ NeedsReset ──Reset──▶ Ready ──RequestAction──▶ InFlight ─�
                         └──────────────── every row has reported ───────────────┘
 ```
 
-| Call | Accepted in | Leaves you in | Also refuses |
+| Call | Accepted in | Leaves you in | Rejected when |
 |---|---|---|---|
 | `Reset(obs)` | NeedsReset · Ready · AwaitingObservations | Ready | Not while in flight: that execution would be decoded against a window it never saw, and its output buffer is about to be reused |
 | `Observe` / `ObserveRow` | AwaitingObservations | Ready once every row has reported | Reporting the same row twice in one step, including a partial report followed by a whole-batch one |
@@ -32,14 +32,12 @@ This table is **this package's design**, not a port. The Python runner has no
 equivalent — the split into `RequestAction`/`GetAction` exists so the readback
 does not stall your frame, and the states follow from that split.
 
-## After `Dispose`
-
-Three cases, not one.
+## Behaviour after `Dispose`
 
 | Case | Behaviour |
 |---|---|
-| An **unread** request, then the runner is disposed | `IsDone` and `GetAction()` both throw `ObjectDisposedException` |
-| An **already-read** request, then the runner is disposed | `IsDone` stays `true`, `GetAction()` returns the same action. A result you already read is still valid; it does not touch the runner |
+| Runner disposed before a request is read | `IsDone` and `GetAction()` both throw `ObjectDisposedException` |
+| Runner disposed after a request is read | `IsDone` stays `true`, and `GetAction()` returns the same action. The cached result remains valid because it no longer accesses the runner |
 | Any runner method after disposal | `ObjectDisposedException`, even with a bad argument — the disposed check runs before argument validation, so the failure is consistent |
 
 ## Per-row episode restart
@@ -56,8 +54,7 @@ Order is the contract:
 
 `ResetRows` deliberately accepts only the window between the action and the
 observations that follow it. Despawn that is not tied to an action is not
-supported; if you need it, ask for an explicit rebind API rather than widening
-this one.
+supported; that use case requires a dedicated row-rebinding API.
 
 ## Threading and allocation
 
@@ -67,5 +64,5 @@ tensor completes the job it belongs to, which would block on the very inference
 the split exists to avoid.
 
 `DecodedAction.Continuous(row)` returns a view, and `Discrete(row, branch)`
-returns an `int`; neither allocates. `CopyDiscrete` is there for when your code
-wants its own array.
+returns an `int`; neither allocates. `CopyDiscrete` writes branch values into a
+caller-provided array.

@@ -5,9 +5,9 @@ using Unity.InferenceEngine;
 namespace CCNets.CausalGPTRL
 {
     /// <summary>
-    /// An action that has been scheduled but not read back. Poll <see cref="IsDone"/> and
-    /// call <see cref="GetAction"/> when the game can afford it — the two halves exist so a
-    /// caller can spend the gap on its own work instead of stalling on the GPU.
+    /// Represents a scheduled action awaiting readback. Poll <see cref="IsDone"/> and call
+    /// <see cref="GetAction"/> when the result is needed, allowing the game to perform other
+    /// work while inference runs.
     /// </summary>
     public sealed class ActionRequest
     {
@@ -44,14 +44,13 @@ namespace CCNets.CausalGPTRL
     }
 
     /// <summary>
-    /// Runs a Causal GPT-RL policy inside Unity: it owns the rolling context, calls the
-    /// inference engine, and decodes the result. The same name and the same call sequence as
-    /// the Python `PolicyRunner`, so one description covers both.
+    /// Runs a Causal GPT-RL policy inside Unity by managing the rolling context, invoking the
+    /// inference engine, and decoding its output. It follows the same call sequence as the
+    /// Python `PolicyRunner`.
     ///
-    /// A step is `Observe` → `RequestAction` → `GetAction` → apply → `ResetRows` for whoever
-    /// finished → `Observe` again. Observations arrive flattened: packing a game's state into
-    /// that vector is the caller's job, and it must be the same packing the trajectories were
-    /// recorded with.
+    /// A step is `Observe` → `RequestAction` → `GetAction` → apply → `ResetRows` for completed
+    /// rows → `Observe` again. Observations are supplied as flat vectors and must use the same
+    /// packing order as the trajectories used to create the bundle.
     /// </summary>
     public sealed class PolicyRunner : IDisposable
     {
@@ -127,7 +126,7 @@ namespace CCNets.CausalGPTRL
         public BundleConfig Config { get; }
         public ActionLayout ActionLayout { get; }
 
-        /// <summary>Rows the graph was exported for. Fixed — the batch is baked into the file.</summary>
+        /// <summary>Number of rows supported by the graph. The value is fixed in the exported model.</summary>
         public int BatchSize => _backend.BatchSize;
 
         public int ContextLength => _backend.ContextLength;
@@ -208,9 +207,8 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
-        /// Ends the episode on these rows. Their context is wiped and their carried action
-        /// cleared, so whoever occupies the row next is not steered by the previous agent's
-        /// last move. Call it after applying the action that ended the episode.
+        /// Ends the episode for the specified rows and clears their context and carried
+        /// actions. Call this after applying the action that ended each episode.
         /// </summary>
         public void ResetRows(IReadOnlyList<int> rows)
         {

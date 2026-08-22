@@ -4,12 +4,11 @@ Run a Causal GPT-RL policy bundle inside Unity, in-process, with no Python at
 runtime. The package owns the rolling context window, calls the Inference
 Engine, and decodes the result into an action your game can apply.
 
-Verified against **Unity 6000.0** and **`com.unity.ai.inference` 2.6.1**. Those
-are the only versions the package declares; wider support is not claimed until
-it is measured.
+The package declares and has been verified against **Unity 6000.0** and
+**`com.unity.ai.inference` 2.6.1**. Other versions have not been validated.
 
-> **Pre-1.0.** The API may change before 1.0. UPM git dependencies pin a
-> revision, so an existing install does not break when it does.
+> **Pre-1.0.** The API may change before 1.0. Pin the UPM git dependency to a
+> tag or commit to keep an installation stable.
 
 ## Install
 
@@ -29,8 +28,8 @@ var runner = PolicyRunner.Load(policyAsset, configAsset.text, BackendType.GPUCom
 runner.Reset(observations);                      // batch * StateSize, flattened
 
 // each decision tick
-var request = runner.RequestAction();            // schedules; does not wait on readback
-// ... your game logic ...                       // spend the gap, then read back below;
+var request = runner.RequestAction();            // schedules inference without waiting
+// ... your game logic ...                       // do independent work before readback
 var action = request.GetAction();                // or poll IsDone across frames instead
 
 var branchCount = runner.ActionLayout.BranchSizes.Count;
@@ -48,22 +47,23 @@ runner.Observe(nextObservations);                // or ObserveRow(row, obs) per 
 `ActionLayout` says which outputs a bundle has — a purely continuous policy has
 no branches, so indexing one throws. Drive the loop from `BranchSizes.Count`
 rather than assuming a branch exists. Bundles that mix continuous and branch
-outputs are **refused at load** for now: the decode path exists but no fixture
-covers it, so the gate would rather say why than act on an unverified decode.
+outputs are **rejected during load** for now: the decode path exists but no fixture
+covers it, so validation rejects mixed bundles instead of running an unverified
+decode.
 
 `Documentation~/` covers the call order, what the bundle gate accepts, and the
 contract boundaries the runtime cannot check for you. Read
 `Documentation~/contract-boundaries.md` before shipping — several correctness
-properties are your side of the contract, not ours.
+properties must be enforced by the integration code rather than the runtime.
 
-## What this package is not
+## Scope
 
-- **It does not train.** Training is not part of this repository's Unity
-  surface; the package only runs a bundle that already exists.
-- **It does not pack your observations.** You hand it a flat `float[]`, and it
-  must be packed the same way the trajectories behind your bundle were.
-- **It does not know your scene.** Agent-to-row mapping, spawn/despawn, and
-  decision timing are the adapter's job.
+- **Inference only.** Training is outside the Unity package; it runs an existing
+  policy bundle.
+- **Observation packing is caller-defined.** Supply a flat `float[]` packed in
+  the same order used to produce the bundle's training trajectories.
+- **Scene integration is caller-defined.** The adapter manages agent-to-row
+  mapping, spawn and despawn behaviour, and decision timing.
 
 ## Samples
 

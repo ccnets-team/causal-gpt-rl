@@ -1,6 +1,6 @@
 # Causal GPT-RL for Unity — documentation
 
-Three documents, split by the question you are asking.
+Use the following guides according to the question you need to answer.
 
 | If you are asking | Read |
 |---|---|
@@ -23,8 +23,9 @@ pack observations  ──────▶   WindowContext (rolling)
 apply action       ◀──────   ActionCodec (decode)    ◀──────  raw output
 ```
 
-The package owns the middle column only. Packing observations, mapping agents to
-batch rows, and deciding *when* a decision happens are all yours.
+The package handles the middle column. Integration code is responsible for
+packing observations, mapping agents to batch rows, and choosing when decisions
+occur.
 
 ## Versions
 
@@ -40,8 +41,7 @@ two places: the ONNX graph's shapes, and a live environment's action spec. This
 package mirrors that path. Where a live environment would supply the branch
 layout, the bundle's declared `config.action_specs` stands in.
 
-That distinction matters, and getting it wrong is the most expensive mistake
-made while building this package. The PyTorch loading path in the same
-repository reads the whole `config.json` and reconstructs declared containers;
-this path does not, and porting that path's refusals here rejects bundles that
-in fact run correctly. See [bundle-gate.md](bundle-gate.md).
+This differs from the PyTorch loading path in the same repository, which reads
+the complete `config.json` and reconstructs declared containers. Applying those
+container checks to the ONNX path would incorrectly reject compatible bundles.
+See [bundle-gate.md](bundle-gate.md).

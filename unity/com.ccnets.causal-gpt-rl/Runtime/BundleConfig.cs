@@ -7,9 +7,9 @@ using Newtonsoft.Json.Linq;
 namespace CCNets.CausalGPTRL
 {
     /// <summary>
-    /// One entry of `state_specs` / `action_specs`, mirroring `SpaceSpec.to_json_dict`
-    /// in causal_gpt_rl. Note that `start` is deliberately absent here — the Python
-    /// SpaceSpec drops it, and the declared container carries it instead.
+    /// Represents one entry in `state_specs` or `action_specs`, matching
+    /// `SpaceSpec.to_json_dict` in causal_gpt_rl. The `start` field is stored in the declared
+    /// container instead.
     /// </summary>
     public sealed class SpaceSpec
     {
@@ -57,8 +57,8 @@ namespace CCNets.CausalGPTRL
     }
 
     /// <summary>
-    /// A declared Gymnasium space from `state_container` / `action_container`.
-    /// Only the fields the runtime reasons about are surfaced: the kind, the
+    /// Represents a declared Gymnasium space from `state_container` or `action_container`.
+    /// Only the fields used by the runtime are exposed: the kind, the
     /// per-dimension `start` offsets, and nested leaves for Tuple/Dict.
     /// </summary>
     public sealed class SpaceContainer
@@ -111,10 +111,9 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
-        /// The first leaf declaring a non-zero start, this space included, or null when
-        /// none does. Nested leaves count: a Dict of Dicts is how the multi-agent bundles
-        /// declare their spaces, and an offset buried three levels down still means the
-        /// emitted 0-based index is the wrong environment action.
+        /// Returns the first space or nested leaf that declares a non-zero start, or null if
+        /// none does. Nested leaves are included because multi-agent bundles can declare
+        /// spaces using nested dictionaries.
         /// </summary>
         public SpaceContainer FindNonZeroStart()
         {
