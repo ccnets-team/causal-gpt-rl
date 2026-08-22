@@ -19,8 +19,9 @@ namespace CCNets.CausalGPTRL
             Size = size;
             Dtype = dtype;
             // Copy behind a read-only view, for the same reason ActionLayout does: the
-            // validator refuses bounds other than [-1, 1], and a spec that stays editable
-            // afterwards is a refusal that can be walked back after it has passed.
+            // validator checks these bounds and the decode then clips against them, so a
+            // spec that stays editable afterwards is a check that can be walked back after
+            // it has passed.
             Low = new ReadOnlyCollection<float>(new List<float>(low ?? Array.Empty<float>()));
             High = new ReadOnlyCollection<float>(new List<float>(high ?? Array.Empty<float>()));
             Squash = squash;

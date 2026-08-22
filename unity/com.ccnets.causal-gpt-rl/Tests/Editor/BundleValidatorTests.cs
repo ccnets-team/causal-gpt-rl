@@ -218,10 +218,37 @@ namespace CCNets.CausalGPTRL.Tests
         }
 
         [Test]
-        public void RefusesBoundsBeyondUnitInterval()
+        public void AcceptsBoundsOutsideTheUnitInterval()
         {
-            AssertRefused("the decode clips to [-1, 1] and would ignore a wider bound",
-                root => root["action_specs"][0]["low"][0] = -2.0);
+            // The decode clips to the declared bounds, so a range other than [-1, 1] is
+            // served rather than refused. MuJoCo's Humanoid actuators are [-0.4, 0.4]; the
+            // ML-Agents bundles that motivated the old refusal all declare [-1, 1] anyway.
+            var root = JObject.Parse(FixtureJson());
+            root["action_specs"][0]["low"][0] = -0.4;
+            root["action_specs"][0]["high"][0] = 0.4;
+
+            var config = BundleConfig.FromJson(root.ToString());
+            Assert.DoesNotThrow(() => BundleValidator.Validate(config));
+
+            var layout = ActionLayout.FromConfig(config);
+            Assert.That(layout.Low[0], Is.EqualTo(-0.4f).Within(1e-6f));
+            Assert.That(layout.High[0], Is.EqualTo(0.4f).Within(1e-6f));
+        }
+
+        [Test]
+        public void RefusesBoundsThatAreNotAnInterval()
+        {
+            // Clipping against low >= high collapses every value onto a point, so the action
+            // would carry no information from the policy at all.
+            AssertRefused("a low at its own high leaves the decode nothing to clip against",
+                root => root["action_specs"][0]["low"][0] = 1.0);
+        }
+
+        [Test]
+        public void RefusesNonFiniteBounds()
+        {
+            AssertRefused("an infinite edge cannot be clipped against",
+                root => root["action_specs"][0]["high"][0] = "inf");
         }
 
         [Test]

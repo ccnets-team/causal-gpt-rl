@@ -196,9 +196,10 @@ namespace CCNets.CausalGPTRL
     }
 
     /// <summary>
-    /// Port of `evaluate_onnx._decode`. Continuous columns are clipped to [-1, 1] — the
-    /// exported head is a tanh, and BundleValidator refuses any bundle declaring other
-    /// bounds rather than letting the clip silently ignore them.
+    /// Port of `evaluate_onnx._decode`. Continuous columns are clipped to the bounds the
+    /// bundle declares, matching the Python runner. Every ML-Agents behaviour declares
+    /// [-1, 1], which is what the ONNX reference defaults to, but other environments use
+    /// other actuator ranges and clipping those to [-1, 1] would ignore the declaration.
     /// </summary>
     internal static class ActionCodec
     {

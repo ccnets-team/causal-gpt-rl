@@ -57,6 +57,15 @@ namespace CCNets.CausalGPTRL.Tests
             Assert.That(layout.ContinuousSize, Is.EqualTo(fixture.continuous_size));
             Assert.That(layout.BranchSizes, Is.EqualTo(fixture.branches));
             Assert.That(layout.EnvironmentActionSize, Is.EqualTo(fixture.env_action_width));
+
+            // The bounds are what the decode clips against, and both sides now read them
+            // from the bundle instead of assuming [-1, 1]. That makes them the one part of
+            // the layout that can differ between the generator and this runtime, so the
+            // test that exists to compare the two has to compare them.
+            Assert.That(layout.Low, Is.EqualTo(fixture.action_low).Within(1e-6f),
+                "The generator clipped the recorded environment action to different lower bounds.");
+            Assert.That(layout.High, Is.EqualTo(fixture.action_high).Within(1e-6f),
+                "The generator clipped the recorded environment action to different upper bounds.");
         }
 
         [TestCaseSource(typeof(FixtureModels), nameof(FixtureModels.Backends))]

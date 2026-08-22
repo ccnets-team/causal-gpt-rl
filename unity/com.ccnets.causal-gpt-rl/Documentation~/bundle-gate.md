@@ -20,12 +20,25 @@ been verified in the Unity runtime.
 | `bos_cache_mode` other than `discard` | Only the discard path is implemented; no `retain` fixture exists |
 | A non-continuous state spec | One-hot and continuous-first ordering cannot be verified by size |
 | `multi_binary` actions, or an unknown action type | Needs a per-leaf Bernoulli threshold, not argmax |
-| Continuous action bounds other than `[-1, 1]` | The decode clips to `[-1, 1]`, which would silently ignore the declaration |
+| A continuous bound that is not finite, or a low at or above its high | The decode clips against the declared pair; neither leaves an interval to clip to |
 | A non-zero `start`, **including on nested leaves** | The decode emits 0-based indices and adds no offset, so a non-zero start silently shifts every action |
 | An unknown container type, or a malformed `Dict` pair | Nothing to infer from |
 | A continuous head declared after a branch | The decode reads continuous columns first and would slice the wrong span |
 | Mixed continuous + branch schedules | Same code path as the parts, but no fixture covers it |
 | `config` and graph disagreeing on context / state / action size | A mismatched pair builds the window to the wrong width |
+
+Continuous bounds are **not** required to be `[-1, 1]`. The decode clips to whatever
+the bundle declares, so an environment with another actuator range is served -- MuJoCo's
+Humanoid is `[-0.4, 0.4]`. Every ML-Agents behaviour declares `[-1, 1]`, which is why the
+ONNX reference defaults to it.
+
+That range was exercised the way this page requires, by a rollout fixture rather than by
+a hand-built config: a MuJoCo `Humanoid-v5` bundle exported at batch 4, matching the ONNX
+reference to 6e-08. **The models named in `FixtureModels.Required` are all ML-Agents and
+all `[-1, 1]`**, so a run that stages only those does not cross this path. What keeps the
+two sides from drifting apart in between is `LayoutFromConfigMatchesFixture`, which
+compares the declared bounds against the ones the generator clipped with, for every
+staged model.
 
 `discrete` and `multi_discrete` are **accepted** — implemented and exercised by
 fixtures. A single-branch schedule declares no capability at all, so the gate

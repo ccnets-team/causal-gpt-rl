@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import shutil
 import sys
 from pathlib import Path
@@ -52,19 +53,26 @@ decode = reference._decode
 
 ROLLOUT_STEPS = 10
 
-# ``evaluate_onnx._decode`` hardcodes this clip for continuous environment
-# actions. Rather than fork the reference to honour arbitrary bundle bounds --
-# which would reintroduce the drift that importing it removes -- refuse any
-# bundle whose declared bounds differ, so a fixture can never disagree with
-# the decode that produced it.
-REFERENCE_CLIP_LOW = -1.0
-REFERENCE_CLIP_HIGH = 1.0
-_CLIP_MESSAGE = (
-    "Bundle declares a continuous {edge} bound of {bound}, but the shipping "
-    "reference clips environment actions to [-1, 1]. Emitting this fixture would "
-    "record bounds the decode never applied."
-)
+# The bundle's declared bounds are passed to the reference decode rather than
+# left to its ML-Agents default of [-1, 1]. A bundle whose environment uses
+# another range -- MuJoCo's Humanoid actuators are [-0.4, 0.4] -- would
+# otherwise be decoded against bounds it never declared, so the fixture and the
+# C# decode (which reads the declared bounds) would disagree.
+#
+# A null bound is *unbounded* in a v2 bundle, not a shorthand for the unit
+# interval. Reading it as [-1, 1] here would let this generator emit a fixture
+# for a bundle `BundleValidator` then refuses to load, which is the one thing
+# the fixtures exist to rule out: they must never disagree with the decode that
+# will consume them.
 FIXTURE_VERSION = "2"
+
+
+def _bound(value, unbounded: float) -> float:
+    """Read one declared bound. Null means unbounded, matching `BundleConfig`."""
+    if value is None:
+        return unbounded
+    return float(value)
+
 
 # Every file this generator can emit. Anything here that a given run does not
 # produce is deleted from the output directory so a stale fixture from an
@@ -124,16 +132,22 @@ def _action_layout(config: dict, action_size: int) -> dict:
             continuous_size += size
             spec_low = spec.get("low") or [None] * size
             spec_high = spec.get("high") or [None] * size
-            for value in spec_low:
-                bound = REFERENCE_CLIP_LOW if value is None else float(value)
-                if bound != REFERENCE_CLIP_LOW:
-                    raise ValueError(_CLIP_MESSAGE.format(bound=bound, edge="low"))
-                low.append(bound)
-            for value in spec_high:
-                bound = REFERENCE_CLIP_HIGH if value is None else float(value)
-                if bound != REFERENCE_CLIP_HIGH:
-                    raise ValueError(_CLIP_MESSAGE.format(bound=bound, edge="high"))
-                high.append(bound)
+            for index, value in enumerate(spec_low):
+                floor = _bound(value, -math.inf)
+                ceiling = _bound(spec_high[index], math.inf)
+                if not math.isfinite(floor) or not math.isfinite(ceiling):
+                    raise ValueError(
+                        f"Continuous bound {index} is unbounded ([{floor}, {ceiling}]); "
+                        "the decode has nothing to clip against, and the Unity runtime "
+                        "refuses such a bundle rather than serving it."
+                    )
+                if not floor < ceiling:
+                    raise ValueError(
+                        f"Continuous bound {index} declares low {floor} and high "
+                        f"{ceiling}; the decode would clip every value to a point."
+                    )
+                low.append(floor)
+                high.append(ceiling)
         elif kind in ("discrete", "multi_discrete"):
             branches.append(size)
         else:
@@ -250,7 +264,13 @@ def _rollout(
     for index in range(ROLLOUT_STEPS):
         inputs = _window_tensors(window)
         raw = session.run(["action"], inputs)[0].astype(np.float32, copy=False)
-        env_action, feedback = decode(raw, layout["continuous_size"], layout["branches"])
+        env_action, feedback = decode(
+            raw,
+            layout["continuous_size"],
+            layout["branches"],
+            low=layout["low"] if layout["continuous_size"] else None,
+            high=layout["high"] if layout["continuous_size"] else None,
+        )
 
         window.after_act()
 

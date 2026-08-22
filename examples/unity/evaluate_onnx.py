@@ -101,15 +101,30 @@ def _pack_observation(observations, agent: int, num_channels: int) -> np.ndarray
     )
 
 
-def _decode(raw: np.ndarray, continuous_size: int, branches: list[int]):
-    """Return ``(Unity action, autoregressive feedback action)``."""
+def _decode(
+    raw: np.ndarray,
+    continuous_size: int,
+    branches: list[int],
+    low=None,
+    high=None,
+):
+    """Return ``(Unity action, autoregressive feedback action)``.
+
+    ``low``/``high`` are the environment's continuous bounds. They default to
+    ``[-1, 1]``, which is what every ML-Agents behaviour declares, so callers
+    driving a Unity build never pass them. Other environments do use other
+    ranges -- MuJoCo's Humanoid actuators are ``[-0.4, 0.4]`` -- and clipping
+    those to ``[-1, 1]`` would quietly ignore the declaration.
+    """
     num_agents = raw.shape[0]
     env_parts = []
     feedback_parts = []
 
     if continuous_size:
         continuous = raw[:, :continuous_size].astype(np.float32)
-        env_parts.append(np.clip(continuous, -1.0, 1.0))
+        clip_low = -1.0 if low is None else np.asarray(low, np.float32)
+        clip_high = 1.0 if high is None else np.asarray(high, np.float32)
+        env_parts.append(np.clip(continuous, clip_low, clip_high))
         feedback_parts.append(continuous)
 
     offset = continuous_size

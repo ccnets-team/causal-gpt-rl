@@ -258,7 +258,7 @@ namespace CCNets.CausalGPTRL
                             $"Action spec {index} is continuous but follows a branch head; " +
                             "this runtime requires continuous heads to be declared first.");
                     }
-                    RequireUnitBounds(spec, index);
+                    RequireUsableBounds(spec, index);
                     continue;
                 }
 
@@ -317,22 +317,33 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
-        /// Continuous decoding clips to [-1, 1] rather than to the declared bounds, matching
-        /// the exported tanh head. Any other bound would be silently ignored.
+        /// Continuous decoding clips to the declared bounds, so any range an environment
+        /// actually uses is served -- MuJoCo's Humanoid actuators are [-0.4, 0.4], not the
+        /// [-1, 1] every ML-Agents behaviour declares. What still has to hold is that the
+        /// pair describes an interval: a non-finite edge cannot be clipped against, and a
+        /// low at or above its high would collapse every value onto a point.
         /// </summary>
-        private static void RequireUnitBounds(SpaceSpec spec, int specIndex)
+        private static void RequireUsableBounds(SpaceSpec spec, int specIndex)
         {
             for (var index = 0; index < spec.Size; index++)
             {
-                if (spec.Low[index] == -1.0f && spec.High[index] == 1.0f)
+                var low = spec.Low[index];
+                var high = spec.High[index];
+
+                if (float.IsNaN(low) || float.IsInfinity(low) ||
+                    float.IsNaN(high) || float.IsInfinity(high))
                 {
-                    continue;
+                    throw new BundleValidationException(
+                        $"Continuous action spec {specIndex} declares a non-finite bound " +
+                        $"[{low}, {high}] at index {index}; the decode has nothing to clip against.");
                 }
 
-                throw new BundleValidationException(
-                    $"Continuous action spec {specIndex} declares bounds " +
-                    $"[{spec.Low[index]}, {spec.High[index]}] at index {index}; " +
-                    "this runtime clips to [-1, 1] and would ignore them.");
+                if (!(low < high))
+                {
+                    throw new BundleValidationException(
+                        $"Continuous action spec {specIndex} declares bounds [{low}, {high}] " +
+                        $"at index {index}; the decode would clip every value to a point.");
+                }
             }
         }
 

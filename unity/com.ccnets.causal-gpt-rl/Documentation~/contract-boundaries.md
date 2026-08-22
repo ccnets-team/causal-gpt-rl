@@ -10,7 +10,7 @@ Integration code must enforce these contracts between the scene and the bundle.
 |---|---|
 | Branch split when different layouts have the same total width | Not validated. `[3,3,3]` and `[2,2,5]` are both width 9 |
 | Observation packing when different layouts have the same total width | Not validated |
-| Order, scaling, and range of continuous components | Not validated. The decoder only clips to `[-1, 1]` |
+| Order, scaling, and range of continuous components | Not validated. The decoder only clips to the declared bounds; it cannot tell whether a column means what the environment expects |
 | Stable agent-to-row mapping | The integration adapter must preserve the mapping |
 | Active agents exceeding the fixed batch size | Not defined by this API; integration code must keep active rows within the fixed batch |
 | Inputs, masks, and ignored outputs for inactive or padded rows | Not defined by this API; integration code must define and apply a consistent policy |
