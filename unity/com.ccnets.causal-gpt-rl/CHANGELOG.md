@@ -31,6 +31,11 @@ EditMode tests over five staged models, 0 failures**. Six of them fail against
   runner to `Ready`, so a caller can schedule again. A `GetAction()` that
   throws now takes the same path before rethrowing, rather than leaving the
   runner in `InFlight` with no way out of it.
+- Two integration boundaries in `Documentation~/contract-boundaries.md`, both
+  found by running a live scene rather than a replay: where a decoded action
+  lands in the host's action structure — a bundle with both kinds of head fills
+  two destinations, and filling one is silent until a branch is read — and when
+  the first and subsequent observations may be sampled.
 
 ## [0.1.0] - 2026-08-22
 
