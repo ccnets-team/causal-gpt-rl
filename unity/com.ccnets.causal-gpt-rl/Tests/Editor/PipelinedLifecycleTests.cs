@@ -8,16 +8,17 @@ using UnityEngine.TestTools;
 namespace CCNets.CausalGPTRL.Tests
 {
     /// <summary>
-    /// A pipelined caller schedules the next action and then steps the environment with the
-    /// action it collected a turn earlier, so the forward pass overlaps the physics instead of
-    /// stalling in front of it. From the runner's side that is one thing: frames pass between
-    /// <see cref="PolicyRunner.RequestAction"/> and <see cref="ActionRequest.GetAction"/>.
+    /// The pipelined turn. This policy generates its action from the trajectory so far and
+    /// never reads the newest observation - the window keeps one slot more than the model - so
+    /// the pass for the next decision does not have to wait for the environment to produce
+    /// one. <see cref="PolicyRunner.StageObservation"/> is what lets a caller say so: the
+    /// observation the in-flight action belongs to is supplied before the read, the read
+    /// closes the pair, and the next pass is scheduled immediately and runs under the step.
     ///
-    /// This suite asks whether the shape needs anything the runner does not already have. It
-    /// covers the four moments the gate names - the episode-start warm-up, a steady turn, a
-    /// row ending while an action is in flight, and that row's first action afterwards - by
-    /// replaying the recorded rollouts through the pipelined call order and holding the result
-    /// to the same reference the serial order is held to.
+    /// What this suite is for is that the two orders must ask the policy the same question.
+    /// A turn shape that pairs the wrong action with an observation still runs, still returns
+    /// actions of the right width, and quietly conditions the model on a trajectory that never
+    /// happened - measured on the Humanoid bundle as a fall at the same decision every episode.
     ///
     /// It deliberately does not assert on <see cref="ActionRequest.IsDone"/>. Whether the pass
     /// has landed by a given frame is a property of the machine, not of the call order, and
@@ -44,7 +45,6 @@ namespace CCNets.CausalGPTRL.Tests
         private sealed class RolloutStep
         {
             public int index;
-            public int[] reset_rows;
             public TensorFixture environment_action;
             public TensorFixture next_state;
         }
@@ -53,16 +53,10 @@ namespace CCNets.CausalGPTRL.Tests
         private sealed class RolloutFixture
         {
             public TensorFixture initial_state;
-            public float cpu_max_abs_tolerance;
-            public float gpu_max_abs_tolerance;
             public RolloutStep[] steps;
         }
 
         /// <summary>
-        /// The warm-up turn and every steady turn after it. Both runners are fed the same
-        /// recorded observations; the only difference is that one collects its action at once
-        /// and the other lets the environment step happen first.
-        ///
         /// Exact equality, not a tolerance: same graph, same backend, same inputs. A tolerance
         /// here would hide the thing the test is for, which is the call order changing what
         /// the policy is asked.
@@ -78,6 +72,11 @@ namespace CCNets.CausalGPTRL.Tests
             serial.Reset(fixture.initial_state.data);
             pipelined.Reset(fixture.initial_state.data);
 
+            // One decision of warm-up: the first action of an episode cannot have been
+            // scheduled under a previous step, because there was not one.
+            var request = pipelined.RequestAction();
+            var here = fixture.initial_state.data;
+
             foreach (var step in fixture.steps)
             {
                 var label = $"{model} step {step.index}";
@@ -85,87 +84,71 @@ namespace CCNets.CausalGPTRL.Tests
                 var serialAction = serial.Act();
                 serial.Observe(step.next_state.data);
 
-                var request = pipelined.RequestAction();
+                // The environment step the pass has been running under.
                 for (var frame = 0; frame < StepFrames; frame++)
                 {
                     yield return null;
                 }
+
+                pipelined.StageObservation(here);
                 var pipelinedAction = request.GetAction();
-                pipelined.Observe(step.next_state.data);
+                request = pipelined.RequestAction();
+                here = step.next_state.data;
 
                 Assert.That(
                     pipelinedAction.EnvironmentAction, Is.EqualTo(serialAction.EnvironmentAction),
-                    $"{label}: holding the action across the environment step changed it.");
+                    $"{label}: the pipelined turn asked the policy a different question.");
                 Assert.That(
                     pipelinedAction.FeedbackAction, Is.EqualTo(serialAction.FeedbackAction),
-                    $"{label}: the action fed back into the window differs between the two orders.");
+                    $"{label}: the action fed back into the window differs between the orders.");
             }
+
+            request.Cancel();
         }
 
         /// <summary>
-        /// A row ends while an action is in flight - which in a pipeline is where every
-        /// termination happens, because the physics runs in exactly that window.
-        ///
-        /// The route that works is to collect the pending action and discard it for the ended
-        /// rows, not to cancel it. The forward pass has already run either way, so collecting
-        /// costs one readback and nothing else, and it leaves the runner in the state
-        /// <see cref="PolicyRunner.ResetRows"/> wants. Held to the recorded reference so this
-        /// is parity with the serial path, not merely a call sequence that does not throw.
-        /// </summary>
-        [UnityTest]
-        [TestCaseSource(typeof(FixtureModels), nameof(FixtureModels.RowResetCoroutineBackends))]
-        public IEnumerator PipelinedRowResetMatchesTheReference(string model, BackendType backendType)
-        {
-            var fixture = FixtureModels.LoadJson<RolloutFixture>(model, "rowreset-expected.json");
-            var tolerance = backendType == BackendType.CPU
-                ? fixture.cpu_max_abs_tolerance
-                : fixture.gpu_max_abs_tolerance;
-            Assert.That(
-                fixture.steps.Any(step => step.reset_rows != null && step.reset_rows.Length > 0),
-                "This fixture resets no rows, so it does not cover what this test is for.");
-
-            using var runner = Open(model, backendType);
-            runner.Reset(fixture.initial_state.data);
-
-            foreach (var step in fixture.steps)
-            {
-                var label = $"{model} step {step.index} pipelined";
-                var request = runner.RequestAction();
-
-                // The environment step, and with it the terminations, happen here.
-                for (var frame = 0; frame < StepFrames; frame++)
-                {
-                    yield return null;
-                }
-
-                var action = request.GetAction();
-                AssertClose(
-                    action.EnvironmentAction, step.environment_action.data, tolerance,
-                    $"{label} environment action");
-
-                var resetRows = step.reset_rows ?? Array.Empty<int>();
-                if (resetRows.Length > 0)
-                {
-                    runner.ResetRows(resetRows);
-                }
-                runner.Observe(step.next_state.data);
-            }
-        }
-
-        /// <summary>
-        /// The route that does not work, pinned so the boundary is written down somewhere it
-        /// can fail.
-        ///
-        /// Cancelling returns the runner to Ready - every row holding a current observation -
-        /// and <see cref="PolicyRunner.ResetRows"/> only runs between an action and the
-        /// observations that follow it. So a caller that cancels a pending action has no way
-        /// to retire the row whose episode just ended. Collecting the action instead costs a
-        /// readback of a result nobody uses and leaves the runner where the reset belongs.
-        ///
-        /// Whole-batch termination is not affected: Reset is accepted from Ready.
+        /// Staging is what separates the two orders, and mixing them has to be refused rather
+        /// than silently producing a window nobody meant. <see cref="PolicyRunner.Observe"/>
+        /// reports the observation that FOLLOWS an action; staging reports the one the action
+        /// was taken AT. A runner that accepted both in one turn would advance twice.
         /// </summary>
         [Test]
-        public void CancellingLeavesNoWayToRetireAnEndedRow()
+        public void TheTwoOrdersCannotBeMixedWithinATurn()
+        {
+            var model = FixtureModels.All().First();
+            var fixture = FixtureModels.LoadJson<RolloutFixture>(model, "rollout-expected.json");
+            using var runner = Open(model, BackendType.CPU);
+            runner.Reset(fixture.initial_state.data);
+
+            var request = runner.RequestAction();
+            runner.StageObservation(fixture.initial_state.data);
+
+            // Reading a staged action leaves nothing outstanding, so the serial report has
+            // nothing to report against.
+            request.GetAction();
+            var refused = Assert.Throws<InvalidOperationException>(
+                () => runner.Observe(fixture.steps[0].next_state.data));
+            Assert.That(refused.Message, Does.Contain("Observe"));
+
+            // And the serial order cannot stage: there is no action in flight to pair with.
+            runner.Act();
+            Assert.Throws<InvalidOperationException>(
+                () => runner.StageObservation(fixture.steps[0].next_state.data));
+        }
+
+        /// <summary>
+        /// What the pipelined turn cannot express yet, pinned so the boundary is written down
+        /// somewhere it can fail.
+        ///
+        /// <see cref="PolicyRunner.ResetRows"/> runs between an action and the observations
+        /// that follow it, and the pipelined turn never enters that state - it goes from the
+        /// staged read straight back to ready. A whole-batch restart is unaffected, since
+        /// cancelling the pending action leaves the runner where <see cref="PolicyRunner.Reset"/>
+        /// is accepted; a batched scene retiring one row of several has to run that turn
+        /// serially.
+        /// </summary>
+        [Test]
+        public void RetiringOneRowIsNotExpressibleInThePipelinedTurn()
         {
             var model = FixtureModels.WithRowReset().FirstOrDefault();
             Assert.That(model, Is.Not.Null, "No batched fixture is staged, so this covers nothing.");
@@ -174,14 +157,17 @@ namespace CCNets.CausalGPTRL.Tests
             using var runner = Open(model, BackendType.CPU);
             runner.Reset(fixture.initial_state.data);
 
-            runner.RequestAction().Cancel();
+            var request = runner.RequestAction();
+            runner.StageObservation(fixture.initial_state.data);
+            request.GetAction();
 
             var refused = Assert.Throws<InvalidOperationException>(() => runner.ResetRows(new[] { 0 }));
             Assert.That(refused.Message, Does.Contain("ResetRows"));
 
-            // The supported route, from the same starting point.
-            runner.RequestAction().GetAction();
-            Assert.DoesNotThrow(() => runner.ResetRows(new[] { 0 }));
+            // The whole-batch restart the single-agent case uses is fine.
+            var pending = runner.RequestAction();
+            pending.Cancel();
+            Assert.DoesNotThrow(() => runner.Reset(fixture.initial_state.data));
         }
 
         private static PolicyRunner Open(string model, BackendType backendType)
@@ -190,23 +176,6 @@ namespace CCNets.CausalGPTRL.Tests
                 FixtureModels.LoadModelAsset(model),
                 FixtureModels.LoadText(model, "config.json"),
                 backendType);
-        }
-
-        private static void AssertClose(float[] actual, float[] expected, float tolerance, string label)
-        {
-            Assert.That(actual, Has.Length.EqualTo(expected.Length), label);
-            var maxAbs = 0.0f;
-            var maxIndex = 0;
-            for (var index = 0; index < actual.Length; index++)
-            {
-                var error = Math.Abs(actual[index] - expected[index]);
-                if (error > maxAbs)
-                {
-                    maxAbs = error;
-                    maxIndex = index;
-                }
-            }
-            Assert.That(maxAbs, Is.LessThanOrEqualTo(tolerance), $"{label} max_abs={maxAbs:R} at {maxIndex}");
         }
     }
 }

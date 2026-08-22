@@ -13,20 +13,29 @@ observation or reviving the last action of an agent that already left.
 ## States
 
 ```text
+                        ┌───── StageObservation ─────▶ Staged ──GetAction──┐
+                        │                                                  │
 NeedsReset ──Reset──▶ Ready ──RequestAction──▶ InFlight ──GetAction──▶ AwaitingObservations
                         ▲   ▲                     │                             │
                         │   └────── Cancel ───────┘                             │
                         └──────────────── every row has reported ───────────────┘
 ```
 
+The upper path is the pipelined turn and the lower one is the serial turn. They
+differ in which observation is reported: staging reports the one the in-flight
+action is being taken **at**, so reading closes the pair and leaves nothing
+outstanding; `Observe` reports the one that **followed** an action already taken.
+
 | Call | Accepted in | Leaves you in | Rejected when |
 |---|---|---|---|
-| `Reset(obs)` | NeedsReset · Ready · AwaitingObservations | Ready | Not while in flight: that execution would be decoded against a window it never saw, and its output buffer is about to be reused |
+| `Reset(obs)` | NeedsReset · Ready · AwaitingObservations | Ready | Not while in flight, staged or not: that execution would be decoded against a window it never saw, and its output buffer is about to be reused |
 | `Observe` / `ObserveRow` | AwaitingObservations | Ready once every row has reported | Reporting the same row twice in one step, including a partial report followed by a whole-batch one |
-| `ResetRows(rows)` | AwaitingObservations **only** | unchanged | A row that already reported — resetting it would clear the report and let one action be answered by two observations |
+| `StageObservation(obs)` | InFlight | Staged | There is no action in flight to pair the observation with |
+| `ResetRows(rows)` | AwaitingObservations **only** | unchanged | A row that already reported — resetting it would clear the report and let one action be answered by two observations. Not reachable from the pipelined turn; see below |
 | `RequestAction()` | Ready | InFlight | Any row unobserved since its last action; a request already outstanding |
 | `GetAction()` | InFlight | AwaitingObservations | Calling twice does not re-run; it returns the same action |
-| `ActionRequest.Cancel()` | InFlight | Ready | Cancelling an action that was already collected does nothing — nothing is in flight then. Reading a cancelled request throws `ObjectDisposedException` |
+| `GetAction()` | Staged | Ready | As above |
+| `ActionRequest.Cancel()` | InFlight · Staged | Ready | Cancelling an action that was already collected does nothing — nothing is in flight then. Reading a cancelled request throws `ObjectDisposedException` |
 | `Act()` | Ready | AwaitingObservations | The two above, composed |
 | `Dispose()` | any | Disposed | See below |
 
@@ -60,32 +69,45 @@ when sizing a scene.
 
 ## A pipelined turn
 
-The gap the split is worth something in is the environment step, and filling it
-takes one arrangement:
+The action this policy emits is not a function of the newest observation. The
+window keeps one slot more than the model reads: `Observe(oₜ₊₁)` rolls the pair
+`(oₜ, aₜ)` into the last slot the model sees and **stages `oₜ₊₁` where the model
+does not see it**. The pass that follows therefore reads a context ending at
+`(oₜ, aₜ)` and emits `aₜ₊₁` — the action to take at an observation it has not
+been given.
+
+That is what makes the step period `max(world, model)` rather than
+`world + model`: the pass does not need the state the engine is still computing.
 
 ```
-Ready(oₜ) ─ RequestAction()      schedules π(oₜ)
-            apply aₜ₋₁            the action collected last turn
-            step the environment  the pass runs against this
-          ─ GetAction() = aₜ      held for next turn
-          ─ Observe(oₜ₊₁)         Ready again
+boundary t ─ StageObservation(oₜ)   the observation aₜ is being taken at
+             GetAction() = aₜ       scheduled last turn; closes the pair (oₜ, aₜ)
+             apply aₜ               no wait, no staleness
+             RequestAction()        emits aₜ₊₁ from the trajectory so far
+             step the environment   the pass runs under it
+boundary t+1 ─ StageObservation(oₜ₊₁) …
 ```
 
-The action is applied one turn after the observation it was computed from.
-Nothing else is available: π(oₜ) cannot exist before oₜ does, so an adapter that
-wants aₜ inside turn t has to wait for it, which is `Act()`. What this order buys
-is that no turn ever waits — there is always an action in hand when the step
-begins.
+The first action of an episode is the exception: nothing was scheduled under a
+previous step, so it is waited for once. After that the pipeline stays full.
 
-The runner cannot tell the two orders apart; frames simply pass between the two
-calls. Verified as such: replaying the same observations through both orders
-gives **identical actions**, exactly and not within a tolerance, across every
-staged bundle on both backends.
+`aₜ` is applied at the boundary `oₜ` arrived at, exactly as the serial order
+applies it, and the window records `(oₜ, aₜ)` — which is true, because `aₜ` is
+the action that was executed at `oₜ`. Nothing is stale and nothing is
+misreported. What changed is only *when* the pass ran.
 
-One rule comes with it. Stepping the environment between the two calls puts
-every termination inside the in-flight window, and an ended row is retired by
-**collecting** the pending action, not by cancelling it — see "Retiring a row
-while an action is in flight" in `contract-boundaries.md`.
+Do not instead apply the previously collected action while scheduling against
+the observation that just arrived. That order pairs `(oₜ, aₜ)` in the window
+while the environment executes `aₜ₋₁`, so the trajectory the model conditions on
+records an action that was never taken. Measured on the Humanoid bundle: it
+falls at the same decision every episode.
+
+One limit comes with the overlap. Stepping the environment while a pass is in
+flight puts every termination inside that window, and the pipelined turn has no
+state in which `ResetRows` runs — it goes from the staged read straight back to
+ready. A whole-batch restart is fine; retiring one row of several means running
+that turn in the serial order. See "Retiring a row while an action is in flight"
+in `contract-boundaries.md`.
 
 ## Collecting late
 

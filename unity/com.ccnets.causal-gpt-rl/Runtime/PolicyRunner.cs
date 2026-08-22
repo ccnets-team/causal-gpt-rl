@@ -104,6 +104,14 @@ namespace CCNets.CausalGPTRL
             /// <summary>An action is scheduled and not read back.</summary>
             InFlight,
 
+            /// <summary>
+            /// An action is scheduled, and the observation it was taken at has been supplied.
+            /// Reading the action from here closes the pair and leaves the runner ready to
+            /// schedule again without waiting for another observation - which is the whole
+            /// point, because that next schedule can then run under the environment step.
+            /// </summary>
+            Staged,
+
             /// <summary>The action was taken; rows must report what followed it.</summary>
             AwaitingObservations,
 
@@ -266,6 +274,31 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
+        /// Records the observation the in-flight action is being taken at, so that reading
+        /// that action closes the pair and the next one can be scheduled immediately.
+        ///
+        /// This is the pipelined turn. The action this policy emits is generated from the
+        /// trajectory so far and never reads the newest observation, so the pass for the next
+        /// decision does not have to wait for the environment to produce one — but the runner
+        /// still has to be told which observation the action it is about to hand back belongs
+        /// to. Supplying it here rather than after the read is what lets the schedule that
+        /// follows overlap the environment step.
+        ///
+        /// The serial order does not call this: it reports the observation that FOLLOWS an
+        /// action, through <see cref="Observe"/>, once the environment has produced it.
+        /// </summary>
+        public void StageObservation(float[] observations)
+        {
+            RequireNotDisposed();
+            RequireLength(observations, BatchSize * StateSize, nameof(observations));
+            Require(nameof(StageObservation), State.InFlight);
+
+            Array.Copy(observations, _observations, _observations.Length);
+            _window.StageObservation(_observations);
+            _state = State.Staged;
+        }
+
+        /// <summary>
         /// Schedules the next action without waiting for it. One request may be in flight at
         /// a time: the engine reuses its output buffer, so a second schedule would overwrite
         /// the first result.
@@ -324,7 +357,8 @@ namespace CCNets.CausalGPTRL
             // Ready — reporting that as "every row already has a current observation" would
             // answer a question the caller did not ask.
             execution.RequireLive();
-            Require("GetAction", State.InFlight);
+            Require("GetAction", State.InFlight, State.Staged);
+            var staged = _state == State.Staged;
 
             DecodedAction decoded;
             try
@@ -347,12 +381,30 @@ namespace CCNets.CausalGPTRL
             // later attention mask; the bundle's bos_cache_mode names that convention.
             _window.AfterActDiscardBos();
 
-            // The window does not advance here. Rows that end because of this action are
-            // wiped first, and only the next observation completes the step — which is also
-            // why every row is marked unobserved now.
             // Copy rather than alias: ResetRows clears the ended rows' carried action, and
             // doing that through the caller's DecodedAction would edit a value it still holds.
             Array.Copy(decoded.FeedbackAction, _feedback, _feedback.Length);
+
+            if (staged)
+            {
+                // The observation this action was taken at is already staged, so the pair can
+                // be closed now and the next pass scheduled without waiting for the
+                // environment. Nothing is left outstanding, hence Ready rather than
+                // AwaitingObservations.
+                _window.CommitFeedback(_feedback, _isBos);
+                Array.Clear(_isBos, 0, _isBos.Length);
+                for (var row = 0; row < BatchSize; row++)
+                {
+                    _observed[row] = true;
+                }
+                _state = State.Ready;
+                _inFlight = null;
+                return decoded;
+            }
+
+            // The window does not advance here. Rows that end because of this action are
+            // wiped first, and only the next observation completes the step — which is also
+            // why every row is marked unobserved now.
             for (var row = 0; row < BatchSize; row++)
             {
                 _observed[row] = false;
@@ -371,8 +423,11 @@ namespace CCNets.CausalGPTRL
         {
             // Frees the backend to schedule again and releases the inputs it was holding.
             execution.Dispose();
-            if (_state == State.InFlight)
+            if (_state == State.InFlight || _state == State.Staged)
             {
+                // Ready from either: the visible window has not moved. A staged observation
+                // sits in a slot the model does not read, so scheduling again asks the same
+                // question the abandoned request was asking.
                 _inFlight = null;
                 _state = State.Ready;
             }
@@ -428,6 +483,10 @@ namespace CCNets.CausalGPTRL
                     break;
                 case State.InFlight:
                     reason = "an action is in flight; read it with GetAction() first";
+                    break;
+                case State.Staged:
+                    reason = "an action is in flight against a staged observation; read it " +
+                             "with GetAction() first";
                     break;
                 default:
                     reason = "the rows have not reported what followed the last action";

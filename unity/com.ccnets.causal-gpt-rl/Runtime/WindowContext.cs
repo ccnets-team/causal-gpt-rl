@@ -113,6 +113,67 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
+        /// Puts an observation in the staging slot, where the model does not read it.
+        ///
+        /// This is half of <see cref="Update"/>, for a caller that has the observation before
+        /// it has the action taken at it. Pair it with <see cref="CommitFeedback"/>, in that
+        /// order, once per turn: staging alone changes nothing the model sees.
+        ///
+        /// Why the halves exist. <see cref="Update"/> takes the observation that FOLLOWS the
+        /// action, so it cannot be called until the environment has been stepped — and the
+        /// pass that produces the next action needs nothing from that observation, only the
+        /// pair the roll is about to expose. Splitting the two lets the pass be scheduled a
+        /// whole decision earlier, which is the difference between a step period of
+        /// world + model and one of max(world, model).
+        /// </summary>
+        public void StageObservation(float[] states)
+        {
+            RequireLength(states, BatchSize * StateSize, nameof(states));
+
+            for (var row = 0; row < BatchSize; row++)
+            {
+                Array.Copy(
+                    states,
+                    row * StateSize,
+                    _states,
+                    row * _internalLength * StateSize + (_internalLength - 1) * StateSize,
+                    StateSize);
+            }
+        }
+
+        /// <summary>
+        /// Rolls the staged observation into the last slot the model reads and pairs it with
+        /// the action that was taken there.
+        ///
+        /// The roll lives here, so this runs after <see cref="StageObservation"/> and once per
+        /// turn. Note there is no episode-start mirror: <see cref="Update"/> needs one because
+        /// it stages its observation after rolling, while here the roll is what carries the
+        /// staged observation into view, which is the same thing a restarted row needs.
+        /// </summary>
+        public void CommitFeedback(float[] feedbackActions, float[] isBosPerRow)
+        {
+            RequireLength(feedbackActions, BatchSize * ActionSize, nameof(feedbackActions));
+            RequireLength(isBosPerRow, BatchSize, nameof(isBosPerRow));
+
+            RollLeft(_states, StateSize);
+            RollLeft(_actions, ActionSize);
+            RollLeft(_isBos, 1);
+            RollLeft(_mask, 1);
+
+            for (var row = 0; row < BatchSize; row++)
+            {
+                Array.Copy(
+                    feedbackActions,
+                    row * ActionSize,
+                    _actions,
+                    row * _internalLength * ActionSize + (_internalLength - 2) * ActionSize,
+                    ActionSize);
+                _isBos[row * _internalLength + _internalLength - 2] = isBosPerRow[row];
+                _mask[row * _internalLength + _internalLength - 2] = 1.0f;
+            }
+        }
+
+        /// <summary>
         /// Ends the episode on the given rows: their buffered trajectory is wiped, their
         /// history disowned, and they are seeded to start fresh. Every other row keeps its
         /// context. Mirrors `PolicyRunner.reset_rows`.
