@@ -42,6 +42,22 @@ before rethrowing — the window has not moved and the rows still hold the
 observations the request was scheduled from, so the state to return to is the
 one the request was made in.
 
+## What the split is worth
+
+Scheduling early removes the inference from the calling thread only for as long
+as the caller stays away. The pass has to fit in the gap: collect one fixed step
+later and a pass shorter than that step costs nothing to collect, while a longer
+one is waited on for the difference. Widening the gap trades against how late
+the action reaches the environment, which is the caller's contract to keep — see
+"When to sample the observation" in `contract-boundaries.md`.
+
+Measured on a 16-row discrete bundle collected one 20 ms fixed step after being
+scheduled: 1.83 ms to schedule and 0.52 ms to collect, against 18–25 ms for the
+blocking `Act()` doing the same work. The 0.5 ms is the tell — the pass had
+already finished, so nothing was waited on. A batch large enough to run past the
+step would show up in that number and nowhere else, which is the number to watch
+when sizing a scene.
+
 ## Collecting late
 
 `IsDone` says the inference has finished. It carries no deadline: collect the
