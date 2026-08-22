@@ -23,7 +23,9 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import onnx
 import onnxruntime as ort
+from onnx import numpy_helper
 
 REFERENCE_RELPATH = Path("examples") / "unity"
 REFERENCE_MODULE = "evaluate_onnx"
@@ -237,6 +239,93 @@ def _window_tensors(window: Window) -> dict:
     return {name: value.copy() for name, value in window.inputs().items()}
 
 
+# Fields the C# runtime is responsible for maintaining across a decision. A
+# fixture that does not react to them constrains nothing about that bookkeeping,
+# so `_assert_bookkeeping_visible` corrupts each one wholesale and requires the
+# output to move by more than the tolerance the fixture ships.
+BOOKKEEPING_PROBES = (("actions", 0.0), ("is_bos", 1.0), ("mask", 1.0))
+
+
+def _state_normalizer(onnx_path: Path):
+    """Read the bundle's embedded state normalizer out of the ONNX graph.
+
+    A v2 bundle folds ``(states - mean) / std`` into the graph, so the statistics
+    the model was trained under are available without a second generator input.
+    Best-effort by design -- a bundle exported without normalization has no such
+    pair. What makes a miss safe rather than silent is the sensitivity gate: a
+    fixture drawn from the wrong distribution fails there instead of shipping.
+    """
+    graph = onnx.load(str(onnx_path)).graph
+    subtract = next(
+        (n for n in graph.node if n.op_type == "Sub" and n.input and n.input[0] == "states"),
+        None,
+    )
+    if subtract is None:
+        return None
+    divide = next(
+        (n for n in graph.node
+         if n.op_type == "Div" and n.input and n.input[0] == subtract.output[0]),
+        None,
+    )
+    if divide is None:
+        return None
+    constants = {i.name: i for i in graph.initializer}
+    if subtract.input[1] not in constants or divide.input[1] not in constants:
+        return None
+    mean = np.asarray(numpy_helper.to_array(constants[subtract.input[1]]), np.float32)
+    std = np.asarray(numpy_helper.to_array(constants[divide.input[1]]), np.float32)
+    return mean.reshape(-1), std.reshape(-1)
+
+
+def _draw_states(rng, shape, stats, fallback_sigma: float) -> np.ndarray:
+    """Draw fixture observations the model was actually trained to see.
+
+    Drawing from a fixed spread instead puts every channel the training data held
+    constant far outside its recorded range. Those channels normalize by a std of
+    ``sqrt(0) + 1e-8``, so the embedded normalizer emits ~1e8, the residual stream
+    swamps every attention and MLP output below float32 precision, and the graph
+    collapses into a function of the newest state alone.
+    """
+    if stats is None:
+        return rng.normal(0.0, fallback_sigma, shape).astype(np.float32)
+    mean, std = stats
+    return (mean + std * rng.normal(0.0, 1.0, shape)).astype(np.float32)
+
+
+def _tensors_to_arrays(entries) -> dict:
+    return {
+        entry["name"]: np.asarray(entry["data"], np.float32).reshape(entry["shape"])
+        for entry in entries
+    }
+
+
+def _assert_bookkeeping_visible(session, inputs: dict, label: str) -> list[float]:
+    """Refuse a fixture whose output ignores the autoregressive bookkeeping.
+
+    A parity fixture only constrains the runtime where the graph reacts to what
+    the runtime maintains. Where it does not, `AutoregressiveParity` and
+    `RowReset` pass no matter how wrong the feedback action, the BOS flag, or the
+    padding mask are -- they degrade into a state-in/action-out check. Measured,
+    not assumed: every published bundle looks identical from the outside.
+    """
+    baseline = session.run(["action"], inputs)[0].astype(np.float32, copy=False)
+    deltas = []
+    for name, value in BOOKKEEPING_PROBES:
+        corrupted = dict(inputs)
+        corrupted[name] = np.full_like(inputs[name], value)
+        output = session.run(["action"], corrupted)[0].astype(np.float32, copy=False)
+        deltas.append(float(np.abs(output - baseline).max()))
+    if max(deltas) < CPU_TOLERANCE:
+        raise ValueError(
+            f"The {label} fixture does not observe the autoregressive bookkeeping: "
+            f"zeroing actions moves the output by {deltas[0]:.2e}, forcing is_bos=1 "
+            f"by {deltas[1]:.2e}, and unmasking the window by {deltas[2]:.2e} -- all "
+            f"below the {CPU_TOLERANCE:.0e} tolerance this fixture ships with. "
+            "Emitting it would record parity the C# runtime cannot fail."
+        )
+    return deltas
+
+
 def _rollout(
     session: ort.InferenceSession,
     shapes: dict,
@@ -244,6 +333,8 @@ def _rollout(
     config: dict,
     rng: np.random.Generator,
     reset_schedule: dict[int, list[int]] | None = None,
+    *,
+    stats=None,
 ) -> dict:
     """Replay a deterministic rollout through the reference window.
 
@@ -257,7 +348,7 @@ def _rollout(
     bos_cache_mode = config.get("serving", {}).get("bos_cache_mode", "discard")
 
     window = Window(batch, context, state_size, action_size, bos_cache_mode=bos_cache_mode)
-    initial_state = rng.normal(0.0, 0.35, (batch, state_size)).astype(np.float32)
+    initial_state = _draw_states(rng, (batch, state_size), stats, 0.35)
     window.update(initial_state, np.zeros((batch, action_size), np.float32), is_bos=1.0)
 
     steps = []
@@ -290,7 +381,7 @@ def _rollout(
         if reset_rows:
             is_bos[np.asarray(reset_rows, dtype=np.int64)] = 1.0
 
-        next_state = rng.normal(0.0, 0.35, (batch, state_size)).astype(np.float32)
+        next_state = _draw_states(rng, (batch, state_size), stats, 0.35)
         window.update(next_state, feedback, is_bos=is_bos)
         updated = _window_tensors(window)
 
@@ -324,10 +415,10 @@ def _rollout(
     }
 
 
-def _forward_documents(session, shapes, onnx_path: Path) -> tuple[dict, dict]:
+def _forward_documents(session, shapes, onnx_path: Path, *, stats=None) -> tuple[dict, dict]:
     """One forward over a partially filled window (exercises the padding mask)."""
     rng = np.random.default_rng(20260821)
-    states = rng.normal(0.0, 0.25, shapes["states"]).astype(np.float32)
+    states = _draw_states(rng, shapes["states"], stats, 0.25)
     actions = rng.uniform(-0.75, 0.75, shapes["actions"]).astype(np.float32)
     is_bos = np.zeros(shapes["is_bos"], dtype=np.float32)
     mask = np.zeros(shapes["mask"], dtype=np.float32)
@@ -399,8 +490,19 @@ def generate(onnx_path: Path, config_path: Path, output_dir: Path) -> None:
     _check_action_container(config)
     layout = _action_layout(config, action_size)
 
-    input_document, expected_document = _forward_documents(session, shapes, onnx_path)
-    rollout = _rollout(session, shapes, layout, config, np.random.default_rng(20260821001))
+    stats = _state_normalizer(onnx_path)
+    input_document, expected_document = _forward_documents(
+        session, shapes, onnx_path, stats=stats
+    )
+    rollout = _rollout(
+        session, shapes, layout, config, np.random.default_rng(20260821001), stats=stats
+    )
+    forward_deltas = _assert_bookkeeping_visible(
+        session, _tensors_to_arrays(input_document["inputs"]), "forward"
+    )
+    rollout_deltas = _assert_bookkeeping_visible(
+        session, _tensors_to_arrays(rollout["steps"][-1]["inputs"]), "rollout"
+    )
 
     _copy_input(onnx_path, output_dir / "policy.onnx")
     _copy_input(config_path, output_dir / "config.json")
@@ -417,7 +519,8 @@ def generate(onnx_path: Path, config_path: Path, output_dir: Path) -> None:
         # where two rows restart together while the rest keep their history.
         schedule = {3: [0], 5: [1, batch - 1]}
         rowreset = _rollout(
-            session, shapes, layout, config, np.random.default_rng(20260821002), schedule
+            session, shapes, layout, config, np.random.default_rng(20260821002), schedule,
+            stats=stats,
         )
         rowreset["reset_schedule"] = {str(k): v for k, v in schedule.items()}
         _write(output_dir / "rowreset-expected.json", rowreset)
@@ -443,6 +546,17 @@ def generate(onnx_path: Path, config_path: Path, output_dir: Path) -> None:
     print(f"bos_cache_mode: {rollout['bos_cache_mode']}")
     print(f"rollout steps:  {len(rollout['steps'])}")
     print(f"rowreset:       {'yes' if rowreset else 'skipped (batch == 1)'}")
+    print(
+        f"state draw:     "
+        + ("bundle normalizer stats" if stats is not None else "N(0, sigma) -- no embedded normalizer")
+    )
+    print(
+        "bookkeeping:    forward "
+        + " / ".join(f"{d:.2e}" for d in forward_deltas)
+        + "  rollout "
+        + " / ".join(f"{d:.2e}" for d in rollout_deltas)
+        + f"  (actions / is_bos / mask, tolerance {CPU_TOLERANCE:.0e})"
+    )
 
 
 def main() -> None:
