@@ -15,7 +15,7 @@ Integration code must enforce these contracts between the scene and the bundle.
 | Active agents exceeding the fixed batch size | Not defined by this API; integration code must keep active rows within the fixed batch |
 | Inputs, masks, and ignored outputs for inactive or padded rows | Not defined by this API; integration code must define and apply a consistent policy |
 | First-decision offset and ordering around terminal and reset events | Not defined by this API; integration code must define the timing |
-| Decision interval, action repeat, `fixedDeltaTime`, and observation sampling time | Not defined by this API; integration code must keep these consistent with training |
+| Decision interval, action repeat, `fixedDeltaTime`, and observation sampling time | Not defined by this API; integration code must keep these consistent with the bundle |
 | Order and meaning of discrete heads | Not validated. The decoder emits an argmax index but cannot determine its environment semantics |
 | Where a decoded action lands in the host's action structure | Not validated. Nothing this runtime returns says which of the host's fields each value belongs in — see below |
 | Units, normalisation, and clipping of observations | Not validated. Only tensor sizes are compared |

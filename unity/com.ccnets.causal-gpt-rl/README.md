@@ -60,8 +60,8 @@ properties must be enforced by the integration code rather than the runtime.
 
 - **Inference only.** Training is outside the Unity package; it runs an existing
   policy bundle.
-- **Observation packing is caller-defined.** Supply a flat `float[]` packed in
-  the same order used to produce the bundle's training trajectories.
+- **Observation packing is caller-defined.** Supply a flat `float[]`; the packing
+  order must match the bundle's.
 - **Scene integration is caller-defined.** The adapter manages agent-to-row
   mapping, spawn and despawn behaviour, and decision timing.
 
