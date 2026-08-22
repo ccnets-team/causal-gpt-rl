@@ -21,6 +21,7 @@ Integration code must enforce these contracts between the scene and the bundle.
 | Units, normalisation, and clipping of observations | Not validated. Only tensor sizes are compared |
 | How exactly an observation must be reproduced | Not validated, and not a matter of physical significance — see below |
 | Decision cadence across active rows, and the batch barrier | **Lockstep is required.** Every row must report before the next batched action. Staggered per-agent decisions, or a different action repeat per row, cannot be expressed through this API — your adapter must synchronise them or hold the previous action |
+| Retiring an ended row when the environment is stepped between `RequestAction` and `GetAction` | Collect the pending action; cancelling leaves the row unretirable — see below |
 | Pairing an ONNX model with a different config of the same shape | Not validated |
 
 ## Delivering a decoded action
@@ -80,6 +81,33 @@ full decision interval of physics.
 
 Both are invisible in a size check and in a replay against recorded inputs; only
 a live environment shows them.
+
+## Retiring a row while an action is in flight
+
+`RequestAction` and `GetAction` exist so the forward pass can overlap the work
+between them. An adapter that uses them that way steps the environment inside
+that window — which means **every termination happens while an action is in
+flight**, not between turns.
+
+There are two ways to be rid of that pending action and only one of them leaves
+the ended row retirable.
+
+**Collect it.** `GetAction` moves the runner to the state `ResetRows` accepts,
+and the action can simply be ignored for the rows that ended. The forward pass
+has already run by then, so this costs a readback of a result nobody uses — not
+another pass.
+
+**Cancelling instead is a dead end for this case.** `Cancel` returns the runner
+to `Ready`, meaning every row holds a current observation, and `ResetRows` runs
+only between an action and the observations that follow it. The row that just
+ended cannot be retired from there. Cancel is for abandoning a step nobody will
+finish — a scene tearing down, a read that failed — not for a turn that ended an
+episode.
+
+Whole-batch termination is unaffected: `Reset` is accepted from `Ready`.
+
+Nothing here is validated, and nothing about a cancelled turn looks wrong until
+a respawning agent is served the row it inherited.
 
 ## Why model and config identity is not validated
 

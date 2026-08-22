@@ -92,6 +92,15 @@ namespace CCNets.CausalGPTRL.Tests
             }
         }
 
+        /// <summary>The row-reset cases for a <c>[UnityTest]</c>. See <see cref="CoroutineBackends"/>.</summary>
+        internal static IEnumerable<TestCaseData> RowResetCoroutineBackends()
+        {
+            foreach (var data in RowResetBackends())
+            {
+                yield return data.Returns(null);
+            }
+        }
+
         internal static IEnumerable<TestCaseData> RequiredModels()
         {
             foreach (var model in Required)

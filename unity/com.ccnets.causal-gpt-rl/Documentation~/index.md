@@ -5,6 +5,7 @@ Use the following guides according to the question you need to answer.
 | If you are asking | Read |
 |---|---|
 | "In what order do I call this, and what happens if I get it wrong?" | [lifecycle.md](lifecycle.md) |
+| "How do I overlap inference with my environment step?" | [lifecycle.md](lifecycle.md), "A pipelined turn" |
 | "Why was my bundle refused?" | [bundle-gate.md](bundle-gate.md) |
 | "What can go wrong that the runtime will *not* tell me about?" | [contract-boundaries.md](contract-boundaries.md) |
 

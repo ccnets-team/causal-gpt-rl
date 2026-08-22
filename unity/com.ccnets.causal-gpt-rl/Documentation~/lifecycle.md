@@ -58,6 +58,35 @@ already finished, so nothing was waited on. A batch large enough to run past the
 step would show up in that number and nowhere else, which is the number to watch
 when sizing a scene.
 
+## A pipelined turn
+
+The gap the split is worth something in is the environment step, and filling it
+takes one arrangement:
+
+```
+Ready(oₜ) ─ RequestAction()      schedules π(oₜ)
+            apply aₜ₋₁            the action collected last turn
+            step the environment  the pass runs against this
+          ─ GetAction() = aₜ      held for next turn
+          ─ Observe(oₜ₊₁)         Ready again
+```
+
+The action is applied one turn after the observation it was computed from.
+Nothing else is available: π(oₜ) cannot exist before oₜ does, so an adapter that
+wants aₜ inside turn t has to wait for it, which is `Act()`. What this order buys
+is that no turn ever waits — there is always an action in hand when the step
+begins.
+
+The runner cannot tell the two orders apart; frames simply pass between the two
+calls. Verified as such: replaying the same observations through both orders
+gives **identical actions**, exactly and not within a tolerance, across every
+staged bundle on both backends.
+
+One rule comes with it. Stepping the environment between the two calls puts
+every termination inside the in-flight window, and an ended row is retired by
+**collecting** the pending action, not by cancelling it — see "Retiring a row
+while an action is in flight" in `contract-boundaries.md`.
+
 ## Collecting late
 
 `IsDone` says the inference has finished. It carries no deadline: collect the
