@@ -52,4 +52,4 @@ First promotion out of local development. Verified on Unity 6000.0.40f1 with
 - Several correctness properties are size-invisible and therefore yours to hold.
   They are listed in `Documentation~/contract-boundaries.md`.
 
-[0.1.0]: https://github.com/ccnets-team/causal-gpt-rl
+[0.1.0]: https://github.com/ccnets-team/causal-gpt-rl/releases/tag/unity-v0.1.0

@@ -4,5 +4,9 @@
   "references": [
     "Unity.InferenceEngine"
   ],
-  "autoReferenced": true
+  "autoReferenced": true,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Newtonsoft.Json.dll"
+  ]
 }

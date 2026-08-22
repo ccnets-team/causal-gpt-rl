@@ -45,9 +45,11 @@ runner.ResetRows(finishedRows);                  // only rows whose episode ende
 runner.Observe(nextObservations);                // or ObserveRow(row, obs) per row
 ```
 
-A bundle has continuous outputs, branch outputs, or both, and `ActionLayout`
-says which — a purely continuous policy has no branches, so indexing one throws.
-Drive the loop from `BranchSizes.Count` rather than assuming a branch exists.
+`ActionLayout` says which outputs a bundle has — a purely continuous policy has
+no branches, so indexing one throws. Drive the loop from `BranchSizes.Count`
+rather than assuming a branch exists. Bundles that mix continuous and branch
+outputs are **refused at load** for now: the decode path exists but no fixture
+covers it, so the gate would rather say why than act on an unverified decode.
 
 `Documentation~/` covers the call order, what the bundle gate accepts, and the
 contract boundaries the runtime cannot check for you. Read

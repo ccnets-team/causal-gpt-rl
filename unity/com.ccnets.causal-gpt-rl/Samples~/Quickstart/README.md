@@ -8,8 +8,7 @@ One component, `QuickstartAgent`, that drives a bundle through a full step.
 2. Put `QuickstartAgent` on a GameObject.
 3. Assign **Policy** — your `.onnx`, imported as a `ModelAsset`.
 4. Assign **Config** — the bundle's `config.json`. Unity imports `.json` as a
-   `TextAsset`; if yours does not appear, rename it to `config.json.txt` or add
-   a `.txt` copy.
+   `TextAsset`, so drop it in as-is.
 5. Pick a **Backend**. `GPUCompute` is the usual choice; `CPU` is there for
    determinism and for machines without a usable compute device.
 

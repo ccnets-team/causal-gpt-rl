@@ -92,7 +92,9 @@ namespace CCNets.CausalGPTRL
         {
             if (_stage == Stage.Disposed)
             {
-                throw new ObjectDisposedException(nameof(PendingExecution));
+                // ActionRequest, not this type: PendingExecution is internal, so naming it
+                // would point a caller at something outside the public surface.
+                throw new ObjectDisposedException(nameof(ActionRequest));
             }
         }
 
@@ -170,7 +172,13 @@ namespace CCNets.CausalGPTRL
             return _inFlight;
         }
 
-        /// <summary>Schedules the pass and blocks until the result is on the CPU.</summary>
+        /// <summary>
+        /// Schedules the pass and blocks until the result is on the CPU.
+        ///
+        /// Unlike Schedule, the input tensors stay the caller's: this returns only after the
+        /// readback, so there is no window in which they must outlive the call, and the
+        /// callers that use it reuse their tensors across iterations.
+        /// </summary>
         public float[] Execute(
             Tensor<float> states,
             Tensor<float> actions,
@@ -225,12 +233,15 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
+        /// The inputs this runtime supplies, and the only ones a graph may declare.
+        /// </summary>
+        private static readonly string[] ExpectedInputs = { "states", "actions", "is_bos", "mask" };
+
+        /// <summary>
         /// Reads the four input shapes off the graph so a bundle can be checked against the
         /// file it claims to describe. Every exported shape is static (no dynamic axes), and
         /// a graph that is not is refused rather than guessed at.
         /// </summary>
-        private static readonly string[] ExpectedInputs = { "states", "actions", "is_bos", "mask" };
-
         private void ReadShapes(Model model)
         {
             // An unexpected extra input would never be set, so the graph would run on whatever

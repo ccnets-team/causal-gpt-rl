@@ -56,6 +56,9 @@ unity/test-project/[Uu]serSettings/
 unity/test-project/Packages/packages-lock.json
 unity/test-project/Assets/CGRLTests/Fixtures/
 unity/test-project/Assets/CGRLTests/Fixtures.meta
+# Same reason as Fixtures.meta: the folder it describes is not committed, so Unity
+# deletes this meta the first time the editor opens a fresh clone.
+unity/test-project/Assets/CGRLTests/Performance/Models.meta
 # PerformanceBuild regenerates the harness scene from scratch on every build and
 # resolves models by asset path, so both the scene and the models' .meta files are
 # build output, not source. The global models/ rule already covers the folder.

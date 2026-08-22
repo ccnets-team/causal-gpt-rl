@@ -39,9 +39,9 @@ namespace CCNets.CausalGPTRL.Samples
             _runner = PolicyRunner.Load(policy, config.text, backend);
             _observations = new float[_runner.BatchSize * _runner.StateSize];
 
-            // A bundle has continuous outputs, branch outputs, or both. Sizing this from the
-            // layout is what keeps a purely continuous policy from indexing a branch that
-            // does not exist, and a MultiDiscrete one from losing every branch but the first.
+            // Sizing this from the layout is what keeps a purely continuous policy from
+            // indexing a branch that does not exist, and a MultiDiscrete one from losing
+            // every branch but the first. Bundles that mix both are refused at load today.
             _branches = new int[_runner.ActionLayout.BranchSizes.Count];
 
             PackObservations(_observations);

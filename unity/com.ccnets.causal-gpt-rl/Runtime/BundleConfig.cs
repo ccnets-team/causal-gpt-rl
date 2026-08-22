@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using Newtonsoft.Json.Linq;
 
@@ -17,8 +18,11 @@ namespace CCNets.CausalGPTRL
             Type = type;
             Size = size;
             Dtype = dtype;
-            Low = low;
-            High = high;
+            // Copy behind a read-only view, for the same reason ActionLayout does: the
+            // validator refuses bounds other than [-1, 1], and a spec that stays editable
+            // afterwards is a refusal that can be walked back after it has passed.
+            Low = new ReadOnlyCollection<float>(new List<float>(low ?? Array.Empty<float>()));
+            High = new ReadOnlyCollection<float>(new List<float>(high ?? Array.Empty<float>()));
             Squash = squash;
         }
 
@@ -26,8 +30,11 @@ namespace CCNets.CausalGPTRL
         public string Type { get; }
         public int Size { get; }
         public string Dtype { get; }
-        public float[] Low { get; }
-        public float[] High { get; }
+        /// <summary>Lower bound per column. Read-only, and a copy of what was declared.</summary>
+        public IReadOnlyList<float> Low { get; }
+
+        /// <summary>Upper bound per column.</summary>
+        public IReadOnlyList<float> High { get; }
 
         /// <summary>"tanh" or null.</summary>
         public string Squash { get; }
