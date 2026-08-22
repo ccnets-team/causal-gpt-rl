@@ -56,12 +56,11 @@ unity/test-project/[Uu]serSettings/
 unity/test-project/Packages/packages-lock.json
 unity/test-project/Assets/CGRLTests/Fixtures/
 unity/test-project/Assets/CGRLTests/Fixtures.meta
-# The global models/ rule above hides this directory; re-include it so the .meta
-# files survive. They carry the GUIDs the performance scene binds to, so dropping
-# them would break the scene every time a model is re-staged. The models
-# themselves stay out.
-!unity/test-project/Assets/CGRLTests/Performance/Models/
-unity/test-project/Assets/CGRLTests/Performance/Models/*.onnx
+# PerformanceBuild regenerates the harness scene from scratch on every build and
+# resolves models by asset path, so both the scene and the models' .meta files are
+# build output, not source. The global models/ rule already covers the folder.
+unity/test-project/Assets/CGRLTests/Performance/Performance.unity
+unity/test-project/Assets/CGRLTests/Performance/Performance.unity.meta
 unity/fixtures/
 unity/builds/
 unity/logs/
