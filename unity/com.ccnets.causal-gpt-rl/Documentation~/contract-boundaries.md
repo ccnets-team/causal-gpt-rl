@@ -19,6 +19,7 @@ Integration code must enforce these contracts between the scene and the bundle.
 | Order and meaning of discrete heads | Not validated. The decoder emits an argmax index but cannot determine its environment semantics |
 | Where a decoded action lands in the host's action structure | Not validated. Nothing this runtime returns says which of the host's fields each value belongs in — see below |
 | Units, normalisation, and clipping of observations | Not validated. Only tensor sizes are compared |
+| How exactly an observation must be reproduced | Not validated, and not a matter of physical significance — see below |
 | Decision cadence across active rows, and the batch barrier | **Lockstep is required.** Every row must report before the next batched action. Staggered per-agent decisions, or a different action repeat per row, cannot be expressed through this API — your adapter must synchronise them or hold the previous action |
 | Pairing an ONNX model with a different config of the same shape | Not validated |
 
@@ -35,6 +36,29 @@ head indexes an empty segment.
 
 A size check cannot see this. The decoded action is the right width either way —
 the values simply never arrive.
+
+## How close an observation has to be
+
+"Close enough" is not decided by what the number means. It is decided by how much that
+channel varied while the bundle was recorded, because the bundle normalises each channel
+by its own standard deviation before the model sees it.
+
+A channel that never varied is the dangerous case. Its recorded deviation is not zero but
+the small constant the recorder adds to avoid dividing by it, so the divisor can land near
+1e-8. A difference of 1e-5 in such a channel — far below anything a physical argument would
+call significant, and well inside float32 precision — then reaches the model as **hundreds
+of standard deviations**, on every step, for as long as the policy runs.
+
+Nothing else reports it. Sizes match, the environment behaves the same, and a comparison
+against a recorded observation shows a difference of 1e-5. Only the actions are wrong.
+
+Two consequences for integration code:
+
+- **Do not re-derive a value the recording took as constant.** Masses, inertias, link
+  lengths, gear ratios: carry them through exactly. Anything that rebuilds them — an editor,
+  an importer, a level tool — can move them by float32 precision, and that is enough.
+- **A tolerance justified by physical significance is the wrong tolerance.** If a comparison
+  needs one at all, it belongs per channel, scaled by that channel's recorded deviation.
 
 ## When to sample the observation
 

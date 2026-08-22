@@ -34,6 +34,11 @@ EditMode tests over five staged models, 0 failures**. Six of them fail against
 - `Documentation~/lifecycle.md` gains what the split is actually worth and the
   condition it depends on: the pass has to fit the gap the caller leaves, and
   the collect time is where a batch too large for that gap shows up.
+- How exactly an observation has to be reproduced, in
+  `Documentation~/contract-boundaries.md`. The answer is not "closely enough to matter
+  physically": a channel that was constant while the bundle was recorded is normalised by
+  a divisor near 1e-8, so a difference well inside float32 precision reaches the model
+  hundreds of deviations out.
 - Two integration boundaries in `Documentation~/contract-boundaries.md`, both
   found by running a live scene rather than a replay: where a decoded action
   lands in the host's action structure — a bundle with both kinds of head fills
