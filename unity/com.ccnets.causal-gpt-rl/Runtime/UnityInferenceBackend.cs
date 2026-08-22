@@ -33,7 +33,13 @@ namespace CCNets.CausalGPTRL
             _output.ReadbackRequest();
         }
 
-        /// <summary>True once the result can be read without blocking.</summary>
+        /// <summary>
+        /// True once the forward pass has finished, so reading the result does not wait on it.
+        ///
+        /// It does not mean the scheduled readback is still collectable: on a GPU backend that
+        /// readback is only valid inside the frame it completes in, and this stays true
+        /// afterwards. <see cref="GetResult"/> covers that case rather than the caller.
+        /// </summary>
         public bool IsDone
         {
             get
@@ -47,8 +53,9 @@ namespace CCNets.CausalGPTRL
         internal bool IsSettled => _stage != Stage.Active;
 
         /// <summary>
-        /// Reads the result. Blocks if it is not <see cref="IsDone"/> yet, so a caller that
-        /// cannot afford a stall should poll first.
+        /// Reads the result. Blocks until the pass is <see cref="IsDone"/>, so a caller that
+        /// cannot afford a stall should poll first. Collecting it in a later frame than the
+        /// one it became ready in is fine and costs a readback, not another pass.
         /// </summary>
         public float[] GetResult()
         {
@@ -61,17 +68,48 @@ namespace CCNets.CausalGPTRL
 
             try
             {
-                using var cpuOutput = _output.ReadbackAndClone() as Tensor<float>;
-                if (cpuOutput == null)
-                {
-                    throw new InvalidOperationException("Could not read model output 'action' as float32.");
-                }
-                return cpuOutput.DownloadToArray();
+                return Download();
             }
             finally
             {
                 ReleaseInputs();
             }
+        }
+
+        /// <summary>
+        /// Reads the output, retrying once when the scheduled readback has expired.
+        ///
+        /// A GPU readback request is only valid inside the frame it completes in; collect it
+        /// later and it throws "Cannot access the data as it is not available" — with IsDone
+        /// still true, because the request did finish. Nothing about the result is lost: the
+        /// backend refuses to schedule again while this execution is unread, so the output
+        /// buffer still holds it, and the second read fetches it directly. That read is a copy
+        /// of finished work, so the pass still overlapped whatever the caller did meanwhile.
+        ///
+        /// The retry is what makes the split request safe to use at all. Without it a caller
+        /// can only collect inside one frame it is never told about, and every other schedule
+        /// is a decision length of physics thrown away.
+        /// </summary>
+        private float[] Download()
+        {
+            try
+            {
+                return DownloadOnce();
+            }
+            catch (InvalidOperationException)
+            {
+                return DownloadOnce();
+            }
+        }
+
+        private float[] DownloadOnce()
+        {
+            using var cpuOutput = _output.ReadbackAndClone() as Tensor<float>;
+            if (cpuOutput == null)
+            {
+                throw new InvalidOperationException("Could not read model output 'action' as float32.");
+            }
+            return cpuOutput.DownloadToArray();
         }
 
         /// <summary>
@@ -86,6 +124,25 @@ namespace CCNets.CausalGPTRL
                 _stage = Stage.Disposed;
             }
             ReleaseInputs();
+        }
+
+        /// <summary>
+        /// Throws unless the result is still there to collect. The runner checks it before its
+        /// own state: a request that was given up on, or whose read already failed, has to
+        /// read as that rather than as whatever the runner has moved on to since.
+        ///
+        /// A successfully read result never arrives here — the request caches it and never
+        /// asks a second time — so Consumed can only mean the read threw.
+        /// </summary>
+        internal void RequireLive()
+        {
+            RequireNotDisposed();
+            if (_stage == Stage.Consumed)
+            {
+                throw new InvalidOperationException(
+                    "This action request's read failed, and the runner was returned to where it " +
+                    "stood before it. Request another action.");
+            }
         }
 
         private void RequireNotDisposed()

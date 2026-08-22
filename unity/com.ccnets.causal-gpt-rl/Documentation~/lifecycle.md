@@ -14,7 +14,8 @@ observation or reviving the last action of an agent that already left.
 
 ```text
 NeedsReset ──Reset──▶ Ready ──RequestAction──▶ InFlight ──GetAction──▶ AwaitingObservations
-                        ▲                                                       │
+                        ▲   ▲                     │                             │
+                        │   └────── Cancel ───────┘                             │
                         └──────────────── every row has reported ───────────────┘
 ```
 
@@ -25,12 +26,35 @@ NeedsReset ──Reset──▶ Ready ──RequestAction──▶ InFlight ─�
 | `ResetRows(rows)` | AwaitingObservations **only** | unchanged | A row that already reported — resetting it would clear the report and let one action be answered by two observations |
 | `RequestAction()` | Ready | InFlight | Any row unobserved since its last action; a request already outstanding |
 | `GetAction()` | InFlight | AwaitingObservations | Calling twice does not re-run; it returns the same action |
+| `ActionRequest.Cancel()` | InFlight | Ready | Cancelling an action that was already collected does nothing — nothing is in flight then. Reading a cancelled request throws `ObjectDisposedException` |
 | `Act()` | Ready | AwaitingObservations | The two above, composed |
 | `Dispose()` | any | Disposed | See below |
 
 This table is **this package's design**, not a port. The Python runner has no
 equivalent — the split into `RequestAction`/`GetAction` exists so the readback
 does not stall your frame, and the states follow from that split.
+
+`InFlight` has two exits rather than one. A runner that could only leave it
+through a successful read had no way back from a failed one: every other call
+refuses while an action is in flight, so one failure ended that runner. `Cancel`
+is that way back, and a failed `GetAction()` takes it on the caller's behalf
+before rethrowing — the window has not moved and the rows still hold the
+observations the request was scheduled from, so the state to return to is the
+one the request was made in.
+
+## Collecting late
+
+`IsDone` says the inference has finished. It carries no deadline: collect the
+action in that frame, ten frames later, or not at all.
+
+That is worth stating because the engine underneath does attach one. A GPU
+readback request is only valid inside the frame it completes in, and reading it
+afterwards fails while its own "done" flag still reads true — so a caller that
+schedules on a fixed decision period, and therefore lands on that frame roughly
+never, cannot use it. `GetAction()` re-reads the output when that happens. The
+result is identical, the cost is a readback rather than another forward pass,
+and the pass still overlapped whatever the caller did in between, which is the
+whole point of scheduling early.
 
 ## Behaviour after `Dispose`
 

@@ -1,6 +1,6 @@
 {
   "name": "com.ccnets.causal-gpt-rl",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Causal GPT-RL",
   "description": "Run Causal GPT-RL policies inside Unity without Python: rolling context, inference, and action decoding from a bundle. Pre-1.0 — the API may change.",
   "unity": "6000.0",

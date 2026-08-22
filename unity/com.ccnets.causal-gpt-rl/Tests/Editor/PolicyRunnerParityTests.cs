@@ -171,6 +171,166 @@ namespace CCNets.CausalGPTRL.Tests
                 $"{model} action after waiting {frames} frame(s)");
         }
 
+        /// <summary>
+        /// Collecting later than the frame the result became ready in. The engine's readback
+        /// request is only valid inside that one frame, and a caller is never told which frame
+        /// that was — a fixed decision period lands on a different one nearly every time. So
+        /// this is the case a game actually writes, and until the runtime re-read the output it
+        /// threw "Cannot access the data as it is not available" with IsDone still true, then
+        /// left the runner refusing everything afterwards.
+        ///
+        /// The waiting test above collects the frame it is ready; both belong here, because
+        /// only that one was ever exercised and only this one was broken.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator ActionSurvivesCollectionLongAfterItIsReady()
+        {
+            var model = FixtureModels.All().First();
+            var fixture = FixtureModels.LoadJson<RolloutFixture>(model, "rollout-expected.json");
+            using var runner = PolicyRunner.Load(
+                FixtureModels.LoadModelAsset(model),
+                FixtureModels.LoadText(model, "config.json"),
+                BackendType.GPUCompute);
+
+            runner.Reset(fixture.initial_state.data);
+            var request = runner.RequestAction();
+
+            var frames = 1;
+            yield return null;
+            while (!request.IsDone && frames < 600)
+            {
+                frames++;
+                yield return null;
+            }
+            Assert.That(request.IsDone, Is.True, $"readback never completed within {frames} frames");
+
+            // One frame is already enough to lose the readback; several to say so plainly.
+            for (var extra = 0; extra < 5; extra++)
+            {
+                yield return null;
+            }
+            Assert.That(request.IsDone, Is.True, "a ready result must not stop reading as ready");
+
+            var action = request.GetAction();
+            AssertClose(
+                action.EnvironmentAction,
+                fixture.steps[0].environment_action.data,
+                fixture.gpu_max_abs_tolerance,
+                $"{model} action collected 5 frames after it was ready");
+        }
+
+        /// <summary>
+        /// The whole rollout driven the way a game drives it: schedule in one tick, let frames
+        /// pass, collect in a later one. The single-step tests prove one crossing; this proves
+        /// the runner keeps stepping through ten of them and lands on the same trajectory the
+        /// blocking replay does — which is the claim pipelining rests on.
+        /// </summary>
+        [UnityTest]
+        [TestCaseSource(typeof(FixtureModels), nameof(FixtureModels.CoroutineBackends))]
+        public IEnumerator PipelinedRolloutMatchesOnnxRuntime(string model, BackendType backendType)
+        {
+            var fixture = FixtureModels.LoadJson<RolloutFixture>(model, "rollout-expected.json");
+            var tolerance = backendType == BackendType.CPU
+                ? fixture.cpu_max_abs_tolerance
+                : fixture.gpu_max_abs_tolerance;
+
+            using var runner = PolicyRunner.Load(
+                FixtureModels.LoadModelAsset(model),
+                FixtureModels.LoadText(model, "config.json"),
+                backendType);
+
+            runner.Reset(fixture.initial_state.data);
+
+            foreach (var step in fixture.steps)
+            {
+                var label = $"{model} step {step.index} pipelined";
+                var request = runner.RequestAction();
+
+                // Wait for it to be ready, and only then let frames pass. Yielding a fixed
+                // count instead lands wherever the backend happens to finish, which on this
+                // graph was often the ready frame itself — the one case that never broke. The
+                // state this test is here for is reachable only after IsDone.
+                var frames = 1;
+                yield return null;
+                while (!request.IsDone && frames < 600)
+                {
+                    frames++;
+                    yield return null;
+                }
+                Assert.That(request.IsDone, Is.True, $"{label} never became ready ({frames} frames)");
+                yield return null;
+                yield return null;
+
+                var action = request.GetAction();
+                AssertClose(
+                    action.EnvironmentAction, step.environment_action.data, tolerance,
+                    $"{label} environment action");
+
+                var resetRows = step.reset_rows ?? Array.Empty<int>();
+                AssertFeedbackOutsideResetRows(action, step, resetRows, runner.ActionSize, tolerance, label);
+
+                if (resetRows.Length > 0)
+                {
+                    runner.ResetRows(resetRows);
+                }
+                runner.Observe(step.next_state.data);
+            }
+        }
+
+        /// <summary>
+        /// The way out of an in-flight step. A runner that can only leave InFlight through a
+        /// successful read has no way back from a failed one, and the failure is not
+        /// hypothetical — it is what a late collection used to do.
+        /// </summary>
+        [Test]
+        public void CancellingAnActionLetsTheRunnerScheduleAgain()
+        {
+            var model = FixtureModels.All().First();
+            var fixture = FixtureModels.LoadJson<RolloutFixture>(model, "rollout-expected.json");
+            using var runner = PolicyRunner.Load(
+                FixtureModels.LoadModelAsset(model),
+                FixtureModels.LoadText(model, "config.json"),
+                BackendType.CPU);
+
+            runner.Reset(fixture.initial_state.data);
+            runner.RequestAction().Cancel();
+
+            // Ready, not merely un-stuck: the window never moved, so the action scheduled next
+            // is the one the cancelled request was going to return.
+            var action = runner.RequestAction().GetAction();
+            AssertClose(
+                action.EnvironmentAction,
+                fixture.steps[0].environment_action.data,
+                fixture.cpu_max_abs_tolerance,
+                $"{model} action after a cancelled request");
+        }
+
+        [Test]
+        public void RefusesToReadACancelledAction()
+        {
+            using var runner = StartedRunner();
+            var request = runner.RequestAction();
+            request.Cancel();
+
+            // Named as the request being gone, not as the runner being in some other state:
+            // the caller asked about this request.
+            Assert.That(() => request.GetAction(), Throws.TypeOf<ObjectDisposedException>());
+        }
+
+        [Test]
+        public void CancellingACollectedActionDoesNotRewindTheRunner()
+        {
+            using var runner = StartedRunner();
+            var request = runner.RequestAction();
+            var action = request.GetAction();
+
+            request.Cancel();
+
+            // Still awaiting observations, and the action still the caller's.
+            Assert.That(() => runner.RequestAction(), Throws.InvalidOperationException);
+            Assert.That(request.GetAction(), Is.SameAs(action));
+        }
+
         [Test]
         public void RefusesResetRowsWhileAnActionIsInFlight()
         {

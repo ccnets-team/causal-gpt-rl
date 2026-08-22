@@ -52,6 +52,20 @@ namespace CCNets.CausalGPTRL.Tests
             }
         }
 
+        /// <summary>
+        /// The same cases for a <c>[UnityTest]</c>. Separate from <see cref="Backends"/> only
+        /// because of NUnit plumbing: a coroutine test returns an IEnumerator, and a case that
+        /// declares no expected result rejects it as "non-void return value, but no result is
+        /// expected". Returns(null) declares one.
+        /// </summary>
+        internal static IEnumerable<TestCaseData> CoroutineBackends()
+        {
+            foreach (var data in Backends())
+            {
+                yield return data.Returns(null);
+            }
+        }
+
         internal static IEnumerable<TestCaseData> Models()
         {
             foreach (var model in All())

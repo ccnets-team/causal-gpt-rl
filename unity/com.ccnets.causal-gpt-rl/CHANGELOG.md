@@ -7,6 +7,31 @@ independently of the Python package in this repository; its tags are namespaced
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-22
+
+Verified on Unity 6000.0.40f1 with `com.unity.ai.inference` 2.6.1: **137
+EditMode tests over five staged models, 0 failures**. Six of them fail against
+0.1.0.
+
+### Fixed
+
+- **`GetAction()` collected later than the frame the result became ready in
+  threw `Cannot access the data as it is not available`, and left the runner
+  refusing every later call.** The engine's readback request is valid only
+  inside the frame it completes in, while `IsDone` keeps reading `true`
+  afterwards — so the failure hit exactly the callers the split was built for,
+  the ones that schedule on a fixed decision period and collect a tick later.
+  The runtime now re-reads the output in that case: same values, at the cost of
+  a readback rather than another forward pass. The CPU backend was never
+  affected.
+
+### Added
+
+- `ActionRequest.Cancel()` — gives up on a scheduled action and returns the
+  runner to `Ready`, so a caller can schedule again. A `GetAction()` that
+  throws now takes the same path before rethrowing, rather than leaving the
+  runner in `InFlight` with no way out of it.
+
 ## [0.1.0] - 2026-08-22
 
 First promotion out of local development. Verified on Unity 6000.0.40f1 with
@@ -52,4 +77,5 @@ First promotion out of local development. Verified on Unity 6000.0.40f1 with
   be enforced by integration code. They are listed in
   `Documentation~/contract-boundaries.md`.
 
+[0.2.0]: https://github.com/ccnets-team/causal-gpt-rl/releases/tag/unity-v0.2.0
 [0.1.0]: https://github.com/ccnets-team/causal-gpt-rl/releases/tag/unity-v0.1.0

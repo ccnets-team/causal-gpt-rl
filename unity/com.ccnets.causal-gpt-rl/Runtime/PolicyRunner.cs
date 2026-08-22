@@ -22,16 +22,23 @@ namespace CCNets.CausalGPTRL
         }
 
         /// <summary>
-        /// True once the result can be read without blocking. A result that has already been
-        /// read stays available even after its runner is disposed; an unread request is
-        /// invalidated when its runner is disposed.
+        /// True once the inference has finished, so <see cref="GetAction"/> does not wait on
+        /// it. A result that has already been read stays available even after its runner is
+        /// disposed; an unread request is invalidated when its runner is disposed.
+        ///
+        /// There is no deadline attached: collecting the action several frames after this
+        /// turns true reads the same value.
         /// </summary>
         public bool IsDone => _action != null || _execution.IsDone;
 
         /// <summary>
         /// Reads the result back, decodes it, and advances the runner past this action.
-        /// Blocks if the result is not ready. Calling it twice returns the same action. Once
-        /// returned, that cached action remains valid even if the runner is later disposed.
+        /// Waits if the inference has not finished. Calling it twice returns the same action.
+        /// Once returned, that cached action remains valid even if the runner is later
+        /// disposed.
+        ///
+        /// If the read fails, the runner is left where it was before the request rather than
+        /// stuck mid-step, so the caller can schedule another one.
         /// </summary>
         public DecodedAction GetAction()
         {
@@ -40,6 +47,24 @@ namespace CCNets.CausalGPTRL
                 _action = _runner.CompleteAction(_execution);
             }
             return _action;
+        }
+
+        /// <summary>
+        /// Gives up on the scheduled action and returns the runner to where it stood before
+        /// the request: the window has not moved and the rows still hold the observations it
+        /// was scheduled from, so the next call is another <see cref="PolicyRunner.RequestAction"/>.
+        ///
+        /// It is the way out of a step a caller no longer wants to finish — a scene tearing
+        /// down mid-flight, or a read that failed. Cancelling an action that was already
+        /// collected does nothing, because nothing is in flight then.
+        /// </summary>
+        public void Cancel()
+        {
+            if (_action != null)
+            {
+                return;
+            }
+            _runner.CancelAction(_execution);
         }
     }
 
@@ -294,10 +319,29 @@ namespace CCNets.CausalGPTRL
 
         internal DecodedAction CompleteAction(PendingExecution execution)
         {
+            // The request's own state first. A request that was cancelled, or whose read
+            // already failed, is not in flight any more, and the runner has moved on to
+            // Ready — reporting that as "every row already has a current observation" would
+            // answer a question the caller did not ask.
+            execution.RequireLive();
             Require("GetAction", State.InFlight);
 
-            var raw = execution.GetResult();
-            var decoded = ActionCodec.Decode(raw, BatchSize, ActionLayout);
+            DecodedAction decoded;
+            try
+            {
+                var raw = execution.GetResult();
+                decoded = ActionCodec.Decode(raw, BatchSize, ActionLayout);
+            }
+            catch
+            {
+                // Nothing below has run yet, so nothing needs undoing — the window is
+                // untouched and every row still holds the observation this action was
+                // scheduled from. Staying InFlight would end the runner instead: every later
+                // call refuses while an action is in flight, and the only way out of that
+                // state is the read that just failed.
+                CancelAction(execution);
+                throw;
+            }
 
             // The episode-start token is used for this action and then dropped from every
             // later attention mask; the bundle's bos_cache_mode names that convention.
@@ -316,6 +360,22 @@ namespace CCNets.CausalGPTRL
             _state = State.AwaitingObservations;
             _inFlight = null;
             return decoded;
+        }
+
+        /// <summary>
+        /// Abandons an in-flight action and returns the runner to Ready. Shared by the
+        /// explicit cancel and the failed read, so the two cannot drift: the transition a
+        /// caller can reach is the transition an error takes.
+        /// </summary>
+        internal void CancelAction(PendingExecution execution)
+        {
+            // Frees the backend to schedule again and releases the inputs it was holding.
+            execution.Dispose();
+            if (_state == State.InFlight)
+            {
+                _inFlight = null;
+                _state = State.Ready;
+            }
         }
 
         /// <summary>
