@@ -1,0 +1,19 @@
+{
+  "name": "CCNets.CausalGPTRL.Tests",
+  "rootNamespace": "CCNets.CausalGPTRL.Tests",
+  "references": [
+    "CCNets.CausalGPTRL",
+    "Unity.InferenceEngine"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Newtonsoft.Json.dll"
+  ],
+  "autoReferenced": false
+}

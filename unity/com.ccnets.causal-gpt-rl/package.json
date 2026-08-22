@@ -1,0 +1,22 @@
+{
+  "name": "com.ccnets.causal-gpt-rl",
+  "version": "0.1.0",
+  "displayName": "Causal GPT-RL",
+  "description": "Run Causal GPT-RL policies inside Unity without Python: rolling context, inference, and action decoding from a bundle. Pre-1.0 — the API may change.",
+  "unity": "6000.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "dependencies": {
+    "com.unity.ai.inference": "2.6.1",
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  },
+  "author": {
+    "name": "CCNets"
+  },
+  "samples": [
+    {
+      "displayName": "Quickstart",
+      "description": "A minimal agent that drives a policy bundle: reset, observe, act, reset finished rows.",
+      "path": "Samples~/Quickstart"
+    }
+  ]
+}

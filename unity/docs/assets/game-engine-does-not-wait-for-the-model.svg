@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 816" preserveAspectRatio="xMidYMid meet" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif">
+  <title>Causal GPT-RL — The Game Engine Does Not Wait for the Model</title>
+  <desc>The same computations laid out turn by turn, in two lanes of equal turn width and aligned column by column so the two can be read against each other. Each lane has two rows, the world and the model, and each turn is one column across both rows: a filled cell means that side is computing in that turn, a dashed empty cell means it is waiting. In the reactive lane the two sides alternate, because the action is computed from the state that has just arrived — the world works while the model waits, then the model works while the world waits — so a single state-action pair is spread over two columns. Each pair in the lower lane begins in the same column as the pair above it and closes one column sooner, because there no cell is ever empty: the action is generated from a pair that was already complete, so it does not wait on the state being computed beside it, and the two circles sit stacked at the same horizontal position rather than one after the other. The column each pair leaves free below is the one the reactive lane still needs, and it carries no cell at all, only the words no waiting, set directly beneath the dashed waiting cell it answers. The number of filled cells is identical in both lanes, which is the point: the work has not shrunk, only the ordering imposed by the dependency. The brackets beneath each lane name the pair each stretch of columns produces, in the same notation the model consumes, so one turn in the lower lane is exactly one token.</desc>
+  <rect width="1120" height="816" fill="#ffffff"/>
+
+  <!-- ================= TITLE ================= -->
+  <text x="560" y="80" text-anchor="middle" font-size="34" font-weight="700" fill="#404040">The Game Engine Does Not Wait for the Model</text>
+
+  <!-- ================================================================= -->
+  <!-- ======================= LANE A — REACTIVE ======================= -->
+  <!-- Two rows alternate: whoever is not computing is waiting on the other. -->
+  <!-- ================================================================= -->
+  <text x="40" y="140" font-size="21" font-weight="700" fill="#6b6b6b">Conventional RL model</text>
+  <text x="40" y="162" font-size="14.5" fill="#8a8a8a" xml:space="preserve">the action is a function of the state that just arrived  —  step period  =  world  +  model</text>
+
+  <text x="136" y="223" text-anchor="end" font-size="14.5" font-weight="600" fill="#8a8a8a">world</text>
+  <text x="136" y="293" text-anchor="end" font-size="14.5" font-weight="600" fill="#8a8a8a">model</text>
+
+  <!-- column 1 — the world produces the state; the policy has nothing to read yet -->
+  <rect x="150" y="186" width="215" height="62" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <circle cx="257" cy="217" r="26" fill="#c4a7e7"/>
+  <text x="257" y="226" text-anchor="middle" font-size="22" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="13">t</tspan></text>
+
+  <!-- column 2 — the policy reads it; the world cannot advance without the action -->
+  <rect x="375" y="186" width="215" height="62" rx="16" fill="#fbfbfc" stroke="#e2e2e8" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="482" y="223" text-anchor="middle" font-size="16" font-style="italic" font-weight="600" fill="#d1544a">waiting for the action</text>
+  <rect x="375" y="256" width="215" height="62" rx="16" fill="#404040"/>
+  <circle cx="482" cy="287" r="26" fill="#f6c68a"/>
+  <text x="482" y="296" text-anchor="middle" font-size="22" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="13">t</tspan></text>
+
+  <!-- column 3 — the same alternation again -->
+  <rect x="600" y="186" width="215" height="62" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <circle cx="707" cy="217" r="26" fill="#c4a7e7"/>
+  <text x="707" y="226" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="12">t+1</tspan></text>
+
+  <!-- column 4 — only here is the second pair finished -->
+  <rect x="825" y="186" width="215" height="62" rx="16" fill="#fbfbfc" stroke="#e2e2e8" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="932" y="223" text-anchor="middle" font-size="16" font-style="italic" font-weight="600" fill="#d1544a">waiting for the action</text>
+  <rect x="825" y="256" width="215" height="62" rx="16" fill="#404040"/>
+  <circle cx="932" cy="287" r="26" fill="#f6c68a"/>
+  <text x="932" y="296" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="12">t+1</tspan></text>
+
+  <!-- one pair costs two columns -->
+  <path d="M150 330 V 342 M150 336 H 590 M590 330 V 342" fill="none" stroke="#6b6b6b" stroke-width="2.5"/>
+  <text x="322" y="368" text-anchor="middle" font-size="22" font-weight="700" fill="#404040"><tspan font-style="italic">s</tspan><tspan dy="6" font-size="15">t</tspan></text>
+  <path d="M344 361 H 382" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="396,361 382,354 382,368" fill="#6b6b6b"/>
+  <text x="418" y="368" text-anchor="middle" font-size="22" font-weight="700" fill="#404040"><tspan font-style="italic">a</tspan><tspan dy="6" font-size="15">t</tspan></text>
+
+  <path d="M600 330 V 342 M600 336 H 1040 M1040 330 V 342" fill="none" stroke="#6b6b6b" stroke-width="2.5"/>
+  <text x="765" y="368" text-anchor="middle" font-size="22" font-weight="700" fill="#404040"><tspan font-style="italic">s</tspan><tspan dy="6" font-size="15">t+1</tspan></text>
+  <path d="M794 361 H 832" fill="none" stroke="#6b6b6b" stroke-width="3"/>
+  <polygon points="846,361 832,354 832,368" fill="#6b6b6b"/>
+  <text x="875" y="368" text-anchor="middle" font-size="22" font-weight="700" fill="#404040"><tspan font-style="italic">a</tspan><tspan dy="6" font-size="15">t+1</tspan></text>
+
+  <!-- ================================================================= -->
+  <!-- ==================== LANE B — CAUSAL GPT-RL ===================== -->
+  <!-- Each pair starts in the same column as the one above and closes    -->
+  <!-- a column sooner; the freed column carries no cell at all.          -->
+  <!-- ================================================================= -->
+  <text x="40" y="430" font-size="21" font-weight="700" fill="#6b4f9e">Causal GPT-RL</text>
+  <text x="40" y="452" font-size="14.5" fill="#8a8a8a" xml:space="preserve">the action is generated from the trajectory so far  —  step period  =  max( world , model )</text>
+
+  <text x="136" y="513" text-anchor="end" font-size="14.5" font-weight="600" fill="#8a8a8a">world</text>
+  <text x="136" y="583" text-anchor="end" font-size="14.5" font-weight="600" fill="#8a8a8a">model</text>
+
+  <!-- column 1 — both sides compute; neither reads what the other is producing -->
+  <rect x="150" y="476" width="215" height="62" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <circle cx="257" cy="507" r="26" fill="#c4a7e7"/>
+  <text x="257" y="516" text-anchor="middle" font-size="22" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="13">t</tspan></text>
+  <rect x="150" y="546" width="215" height="62" rx="16" fill="#404040"/>
+  <circle cx="257" cy="577" r="26" fill="#f6c68a"/>
+  <text x="257" y="586" text-anchor="middle" font-size="22" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="13">t</tspan></text>
+
+  <!-- column 2 — the column the reactive lane still needs; here there is no cell -->
+  <text x="482" y="536" text-anchor="middle" font-size="18" font-weight="700" fill="#6b4f9e">no wait for the action</text>
+  <text x="482" y="562" text-anchor="middle" font-size="15" font-weight="600" fill="#8a8a8a">past trajectory &#8594; next action</text>
+
+  <!-- column 3 -->
+  <rect x="600" y="476" width="215" height="62" rx="16" fill="#ffffff" stroke="#404040" stroke-width="2.5"/>
+  <circle cx="707" cy="507" r="26" fill="#c4a7e7"/>
+  <text x="707" y="516" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">s<tspan dy="6" font-size="12">t+1</tspan></text>
+  <rect x="600" y="546" width="215" height="62" rx="16" fill="#404040"/>
+  <circle cx="707" cy="577" r="26" fill="#f6c68a"/>
+  <text x="707" y="586" text-anchor="middle" font-size="20" font-style="italic" fill="#2b2b2b">a<tspan dy="6" font-size="12">t+1</tspan></text>
+
+  <!-- column 4 — the same again -->
+  <text x="932" y="536" text-anchor="middle" font-size="18" font-weight="700" fill="#6b4f9e">no wait for the action</text>
+  <text x="932" y="562" text-anchor="middle" font-size="15" font-weight="600" fill="#8a8a8a">past trajectory &#8594; next action</text>
+
+  <!-- one pair costs one column — and that pair is exactly one token -->
+  <path d="M150 620 V 632 M150 626 H 365 M365 620 V 632" fill="none" stroke="#8f6fbf" stroke-width="2.5"/>
+  <text x="257" y="658" text-anchor="middle" font-size="22" font-weight="700" fill="#6b4f9e" xml:space="preserve"><tspan font-style="italic">(s</tspan><tspan dy="6" font-size="15">t</tspan><tspan dy="-6" font-style="italic">, a</tspan><tspan dy="6" font-size="15">t</tspan><tspan dy="-6" font-style="italic">)</tspan></text>
+  <path d="M600 620 V 632 M600 626 H 815 M815 620 V 632" fill="none" stroke="#8f6fbf" stroke-width="2.5"/>
+  <text x="707" y="658" text-anchor="middle" font-size="22" font-weight="700" fill="#6b4f9e" xml:space="preserve"><tspan font-style="italic">(s</tspan><tspan dy="6" font-size="15">t+1</tspan><tspan dy="-6" font-style="italic">, a</tspan><tspan dy="6" font-size="15">t+1</tspan><tspan dy="-6" font-style="italic">)</tspan></text>
+
+  <!-- one token to the next -->
+  <path d="M321 651 H 613" fill="none" stroke="#8f6fbf" stroke-width="3"/>
+  <polygon points="627,651 613,644 613,658" fill="#8f6fbf"/>
+
+  <!-- ================= TIME ================= -->
+  <path d="M150 700 H 1040 M150 694 V 706 M370 694 V 706 M595 694 V 706 M820 694 V 706 M1040 694 V 706" fill="none" stroke="#b8b8be" stroke-width="2.5"/>
+  <polygon points="1054,700 1040,693 1040,707" fill="#b8b8be"/>
+  <text x="1066" y="705" font-size="14" font-weight="700" fill="#8a8a8a">time</text>
+
+  <!-- ================= CAPTION ================= -->
+  <text x="560" y="754" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">The action has already arrived, generated from the past trajectory.</text>
+  <text x="560" y="786" text-anchor="middle" font-size="20" font-weight="700" fill="#404040">It never waits for the state — the engine computes that state in the same turn.</text>
+</svg>

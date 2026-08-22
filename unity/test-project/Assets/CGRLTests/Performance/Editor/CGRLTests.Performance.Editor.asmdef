@@ -1,0 +1,13 @@
+{
+  "name": "CGRLTests.Performance.Editor",
+  "rootNamespace": "CCNets.CausalGPTRL.Performance",
+  "references": [
+    "CGRLTests.Performance",
+    "CCNets.CausalGPTRL",
+    "Unity.InferenceEngine"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": true
+}

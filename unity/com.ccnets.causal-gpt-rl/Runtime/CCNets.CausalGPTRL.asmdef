@@ -1,0 +1,8 @@
+{
+  "name": "CCNets.CausalGPTRL",
+  "rootNamespace": "CCNets.CausalGPTRL",
+  "references": [
+    "Unity.InferenceEngine"
+  ],
+  "autoReferenced": true
+}

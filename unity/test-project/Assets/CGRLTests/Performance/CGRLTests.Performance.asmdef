@@ -1,0 +1,9 @@
+{
+  "name": "CGRLTests.Performance",
+  "rootNamespace": "CCNets.CausalGPTRL.Performance",
+  "references": [
+    "CCNets.CausalGPTRL",
+    "Unity.InferenceEngine"
+  ],
+  "autoReferenced": true
+}
