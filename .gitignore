@@ -53,6 +53,10 @@ unity/test-project/[Oo]bj/
 unity/test-project/[Bb]uild/
 unity/test-project/[Ll]ogs/
 unity/test-project/[Uu]serSettings/
+# Which Package Manager tab was last open. Editor state like UserSettings above, but
+# Unity writes it into ProjectSettings, so it is not covered by that line and comes
+# back as an untracked file every time the project is opened.
+unity/test-project/ProjectSettings/PackageManagerSettings.asset
 unity/test-project/Packages/packages-lock.json
 unity/test-project/Assets/CGRLTests/Fixtures/
 unity/test-project/Assets/CGRLTests/Fixtures.meta
