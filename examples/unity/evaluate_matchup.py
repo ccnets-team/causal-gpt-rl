@@ -108,6 +108,15 @@ def parse_args() -> argparse.Namespace:
             "only against runs on the same device. --causal-onnx ignores this."
         ),
     )
+    parser.add_argument(
+        "--kv-cache-max-len",
+        type=int,
+        default=None,
+        help=(
+            "Runtime KV-cache cap for --causal-bundle. Defaults to the bundle's "
+            "context length. --causal-onnx ignores this."
+        ),
+    )
     parser.add_argument("--graphics", action="store_true")
     parser.add_argument(
         "--bos-cache-mode",
@@ -200,6 +209,7 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
                 args.causal_bundle,
                 device=args.device,
                 num_envs=len(causal_indices),
+                kv_cache_max_len=args.kv_cache_max_len,
                 use_windowed=False,
                 bos_cache_mode=args.bos_cache_mode,
             )
@@ -244,7 +254,9 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
         if causal_session is not None:
             causal_backend = "onnx/cpu"
         elif causal_runner is not None:
-            causal_backend = f"bundle/{args.device}"
+            causal_backend = (
+                f"bundle/{args.device}/kv{causal_runner.kv_cache_max_len}"
+            )
         else:
             causal_backend = "none"
         print(
