@@ -17,6 +17,7 @@ been verified in the Unity runtime.
 |---|---|
 | `bundle_format_version` outside {1, 2} | A newer layout may move the fields being read |
 | `hybrid_action` or an unknown token in `requires_capabilities` | Not implemented here |
+| `context_length` disagreeing with `model_config.context_length` | The bundle contradicts itself about the width the window is built to |
 | `bos_cache_mode` other than `discard` | Only the discard path is implemented; no `retain` fixture exists |
 | A non-continuous state spec | One-hot and continuous-first ordering cannot be verified by size |
 | `multi_binary` actions, or an unknown action type | Needs a per-leaf Bernoulli threshold, not argmax |
@@ -60,18 +61,25 @@ the container.
 
 ## What the graph check can and cannot do
 
-`ValidateGraph` compares context length, state size, and action size between the
-config and the ONNX file, requires all four inputs (`states`, `actions`,
-`is_bos`, `mask`) to be float32 with static shapes, and rejects any extra input
-— an unexpected input would never be set and the graph would silently run on a
-default.
+Two places read the graph, and they check different things.
 
-> The dtype and extra-input checks are **implemented but not covered by a
-> negative test.** Reaching either needs a malformed ONNX that the Inference
-> Engine still imports, and we have not produced one. Every other refusal on this
-> page is exercised by a test.
+`UnityInferenceBackend.ReadShapes` reads it on its own terms, before any config
+is compared against it: exactly the four inputs (`states`, `actions`, `is_bos`,
+`mask`), each float32, each with a static shape of the expected rank and
+positive extents, the four agreeing on batch and context length with `is_bos`
+carrying exactly one channel, and an `action` output to read from. An extra
+input is refused rather than ignored — it would never be set, so the graph would
+silently run on whatever the engine defaults it to.
 
-It only requires batch ≥ 1. **`config.json` does not declare a batch**; it is
+`BundleValidator.ValidateGraph` then compares the two, matching context length,
+state size, and action size against what the config declares.
+
+> **Nothing `ReadShapes` refuses is covered by a negative test.** Reaching any
+> of those refusals needs a malformed ONNX that the Inference Engine still
+> imports, and we have not produced one — they are implemented, not exercised.
+> What `ValidateGraph` refuses is tested, as is every refusal in the table above.
+
+Batch is only required to be ≥ 1. **`config.json` does not declare a batch**; it is
 baked into the graph. Integration code must verify that the graph's batch size
 matches the scene because the runner cannot inspect the scene.
 
