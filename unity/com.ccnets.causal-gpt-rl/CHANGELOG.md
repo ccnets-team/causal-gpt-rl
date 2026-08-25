@@ -7,6 +7,28 @@ independently of the Python package in this repository; its tags are namespaced
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+155 EditMode tests, 0 failures, on Unity 6000.0.40f1 with
+`com.unity.ai.inference` 2.6.1.
+
+### Added
+
+- **`PolicyRunner.StageObservation()` and the `Staged` state it leads to — the
+  pipelined turn.** The action this policy emits is generated from the
+  trajectory so far, so the pass for the next decision does not need the
+  observation the engine is still computing. Staging the observation the
+  in-flight action is being taken *at* closes that pair on the read, which
+  leaves nothing outstanding and lets the next schedule run under the
+  environment step: the step period becomes `max(world, model)` rather than
+  `world + model`. `ActionRequest.Cancel()` accepts the staged state as well —
+  a staged observation sits in a slot the model does not read, so the visible
+  window has not moved.
+- One limit comes with that overlap, in `Documentation~/lifecycle.md` and
+  `Documentation~/contract-boundaries.md`: the pipelined turn never enters the
+  state `ResetRows` accepts, so retiring one row of several means running that
+  turn in the serial order. A whole-batch restart is unaffected.
+
 ## [0.2.0] - 2026-08-22
 
 Verified on Unity 6000.0.40f1 with `com.unity.ai.inference` 2.6.1: **137
