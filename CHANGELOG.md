@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.19.0
 
 - Adds the `action_normalization` capability and embedded pre-tanh action
   statistics. Continuous feedback uses bounds → clamp → atanh → standardize;
