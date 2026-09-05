@@ -656,6 +656,9 @@ class PolicyRunner:
         and is never touched by the adapter — output == the next input (L2 §2).
         """
         env_action, buffer_action = self._decode_flat(action)
+        if getattr(self.model, "has_embedded_action_normalizer", lambda: False)():
+            # The next model input is exactly the clipped raw environment action.
+            buffer_action = self._gym_flatten_action(action)
         if self._output_adapter is not None:
             env_action = self._restructure_env_action(action)
         return env_action, buffer_action

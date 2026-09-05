@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Adds the `action_normalization` capability and embedded pre-tanh action
+  statistics. Continuous feedback uses bounds → clamp → atanh → standardize;
+  Gaussian means and samples use the inverse transform after sampling.
+  BOS retains model-coordinate zero and non-continuous heads retain their
+  existing representations. The runner stores the final clipped raw action
+  as feedback when normalization is enabled.
+- Exports stamp `bounds_atanh_then_standardize_v1` metadata automatically.
+  Loads reject missing statistics, invalid scales, unknown coordinates and
+  capability/state mismatches. Legacy checkpoints initialize disabled identity
+  statistics, retaining their existing inference results. Bundle versions stay
+  at 1/2. `SUPPORTED_CAPABILITIES` is now a public runtime feature probe.
+- The same tensor transforms run in windowed, cached, prefix precompute and
+  ONNX inference. See [the trainer integration contract](docs/action-normalization.md).
+
 ## 0.18.0
 
 - The `transformers` floor is 4.56, raised from 4.30. It was never a range this

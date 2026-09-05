@@ -14,6 +14,7 @@ Copyright (c) 2026 CCNets, Inc. All rights reserved.
 """
 from .bundle import (
     BUNDLE_FORMAT_VERSION,
+    SUPPORTED_CAPABILITIES,
     convert_legacy_bundle_to_safetensors,
     export_bundle,
     load_runner,
@@ -24,6 +25,7 @@ from .runner import PolicyRunner
 
 __all__ = [
     "BUNDLE_FORMAT_VERSION",
+    "SUPPORTED_CAPABILITIES",
     "PolicyRunner",
     "convert_legacy_bundle_to_safetensors",
     "export_bundle",

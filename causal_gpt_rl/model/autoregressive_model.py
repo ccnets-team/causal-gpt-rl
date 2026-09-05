@@ -24,6 +24,7 @@ from .utils.kv_cache import (
 from .utils.input_adapter import InputHeadAdapter
 from .utils.layers import TransformLayer
 from .utils.output_adapter import OutputToInputAdapter
+from .utils.action_normalization import ActionNormalizationMixin
 
 LOG_STD_MIN, LOG_STD_MAX = -20.0, 2.0
 STATE_NORMALIZATION_EPS = 1e-8
@@ -60,7 +61,7 @@ def _resolve_action_value_routing(flat_output_specs):
     }
 
 
-class AutoregressiveModel(nn.Module):
+class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
     def __init__(
         self,
         model_config: ModelConfig,
@@ -87,6 +88,7 @@ class AutoregressiveModel(nn.Module):
         self.flat_output_specs = flatten_specs(output_specs)  # for autoreg, input_specs includes output_specs
         self.device = device
         self.state_size = int(sum(spec.size for spec in self.state_specs))
+        self._init_action_normalization()
         self.register_buffer(
             "state_normalization_enabled",
             torch.zeros(1, dtype=torch.float32),
@@ -252,6 +254,19 @@ class AutoregressiveModel(nn.Module):
             for adapter, head in zip(self.input_adapter, input_heads)
         ]
 
+        action_position = 0
+        bos_index = next(i for i, spec in enumerate(self.flat_input_specs) if spec.role == "bos_indicator")
+        for i, spec in enumerate(self.flat_input_specs):
+            if spec.role != "action":
+                continue
+            if spec.type == "continuous":
+                normalized = self._normalize_action_head(input_heads[i], self._action_slices[action_position])
+                # BOS represents an absent action, hence zero in model coordinates.
+                # An existing learned BOS gate is applied below, after this transform.
+                normalized = torch.where(input_heads[bos_index] >= 0.5, torch.zeros_like(normalized), normalized)
+                adapted_heads[i] = self._normalized_or_legacy(normalized, adapted_heads[i])
+            action_position += 1
+
         if self.use_bos_action_gate:
             # At bos=1 replace each mean-action column with its gate emb (zero for
             # gate-to-zero); at bos=0 keep the real action. Done in feature space
@@ -277,7 +292,12 @@ class AutoregressiveModel(nn.Module):
 
     def adapt_output_heads(self, outputs):
         """Apply per-spec post-processing (e.g., tanh squash) to head outputs."""
-        return [adapter(out) for out, adapter in zip(outputs, self.output_adapter)]
+        adapted = [adapter(out) for out, adapter in zip(outputs, self.output_adapter)]
+        for pos, i in enumerate(self.mean_action_indices):
+            if self._mean_is_continuous[pos]:
+                normalized = self._denormalize_action_head(outputs[i], self._action_slices[pos])
+                adapted[i] = self._normalized_or_legacy(normalized, adapted[i])
+        return adapted
 
     # Representation helpers ---------------------------------------------
 
@@ -556,7 +576,7 @@ class AutoregressiveModel(nn.Module):
             squashed = torch.tanh(z)
             scale = self._action_scale.to(dtype=squashed.dtype)
             bias = self._action_bias.to(dtype=squashed.dtype)
-            cont_actions = squashed * scale + bias
+            cont_actions = self._continuous_sample_to_env(z, squashed * scale + bias)
 
         parts = []
         offset = 0
@@ -590,7 +610,7 @@ class AutoregressiveModel(nn.Module):
         squashed = torch.tanh(z)
         scale = self._action_scale.to(dtype=squashed.dtype)
         bias = self._action_bias.to(dtype=squashed.dtype)
-        return squashed * scale + bias
+        return self._continuous_sample_to_env(z, squashed * scale + bias)
 
     def _sample_discrete(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         sampled_actions = []

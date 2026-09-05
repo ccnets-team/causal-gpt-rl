@@ -19,6 +19,7 @@ except PackageNotFoundError:
 
 from .inference import (
     BUNDLE_FORMAT_VERSION,
+    SUPPORTED_CAPABILITIES,
     PolicyRunner,
     convert_legacy_bundle_to_safetensors,
     export_bundle,
@@ -39,6 +40,7 @@ __all__ = [
     "__version__",
     "AutoregressiveModel",
     "BUNDLE_FORMAT_VERSION",
+    "SUPPORTED_CAPABILITIES",
     "DataSpec",
     "ModelConfig",
     "PolicyModel",

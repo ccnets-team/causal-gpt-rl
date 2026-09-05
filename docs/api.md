@@ -13,6 +13,7 @@ and outputs, see [Observation & Action Spaces](spaces.md).
 ```python
 from causal_gpt_rl.inference import (
     BUNDLE_FORMAT_VERSION,
+    SUPPORTED_CAPABILITIES,
     PolicyRunner,
     convert_legacy_bundle_to_safetensors,
     export_bundle,
@@ -21,6 +22,10 @@ from causal_gpt_rl.inference import (
     run_episodes,
 )
 ```
+
+`SUPPORTED_CAPABILITIES` is a frozenset of implemented optional bundle features.
+It includes `action_normalization`; see [embedded action normalization](action-normalization.md)
+for the model API, checkpoint injection order and coordinate contract.
 
 ## Basic rollout
 

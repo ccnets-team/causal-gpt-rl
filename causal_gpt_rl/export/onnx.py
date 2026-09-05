@@ -37,7 +37,7 @@ class OnnxExportResult:
 
 
 class _WindowedPolicy(nn.Module):
-    """Raw observation window to newest model-space action."""
+    """Raw observation/action history to newest flat environment action heads."""
 
     def __init__(self, runner: Any):
         super().__init__()

@@ -70,6 +70,7 @@ except Exception:  # pragma: no cover - depends on optional package availability
 
 from .. import __version__ as _PACKAGE_VERSION
 from ..model.autoregressive_model import AutoregressiveModel
+from ..model.utils.action_normalization import ACTION_NORMALIZATION_COORDINATE
 from ..model.schema import ModelConfig, SpaceSpec
 from .runner import PolicyRunner
 from .spaces import deserialize_space, serialize_space
@@ -105,8 +106,9 @@ _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 # onto the runner, which restores the container via gym.spaces.unflatten. Older
 # runtimes that only decode per head (flat) still refuse such bundles loudly.
 _SUPPORTED_CAPABILITIES: frozenset[str] = frozenset(
-    {"hybrid_action", "hybrid_state", "action_container"}
+    {"hybrid_action", "hybrid_state", "action_container", "action_normalization"}
 )
+SUPPORTED_CAPABILITIES = _SUPPORTED_CAPABILITIES
 
 # Capabilities this runtime RECOGNIZES but does not yet implement. A bundle
 # requiring one is refused by `load_runner` with the reason below rather than a
@@ -224,11 +226,22 @@ def export_bundle(
         raise ValueError(
             f"bos_cache_mode must be 'discard' or 'retain', got {bos_cache_mode!r}"
         )
+    requires_capabilities = tuple(requires_capabilities or ())
+    model._validate_action_normalization(
+        model.action_normalization_enabled,
+        model.action_normalization_mean,
+        model.action_normalization_std,
+    )
+    action_normalized = model.has_embedded_action_normalizer()
+    if "action_normalization" in (requires_capabilities or []) and not action_normalized:
+        raise ValueError("action_normalization capability requires enabled model state")
     bundle_dir = Path(bundle_dir)
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
     state_specs = list(state_specs)
     action_specs = list(action_specs)
+    if action_normalized and [s.to_json_dict() for s in action_specs] != [s.to_json_dict() for s in model.action_specs]:
+        raise ValueError("Action normalization export specs must match model action specs")
 
     if state_normalizer is not None and hasattr(
         model, "set_state_normalization_from_state_dict"
@@ -251,6 +264,8 @@ def export_bundle(
     # load on any runtime.
     action_types = [s.type for s in action_specs]
     capabilities = set(requires_capabilities or [])
+    if action_normalized:
+        capabilities.add("action_normalization")
     if len(set(action_types)) > 1:
         capabilities.add("hybrid_action")
 
@@ -318,6 +333,11 @@ def export_bundle(
     }
     if env_id:
         config_payload["env_id"] = str(env_id)
+    if action_normalized:
+        config_payload["action_normalization"] = {
+            "embedded": True,
+            "coordinate": ACTION_NORMALIZATION_COORDINATE,
+        }
     # Serving conventions (runtime behavior, weight-independent). Only written
     # when explicitly chosen at build time; omitting the block keeps the bundle
     # byte-identical to legacy and lets loaders apply the "discard" default.
@@ -440,6 +460,15 @@ def load_runner(
     else:
         model_state = torch.load(legacy_model_path, map_location=torch_device)
     model.load_state_dict(model_state, strict=False)
+    action_metadata = config_payload.get("action_normalization")
+    action_required = "action_normalization" in required_caps
+    if action_metadata is not None:
+        if not isinstance(action_metadata, dict) or action_metadata.get("coordinate") != ACTION_NORMALIZATION_COORDINATE:
+            raise ValueError("Unsupported or missing action normalization coordinate")
+        if action_metadata.get("embedded") is not True:
+            raise ValueError("Action normalization metadata requires embedded=true")
+    if model.has_embedded_action_normalizer() != action_required or action_required != (action_metadata is not None):
+        raise ValueError("Action normalization enabled state, capability and coordinate metadata must agree")
     model.eval()
 
     normalizer: Optional[StateNormalizer] = None
@@ -568,6 +597,7 @@ def load_runner_from_hub(
 
 __all__ = [
     "BUNDLE_FORMAT_VERSION",
+    "SUPPORTED_CAPABILITIES",
     "convert_legacy_bundle_to_safetensors",
     "export_bundle",
     "load_runner",
