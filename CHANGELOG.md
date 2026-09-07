@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.20.0
 
 - Support bundles requiring `pre_tanh_rollout_context`. Existing bundles and
   action return types remain compatible; unsupported or inconsistent bundle
