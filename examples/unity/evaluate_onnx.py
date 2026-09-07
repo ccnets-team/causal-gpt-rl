@@ -7,6 +7,9 @@ passed as local paths.  The ONNX graph must use the windowed policy contract:
     is_bos  [B, T, 1]             mask    [B, T]
     -> action [B, action_size]
 
+Direct-z graphs also return context_action [B, action_size], which this caller
+stores unchanged as feedback using the graph's coordinate metadata.
+
 Both batch-1 graphs and graphs exported for all scene agents are supported.  A
 fixed full-scene batch is substantially faster because it makes one ONNX call
 per decision tick instead of one call per agent.
@@ -146,15 +149,39 @@ def _decode(
 
 
 def _run_onnx(session: ort.InferenceSession, inputs: dict[str, np.ndarray], batch: int):
+    action, context = _run_onnx_with_context(session, inputs, batch)
+    if context is not None:
+        raise ValueError("Direct-z ONNX requires consuming context_action as feedback")
+    return action
+
+
+def _run_onnx_with_context(session, inputs, batch):
+    """Read both representations from one graph execution per batch."""
+    metadata = session.get_modelmeta().custom_metadata_map
+    coordinate = metadata.get("causal_gpt_rl.rollout_action_context_coordinate", "environment_action_v1")
+    if coordinate not in ("environment_action_v1", "standardized_pre_tanh_v1"):
+        raise ValueError(f"Unknown ONNX rollout coordinate: {coordinate!r}")
+    direct = coordinate == "standardized_pre_tanh_v1"
+    outputs = {o.name for o in session.get_outputs()}
+    if direct != ("context_action" in outputs):
+        raise ValueError("ONNX rollout coordinate and context_action output must agree")
+    if direct and metadata.get("causal_gpt_rl.onnx_contract") != "pre_tanh_rollout_context_v1":
+        raise ValueError("Unsupported ONNX direct-z contract")
+    output_names = ["action", "context_action"] if direct else ["action"]
     num_agents = inputs["states"].shape[0]
     if batch == num_agents:
-        return session.run(["action"], inputs)[0]
-
-    rows = []
-    for agent in range(num_agents):
-        feed = {name: value[agent : agent + 1] for name, value in inputs.items()}
-        rows.append(session.run(["action"], feed)[0][0])
-    return np.stack(rows)
+        result = session.run(output_names, inputs)
+    else:
+        rows = []
+        for agent in range(num_agents):
+            feed = {name: value[agent : agent + 1] for name, value in inputs.items()}
+            rows.append(session.run(output_names, feed))
+        result = [np.concatenate([row[i] for row in rows], axis=0) for i in range(len(output_names))]
+    action = result[0]
+    context = result[1].copy() if direct else None
+    if context is not None and context.shape != action.shape:
+        raise ValueError("context_action shape must match action shape")
+    return action, context
 
 
 def _group_key(context: dict) -> tuple:
@@ -282,9 +309,11 @@ def main() -> None:
         while any(result is None for result in results) and ticks < args.max_ticks:
             ticks += 1
             if any(observations[0][agent] is not None for agent in range(num_agents)):
-                raw = _run_onnx(session, window.inputs(), int(model_batch))
+                raw, context_action = _run_onnx_with_context(session, window.inputs(), int(model_batch))
                 window.after_act()
                 env_action, feedback_action = _decode(raw, continuous_size, branches)
+                if context_action is not None:
+                    feedback_action = context_action
 
             next_observations, rewards, terminated, truncated, _ = env.step(env_action)
             for agent in range(num_agents):

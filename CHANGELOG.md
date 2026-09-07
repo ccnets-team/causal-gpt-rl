@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Support bundles requiring `pre_tanh_rollout_context`. Existing bundles and
+  action return types remain compatible; unsupported or inconsistent bundle
+  metadata is rejected during loading. Settings are applied automatically;
+  see [bundle compatibility](docs/action-normalization.md).
+- Preserve the checkpoint's declared rollout behavior when loading it directly.
+  Existing checkpoints retain their default behavior.
+- Add `context_action` to ONNX exports for this capability and support it in the
+  Python Unity evaluators. Existing ONNX exports retain their single output.
+  Unity C# support is not yet available. See the [ONNX contract](docs/export-onnx.md#onnx-contract).
+
 ## 0.19.0
 
 - Adds the `action_normalization` capability and embedded pre-tanh action
@@ -14,7 +26,7 @@
   statistics, retaining their existing inference results. Bundle versions stay
   at 1/2. `SUPPORTED_CAPABILITIES` is now a public runtime feature probe.
 - The same tensor transforms run in windowed, cached, prefix precompute and
-  ONNX inference. See [the trainer integration contract](docs/action-normalization.md).
+  ONNX inference. See [bundle compatibility](docs/action-normalization.md).
 
 ## 0.18.0
 

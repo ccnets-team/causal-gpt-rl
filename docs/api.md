@@ -3,8 +3,8 @@
 `causal_gpt_rl.inference` is the Python API for loading and running trained
 Causal-GPT-RL policy bundles. Most applications create a [`PolicyRunner`](#policyrunner)
 with `load_runner`, then control the rollout through `reset`, `act`, and
-`observe`. The module also provides episode evaluation and bundle export and
-migration utilities.
+`observe`. This reference covers bundle loading, rollout, evaluation and legacy
+bundle migration.
 
 For the rollout semantics, see [Transformer Model Integrating Environment
 Dynamics for RL](environment-dynamics-in-transformer.md). For supported inputs
@@ -12,20 +12,17 @@ and outputs, see [Observation & Action Spaces](spaces.md).
 
 ```python
 from causal_gpt_rl.inference import (
-    BUNDLE_FORMAT_VERSION,
-    SUPPORTED_CAPABILITIES,
     PolicyRunner,
     convert_legacy_bundle_to_safetensors,
-    export_bundle,
     load_runner,
     load_runner_from_hub,
     run_episodes,
 )
 ```
 
-`SUPPORTED_CAPABILITIES` is a frozenset of implemented optional bundle features.
-It includes `action_normalization`; see [embedded action normalization](action-normalization.md)
-for the model API, checkpoint injection order and coordinate contract.
+The delivered bundle determines its normalization and feedback settings;
+`load_runner` applies them automatically. See [bundle compatibility](action-normalization.md)
+for minimum runtime versions.
 
 ## Basic rollout
 
@@ -220,6 +217,9 @@ Spaces](spaces.md).
 
 Calling `act()` without a state before `reset()` raises `RuntimeError`.
 
+Execute the returned action without changes. Applied-action override is not
+supported; modifying the returned array does not update the runner's feedback.
+
 ### `observe`
 
 ```python
@@ -352,54 +352,8 @@ print(stats["return_mean"], stats["return_std"])
 
 ## Bundles
 
-Most users only load bundles. `export_bundle` is for model publishers, while
-`convert_legacy_bundle_to_safetensors` migrates artifacts created by older
-versions.
-
-### `export_bundle`
-
-```python
-export_bundle(
-    bundle_dir,
-    *,
-    model,
-    model_config,
-    state_specs,
-    action_specs,
-    context_length,
-    obs_space=None,
-    action_space=None,
-    state_normalizer=None,
-    env_id=None,
-    requires_capabilities=None,
-    write_state_normalizer_sidecar=True,
-    bos_cache_mode=None,
-) -> Path
-```
-
-Write a loadable bundle and return its directory.
-
-| Parameter | Description |
-|---|---|
-| `bundle_dir` | Destination directory; created if needed. |
-| `model` | Model whose weights are exported. |
-| `model_config` | Model architecture configuration. |
-| `state_specs` / `action_specs` | Per-head tensor specifications. |
-| `context_length` | Trained context window. |
-| `obs_space` / `action_space` | Optional Gymnasium space declarations. |
-| `state_normalizer` | State normalization statistics. Required unless embedded in the model. |
-| `env_id` | Optional environment provenance label. |
-| `requires_capabilities` | Runtime capabilities required to load the bundle. |
-| `write_state_normalizer_sidecar` | Also write the compatibility normalizer sidecar. |
-| `bos_cache_mode` | Optional default BOS cache mode. |
-
-Writing a normalizer sidecar produces a compatibility v1 bundle. Without the
-sidecar, the current format version is used.
-
-The exported directory always contains `config.json` and
-`model.safetensors`. Space declarations and required capabilities are stored in
-the config so an incompatible runtime can reject the bundle during loading
-instead of decoding observations or actions incorrectly.
+Load the delivered bundle directory with `load_runner`. The migration utility
+below is available for artifacts created by older versions.
 
 ### `convert_legacy_bundle_to_safetensors`
 
@@ -417,12 +371,3 @@ files are deleted after conversion.
 
 Conversion is in place. Keep the default `remove_legacy=False` until the
 converted bundle has been loaded successfully.
-
-### `BUNDLE_FORMAT_VERSION`
-
-```python
-BUNDLE_FORMAT_VERSION = 2
-```
-
-The current bundle format version. Loaders reject unsupported versions;
-`export_bundle` may emit compatibility v1 when it writes a normalizer sidecar.

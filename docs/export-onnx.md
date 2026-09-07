@@ -132,6 +132,17 @@ consumer selects one index per branch and feeds its one-hot representation back
 into the action context. See the Unity evaluators for complete continuous,
 Discrete, MultiDiscrete, and hybrid decoding examples.
 
+Bundles requiring `pre_tanh_rollout_context` add a `context_action` output with
+shape `[B, action_size]`. For these graphs, read both outputs from the same
+invocation: decode `action` for the environment and store `context_action`
+unchanged in the next `actions` input. Do not reconstruct feedback from the
+environment action. Input names and shapes remain the same; existing bundles
+retain their single-output contract.
+
+Exporting these bundles requires `causal-gpt-rl>=0.20.0`. Python Unity evaluators
+handle both outputs automatically. Unity C# does not yet support the capability
+and rejects these bundles.
+
 The graph is stateless, so the host also owns the BOS retention convention.
 Bundles default to `serving.bos_cache_mode: "discard"`: use the BOS token for
 the first action, then mask it out of every later window. The Unity evaluators

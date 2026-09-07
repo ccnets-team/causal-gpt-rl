@@ -70,7 +70,11 @@ except Exception:  # pragma: no cover - depends on optional package availability
 
 from .. import __version__ as _PACKAGE_VERSION
 from ..model.autoregressive_model import AutoregressiveModel
-from ..model.utils.action_normalization import ACTION_NORMALIZATION_COORDINATE
+from ..model.utils.action_normalization import (
+    ACTION_NORMALIZATION_COORDINATE, ENVIRONMENT_ACTION_COORDINATE,
+    PRE_TANH_ACTION_COORDINATE, PRE_TANH_ROLLOUT_CAPABILITY,
+    validate_rollout_action_coordinate,
+)
 from ..model.schema import ModelConfig, SpaceSpec
 from .runner import PolicyRunner
 from .spaces import deserialize_space, serialize_space
@@ -106,7 +110,7 @@ _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 # onto the runner, which restores the container via gym.spaces.unflatten. Older
 # runtimes that only decode per head (flat) still refuse such bundles loudly.
 _SUPPORTED_CAPABILITIES: frozenset[str] = frozenset(
-    {"hybrid_action", "hybrid_state", "action_container", "action_normalization"}
+    {"hybrid_action", "hybrid_state", "action_container", "action_normalization", PRE_TANH_ROLLOUT_CAPABILITY}
 )
 SUPPORTED_CAPABILITIES = _SUPPORTED_CAPABILITIES
 
@@ -213,6 +217,7 @@ def export_bundle(
     requires_capabilities: Optional[Iterable[str]] = None,
     write_state_normalizer_sidecar: bool = True,
     bos_cache_mode: Optional[str] = None,
+    rollout_action_context_coordinate: str = ENVIRONMENT_ACTION_COORDINATE,
 ) -> Path:
     """Write the bundle to `bundle_dir`. Creates the directory if needed.
 
@@ -233,6 +238,12 @@ def export_bundle(
         model.action_normalization_std,
     )
     action_normalized = model.has_embedded_action_normalizer()
+    validate_rollout_action_coordinate(
+        rollout_action_context_coordinate, action_normalized=action_normalized,
+    )
+    direct_context = rollout_action_context_coordinate == PRE_TANH_ACTION_COORDINATE
+    if PRE_TANH_ROLLOUT_CAPABILITY in requires_capabilities and not direct_context:
+        raise ValueError("Pre-tanh rollout capability requires standardized_pre_tanh_v1 context")
     if "action_normalization" in (requires_capabilities or []) and not action_normalized:
         raise ValueError("action_normalization capability requires enabled model state")
     bundle_dir = Path(bundle_dir)
@@ -264,6 +275,8 @@ def export_bundle(
     # load on any runtime.
     action_types = [s.type for s in action_specs]
     capabilities = set(requires_capabilities or [])
+    if direct_context:
+        capabilities.add(PRE_TANH_ROLLOUT_CAPABILITY)
     if action_normalized:
         capabilities.add("action_normalization")
     if len(set(action_types)) > 1:
@@ -333,6 +346,8 @@ def export_bundle(
     }
     if env_id:
         config_payload["env_id"] = str(env_id)
+    if direct_context:
+        config_payload["rollout_context"] = {"action_coordinate": rollout_action_context_coordinate}
     if action_normalized:
         config_payload["action_normalization"] = {
             "embedded": True,
@@ -469,6 +484,18 @@ def load_runner(
             raise ValueError("Action normalization metadata requires embedded=true")
     if model.has_embedded_action_normalizer() != action_required or action_required != (action_metadata is not None):
         raise ValueError("Action normalization enabled state, capability and coordinate metadata must agree")
+    rollout_metadata = config_payload.get("rollout_context")
+    if "rollout_context" in config_payload:
+        if not isinstance(rollout_metadata, dict) or "action_coordinate" not in rollout_metadata:
+            raise ValueError("Rollout context metadata requires an action_coordinate")
+        rollout_coordinate = rollout_metadata["action_coordinate"]
+    else:
+        rollout_coordinate = ENVIRONMENT_ACTION_COORDINATE
+    validate_rollout_action_coordinate(
+        rollout_coordinate, action_normalized=model.has_embedded_action_normalizer(),
+    )
+    if (PRE_TANH_ROLLOUT_CAPABILITY in required_caps) != (rollout_coordinate == PRE_TANH_ACTION_COORDINATE):
+        raise ValueError("Pre-tanh rollout capability and context coordinate must agree")
     model.eval()
 
     normalizer: Optional[StateNormalizer] = None
@@ -535,6 +562,7 @@ def load_runner(
         obs_space=obs_space,
         action_space=action_space,
         bos_cache_mode=resolved_bos_cache_mode,
+        rollout_action_context_coordinate=rollout_coordinate,
     )
 
     return runner

@@ -21,6 +21,10 @@ from torch import nn
 from causal_gpt_rl.inference import load_runner
 from causal_gpt_rl.inference.context.buffer import ContextBuffer
 from causal_gpt_rl.inference.runner import DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER
+from causal_gpt_rl.model.utils.action_normalization import (
+    ENVIRONMENT_ACTION_COORDINATE, PRE_TANH_ACTION_COORDINATE,
+    validate_rollout_action_coordinate,
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,13 @@ class _WindowedPolicy(nn.Module):
     def __init__(self, runner: Any):
         super().__init__()
         self.model = runner.model
+        self.action_context_coordinate = getattr(
+            runner, "rollout_action_context_coordinate", ENVIRONMENT_ACTION_COORDINATE,
+        )
+        validate_rollout_action_coordinate(
+            self.action_context_coordinate,
+            action_normalized=self.model.has_embedded_action_normalizer(),
+        )
         self.normalizer = runner.state_normalizer
         self.embedded_normalizer = bool(
             getattr(self.model, "has_embedded_state_normalizer", lambda: False)()
@@ -60,9 +71,15 @@ class _WindowedPolicy(nn.Module):
             std = self.model.state_normalization_std[-feat:].view(1, 1, -1)
             states = (states - mean) / std
         tokens = torch.cat([states, actions, is_bos], dim=-1)
-        embedded = self.model.adapt_input(tokens)
+        # The coordinate was validated at construction, outside torch.export.
+        embedded = self.model._adapt_input(
+            tokens, action_context_coordinate=self.action_context_coordinate,
+        )
         hidden = self.model.backbone(embedded, padding_mask=mask.to(torch.bool))
         outputs = self.model.project_output_heads(hidden)
+        if self.action_context_coordinate == PRE_TANH_ACTION_COORDINATE:
+            action, context_action = self.model._action_and_context_from_heads(outputs)
+            return torch.cat(action, dim=-1)[:, -1], context_action[:, -1]
         action = self.model._extract_mean_action(outputs)
         if isinstance(action, (list, tuple)):
             action = torch.cat(list(action), dim=-1)
@@ -272,9 +289,12 @@ def export_onnx(
     with torch.no_grad():
         reference = policy(*sample)
 
+    direct_context = runner.rollout_action_context_coordinate == PRE_TANH_ACTION_COORDINATE
+    output_names = ["action", "context_action"] if direct_context else ["action"]
+
     export_kwargs = {
         "input_names": ["states", "actions", "is_bos", "mask"],
-        "output_names": ["action"],
+        "output_names": output_names,
         "opset_version": opset,
     }
     export_backend = "dynamo"
@@ -300,6 +320,14 @@ def export_onnx(
     # artifact and remove its temporary sidecar.
     model = onnx.load(str(output_path), load_external_data=True)
     _strip_exporter_stack_traces(model)
+    if direct_context:
+        properties = {p.key: p.value for p in model.metadata_props}
+        properties.update({
+            "causal_gpt_rl.onnx_contract": "pre_tanh_rollout_context_v1",
+            "causal_gpt_rl.rollout_action_context_coordinate": runner.rollout_action_context_coordinate,
+            "causal_gpt_rl.context_action_encoding": "continuous_z_categorical_one_hot_binary_bits",
+        })
+        onnx.helper.set_model_props(model, properties)
     onnx.save(model, str(output_path), save_as_external_data=False)
     sidecar = Path(str(output_path) + ".data")
     if sidecar.exists():
@@ -325,9 +353,11 @@ def export_onnx(
                 ("states", "actions", "is_bos", "mask"), sample
             )
         }
-        actual = session.run(["action"], feeds)[0]
-        max_abs_error = float(np.max(np.abs(actual - reference.cpu().numpy())))
-        if not np.isfinite(max_abs_error) or max_abs_error >= 1e-4:
+        actual = session.run(output_names, feeds)
+        references = reference if direct_context else (reference,)
+        errors = [float(np.max(np.abs(a - r.cpu().numpy()))) for a, r in zip(actual, references)]
+        max_abs_error = max(errors)
+        if not all(np.isfinite(e) and e < 1e-4 for e in errors):
             raise RuntimeError(
                 f"ONNX verification failed: max_abs_error={max_abs_error:.6g}"
             )

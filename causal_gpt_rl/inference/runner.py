@@ -26,6 +26,10 @@ import torch
 from ..model.autoregressive_model import AutoregressiveModel
 from ..model.schema import DataSpec, ensure_tensor_heads
 from ..model.utils.kv_cache import cache_has_history
+from ..model.utils.action_normalization import (
+    ENVIRONMENT_ACTION_COORDINATE, PRE_TANH_ACTION_COORDINATE,
+    validate_rollout_action_coordinate,
+)
 from .adapters import make_action_output_adapter, make_state_input_adapter
 from .checkpoint import load_inference_checkpoint
 from .context.buffer import ContextBuffer
@@ -70,8 +74,14 @@ class PolicyRunner:
         obs_space=None,
         action_space=None,
         bos_cache_mode: Optional[str] = None,
+        rollout_action_context_coordinate: str = ENVIRONMENT_ACTION_COORDINATE,
     ):
         self.model = model
+        validate_rollout_action_coordinate(
+            rollout_action_context_coordinate,
+            action_normalized=getattr(model, "has_embedded_action_normalizer", lambda: False)(),
+        )
+        self._rollout_action_context_coordinate = rollout_action_context_coordinate
         # Per-head action schedule: [(type, size, low, high), ...]. Mixed
         # families are allowed; decoding dispatches per head. Restoring the
         # declared Gymnasium container (Tuple/Dict) is the output adapter's job
@@ -417,6 +427,24 @@ class PolicyRunner:
         """
         return self._step(state, return_info=True)
 
+    @property
+    def rollout_action_context_coordinate(self) -> str:
+        """Fixed for this runner's lifetime, including across episode resets."""
+        return self._rollout_action_context_coordinate
+
+    def encode_action_context(self, raw_actions, *, is_bos=None) -> np.ndarray:
+        """Encode flat external raw feedback for prefix/context insertion.
+
+        Discrete columns must already contain feedback one-hot/bits. This does
+        not override an emitted action or update a populated KV cache.
+        """
+        with torch.no_grad():
+            encoded = self.model.actions_to_rollout_context(
+                raw_actions, is_bos=is_bos,
+                action_context_coordinate=self.rollout_action_context_coordinate,
+            )
+        return encoded.detach().cpu().numpy().copy()
+
     def _step(self, state, *, return_info: bool) -> tuple[np.ndarray, dict]:
         if state is not None:
             self.observe(state)
@@ -432,16 +460,22 @@ class PolicyRunner:
 
         states_t = self._normalize_states_for_inference(states_t)
 
+        direct = self.rollout_action_context_coordinate == PRE_TANH_ACTION_COORDINATE
+        prediction_options = {"return_info": return_info or direct}
+        if direct:
+            prediction_options["action_context_coordinate"] = self.rollout_action_context_coordinate
+
         info_raw: Optional[dict] = None
         if self.use_windowed:
-            result = self.model.predict_with_window(
+            predict = self.model._predict_with_window if direct else self.model.predict_with_window
+            result = predict(
                 states=states_t,
                 actions=actions_t,
                 is_bos=is_bos_t,
                 padding_mask=mask_t,
-                return_info=return_info,
+                **prediction_options,
             )
-            if return_info:
+            if return_info or direct:
                 next_action, info_raw = result
             else:
                 next_action = result
@@ -471,17 +505,18 @@ class PolicyRunner:
                 past_valid_len = torch.as_tensor(
                     self.buffer.get_kv_valid_lengths(), device=device
                 )
-            result = self.model.predict_incremental_cached(
+            predict = self.model._predict_incremental_cached if direct else self.model.predict_incremental_cached
+            result = predict(
                 states=states_t,
                 actions=actions_t,
                 is_bos=is_bos_t,
                 padding_mask=mask_t,
                 past_key_values=past_kv,
                 cache_max_len=self.kv_cache_max_len,
-                return_info=return_info,
+                **prediction_options,
                 past_valid_len=past_valid_len,
             )
-            if return_info:
+            if return_info or direct:
                 next_action, past_kv, info_raw = result
             else:
                 next_action, past_kv = result
@@ -501,6 +536,9 @@ class PolicyRunner:
 
         last_step = ensure_tensor_heads(next_action)[:, -1]
         env_action, buffer_action = self._decode(last_step.detach().cpu().numpy())
+        if direct:
+            # Own the original z independently of the returned environment value.
+            buffer_action = info_raw["_context_action"][:, -1].detach().cpu().numpy().copy()
         self._last_buffer_action = buffer_action
         return env_action, self._build_step_info(info_raw)
 
@@ -549,8 +587,18 @@ class PolicyRunner:
         kv_cache_max_len: Optional[int] = None,
         use_windowed: bool = False,
     ) -> "PolicyRunner":
-        """Load a training checkpoint into `model` and build a runner."""
+        """Load weights and the checkpoint's fixed rollout coordinate.
+
+        Missing rollout metadata retains environment-action feedback. Declared
+        coordinates are validated against the loaded normalization state.
+        """
         ckpt = load_inference_checkpoint(checkpoint_path, map_location=map_location)
+        rollout_coordinate = ENVIRONMENT_ACTION_COORDINATE
+        if "rollout_context" in ckpt:
+            metadata = ckpt["rollout_context"]
+            if not isinstance(metadata, dict) or "action_coordinate" not in metadata:
+                raise ValueError("Rollout context metadata requires an action_coordinate")
+            rollout_coordinate = metadata["action_coordinate"]
         model.load_state_dict(ckpt["model_state"], strict=False)
 
         normalizer: Optional[StateNormalizer] = None
@@ -568,6 +616,7 @@ class PolicyRunner:
             num_envs=num_envs,
             kv_cache_max_len=kv_cache_max_len,
             use_windowed=use_windowed,
+            rollout_action_context_coordinate=rollout_coordinate,
         )
 
     def _format_state(self, state) -> np.ndarray:

@@ -24,7 +24,10 @@ from .utils.kv_cache import (
 from .utils.input_adapter import InputHeadAdapter
 from .utils.layers import TransformLayer
 from .utils.output_adapter import OutputToInputAdapter
-from .utils.action_normalization import ActionNormalizationMixin
+from .utils.action_normalization import (
+    ActionNormalizationMixin, ENVIRONMENT_ACTION_COORDINATE,
+    PRE_TANH_ACTION_COORDINATE, validate_rollout_action_coordinate,
+)
 
 LOG_STD_MIN, LOG_STD_MAX = -20.0, 2.0
 STATE_NORMALIZATION_EPS = 1e-8
@@ -237,7 +240,17 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
             )
         return list(torch.split(x, self.input_head_sizes, dim=-1))
 
-    def adapt_input(self, x):
+    def adapt_input(self, x, *, action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE):
+        validate_rollout_action_coordinate(
+            action_context_coordinate,
+            action_normalized=(
+                self.has_embedded_action_normalizer()
+                if action_context_coordinate != ENVIRONMENT_ACTION_COORDINATE else False
+            ),
+        )
+        return self._adapt_input(x, action_context_coordinate=action_context_coordinate)
+
+    def _adapt_input(self, x, *, action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE):
         """Map (B, T, sum(obs_sizes)) → (B, T, d_model)."""
         if not torch.is_tensor(x):
             input_heads = nested_to_flat_list_heads(x)
@@ -250,8 +263,11 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
             )
 
         adapted_heads = [
-            adapter(head)
-            for adapter, head in zip(self.input_adapter, input_heads)
+            head if (
+                action_context_coordinate == PRE_TANH_ACTION_COORDINATE
+                and spec.role == "action" and spec.type == "continuous"
+            ) else adapter(head)
+            for spec, adapter, head in zip(self.flat_input_specs, self.input_adapter, input_heads)
         ]
 
         action_position = 0
@@ -260,11 +276,14 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
             if spec.role != "action":
                 continue
             if spec.type == "continuous":
-                normalized = self._normalize_action_head(input_heads[i], self._action_slices[action_position])
+                direct = action_context_coordinate == PRE_TANH_ACTION_COORDINATE
+                normalized = input_heads[i] if direct else self._normalize_action_head(
+                    input_heads[i], self._action_slices[action_position],
+                )
                 # BOS represents an absent action, hence zero in model coordinates.
                 # An existing learned BOS gate is applied below, after this transform.
                 normalized = torch.where(input_heads[bos_index] >= 0.5, torch.zeros_like(normalized), normalized)
-                adapted_heads[i] = self._normalized_or_legacy(normalized, adapted_heads[i])
+                adapted_heads[i] = normalized if direct else self._normalized_or_legacy(normalized, adapted_heads[i])
             action_position += 1
 
         if self.use_bos_action_gate:
@@ -391,13 +410,13 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         hidden = self.backbone(embeded_x, padding_mask=padding_mask)
         return self.project_output_heads(hidden)
 
-    def infer_windowed(self, x, padding_mask=None):
-        embeded_x = self.adapt_input(x)
+    def infer_windowed(self, x, padding_mask=None, *, action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE):
+        embeded_x = self.adapt_input(x, action_context_coordinate=action_context_coordinate)
         hidden, _ = self.backbone.infer(embeded_x, padding_mask=padding_mask)
         return self.project_output_heads(hidden)
 
-    def infer_cached(self, x, past_key_values=None, padding_mask=None):
-        embeded_x = self.adapt_input(x)
+    def infer_cached(self, x, past_key_values=None, padding_mask=None, *, action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE):
+        embeded_x = self.adapt_input(x, action_context_coordinate=action_context_coordinate)
         hidden, cache = self.backbone.infer(
             embeded_x,
             past_key_values=past_key_values,
@@ -430,6 +449,38 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
             return None
         return torch.sigmoid(out[self.termination_index])
 
+    def _action_and_context_from_heads(self, out, std_scale=0.0):
+        """One selection yields environment heads and a single direct-z feedback.
+
+        Caller validates embedded normalization before entering this helper.
+        Deterministic categorical environment heads retain the existing logits
+        contract; their feedback carries the selected one-hot or binary bits.
+        Continuous stochastic heads share one Gaussian draw, as in legacy sampling.
+        """
+        cont_indices = [i for i, kind in zip(self.mean_action_indices, self._mean_types) if kind == "continuous"]
+        mean = torch.cat([out[i] for i in cont_indices], dim=-1)
+        z = mean
+        if std_scale != 0.0:
+            log_std = torch.cat([out[i] for i in self.log_std_action_indices], dim=-1)
+            z = mean + std_scale * log_std.clamp(LOG_STD_MIN, LOG_STD_MAX).exp() * torch.randn_like(mean)
+        env_heads, feedback = [], []
+        offset = 0
+        for pos, (i, kind) in enumerate(zip(self.mean_action_indices, self._mean_types)):
+            if kind == "continuous":
+                width = out[i].shape[-1]
+                selected = z[..., offset:offset + width]
+                offset += width
+                env = self._denormalize_action_head(selected, self._action_slices[pos])
+            elif kind == "multi_binary":
+                selected = (out[i] > 0).to(out[i].dtype) if std_scale == 0.0 else torch.distributions.Bernoulli(logits=out[i] / std_scale).sample()
+                env = out[i] if std_scale == 0.0 else selected
+            else:
+                selected = self._sample_categorical_onehot(out[i], std_scale)
+                env = out[i] if std_scale == 0.0 else selected
+            env_heads.append(env)
+            feedback.append(selected)
+        return env_heads, torch.cat(feedback, dim=-1)
+
     def _build_info(self, out: list[torch.Tensor]) -> dict:
         """Auxiliary per-step outputs that ride on the policy forward."""
         return {"termination_prob": self._termination_prob(out)}
@@ -446,6 +497,18 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         return_info: bool = False,
         past_valid_len=None,
     ) -> list[torch.Tensor]:
+        """Predict environment action heads from raw action history and a KV cache."""
+        return self._predict_incremental_cached(
+            states, actions, is_bos, padding_mask, past_key_values,
+            cache_max_len, return_info, past_valid_len,
+        )
+
+    @torch.inference_mode()
+    def _predict_incremental_cached(
+        self, states, actions, is_bos, padding_mask=None, past_key_values=None,
+        cache_max_len=None, return_info=False, past_valid_len=None, *,
+        action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE,
+    ):
         """Eval one incremental cached step for policy inference.
 
         With `return_info=True`, also returns an auxiliary-output dict (e.g.
@@ -493,6 +556,7 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
             model_input,
             past_key_values=past_key_values,
             padding_mask=model_padding_mask,
+            action_context_coordinate=action_context_coordinate,
         )
 
         # Cap cache AFTER forward so the displayed/effective size stays at
@@ -502,9 +566,15 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
                 past_key_values, max_len=int(cache_max_len)
             )
 
-        action = self._extract_mean_action(out)
+        info = self._build_info(out) if return_info else None
+        if action_context_coordinate == PRE_TANH_ACTION_COORDINATE:
+            action, context_action = self._action_and_context_from_heads(out)
+            if return_info:
+                info["_context_action"] = context_action
+        else:
+            action = self._extract_mean_action(out)
         if return_info:
-            return action, past_key_values, self._build_info(out)
+            return action, past_key_values, info
         return action, past_key_values
 
     @torch.inference_mode()
@@ -516,6 +586,14 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         padding_mask: torch.Tensor,
         return_info: bool = False,
     ) -> list[torch.Tensor]:
+        """Predict environment action heads over a window of raw action history."""
+        return self._predict_with_window(states, actions, is_bos, padding_mask, return_info)
+
+    @torch.inference_mode()
+    def _predict_with_window(
+        self, states, actions, is_bos, padding_mask, return_info=False, *,
+        action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE,
+    ):
         """Eval policy outputs over a full context window.
 
         With `return_info=True`, also returns an auxiliary-output dict (e.g.
@@ -523,10 +601,18 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         """
         self.eval()
         context = torch.cat([states, actions, is_bos], dim=-1)
-        outputs = self.infer_windowed(context, padding_mask=padding_mask)
-        action = self._extract_mean_action(outputs)
+        outputs = self.infer_windowed(
+            context, padding_mask=padding_mask, action_context_coordinate=action_context_coordinate,
+        )
+        info = self._build_info(outputs) if return_info else None
+        if action_context_coordinate == PRE_TANH_ACTION_COORDINATE:
+            action, context_action = self._action_and_context_from_heads(outputs)
+            if return_info:
+                info["_context_action"] = context_action
+        else:
+            action = self._extract_mean_action(outputs)
         if return_info:
-            return action, self._build_info(outputs)
+            return action, info
         return action
 
     @torch.inference_mode()

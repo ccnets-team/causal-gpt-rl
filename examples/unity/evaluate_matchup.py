@@ -28,7 +28,7 @@ sys.path.insert(0, str(HERE.parent / "unity_collection"))
 sys.path.insert(0, str(HERE))
 
 from collect import _assign_field_ids  # noqa: E402
-from evaluate_onnx import Window, _decode, _pack_observation, _run_onnx  # noqa: E402
+from evaluate_onnx import Window, _decode, _pack_observation, _run_onnx_with_context  # noqa: E402
 from onnx_policy import OnnxPolicy  # noqa: E402
 from unity_env import UnityEnv  # noqa: E402
 
@@ -303,9 +303,11 @@ def evaluate_side(args: argparse.Namespace, causal_team: int | None, run_index: 
 
             if causal_team is not None:
                 if causal_runner is None:
-                    raw = _run_onnx(causal_session, window.inputs(), batch)
+                    raw, context_action = _run_onnx_with_context(causal_session, window.inputs(), batch)
                     window.after_act()
                     causal_action, feedback = _decode(raw, continuous_size, branches)
+                    if context_action is not None:
+                        feedback = context_action
                 else:
                     structured_action = causal_runner.act()
                     flat_action = np.stack(

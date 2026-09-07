@@ -3,6 +3,18 @@ import torch
 
 
 ACTION_NORMALIZATION_COORDINATE = "bounds_atanh_then_standardize_v1"
+ENVIRONMENT_ACTION_COORDINATE = "environment_action_v1"
+PRE_TANH_ACTION_COORDINATE = "standardized_pre_tanh_v1"
+PRE_TANH_ROLLOUT_CAPABILITY = "pre_tanh_rollout_context"
+
+
+def validate_rollout_action_coordinate(coordinate, *, action_normalized):
+    if coordinate not in (ENVIRONMENT_ACTION_COORDINATE, PRE_TANH_ACTION_COORDINATE):
+        raise ValueError(f"Unsupported rollout action coordinate: {coordinate!r}")
+    if coordinate == PRE_TANH_ACTION_COORDINATE and not action_normalized:
+        raise ValueError("Pre-tanh rollout context requires enabled action normalization")
+
+
 _STATE_NAMES = (
     "action_normalization_enabled",
     "action_normalization_mean",
@@ -11,6 +23,36 @@ _STATE_NAMES = (
 
 
 class ActionNormalizationMixin:
+    def actions_to_rollout_context(
+        self, actions, *, action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE,
+        is_bos=None,
+    ):
+        """Encode flat external raw actions for a chosen context coordinate.
+
+        Generated direct-z feedback must use the original sample instead.
+        Discrete columns are already feedback one-hot/bits, not output logits.
+        """
+        validate_rollout_action_coordinate(
+            action_context_coordinate,
+            action_normalized=self.has_embedded_action_normalizer(),
+        )
+        actions = torch.as_tensor(
+            actions, dtype=torch.float32, device=self.action_normalization_mean.device,
+        )
+        if actions.shape[-1] != self.action_size:
+            raise ValueError(f"Expected action feedback width {self.action_size}")
+        parts = []
+        for spec, section in zip(self.action_specs, self._action_slices):
+            head = actions[..., section]
+            if action_context_coordinate == PRE_TANH_ACTION_COORDINATE and spec.type == "continuous":
+                head = self._normalize_action_head(head, section)
+            parts.append(head)
+        context = torch.cat(parts, dim=-1)
+        if is_bos is not None:
+            bos = torch.as_tensor(is_bos, device=context.device, dtype=torch.bool)
+            context = torch.where(bos, torch.zeros_like(context), context)
+        return context
+
     def _init_action_normalization(self):
         self.action_size = sum(s.size for s in self.action_specs)
         self.register_buffer(_STATE_NAMES[0], torch.zeros(1, dtype=torch.float32))
