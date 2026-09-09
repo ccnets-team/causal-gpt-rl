@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.21.0
+
+- Extend `bos_cache_mode="retain"` to preserve BOS and history across natural
+  episode boundaries. Add `restart_episode`, `finish_episode`, and `advance`
+  for Python cached/windowed runners, and connect evaluation and collection.
+  Explicit `reset`/`reset_rows` still erase session history. Existing discard
+  bundles, including those with no mode field, retain their behavior.
+- Retain exports automatically require `cross_episode_context`. Loaders reject
+  retain bundles/checkpoints without matching capability metadata; old BOS-only
+  retain artifacts must be re-exported. ONNX exports carry retain metadata, and
+  the shipped Unity hosts reject unsupported retain artifacts. See
+  [cross-episode retention](docs/cross-episode-retain.md).
+- Reject partial `restart_episode` in discard mode before modifying state;
+  use `advance` for vector transitions. Preserve the `termination_prob` key as
+  `None` when all retain rows are paused, and default evaluation of runners
+  without a mode attribute to discard.
+
 ## 0.20.0
 
 - Support bundles requiring `pre_tanh_rollout_context`. Existing bundles and
