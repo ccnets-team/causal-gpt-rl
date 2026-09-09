@@ -187,7 +187,7 @@ This delayed pairing is specific to this model. The high-level
 | `obs_space` | Declared Gymnasium observation space, or `None`. |
 | `action_space` | Declared Gymnasium action space, or `None`. |
 | `use_windowed` | Whether full-window inference is enabled. Read-only in effect: it selects the inference path and the path sizes the rolling buffer, so assigning it warns and leaves the mode unchanged. Build a new runner to switch. |
-| `bos_cache_mode` | Resolved BOS cache mode. |
+| `bos_cache_mode` | Read-only mode: `discard` preserves the original lifecycle; `retain` keeps BOS and history across natural episode restarts. |
 
 ### `reset`
 
@@ -198,8 +198,9 @@ reset(initial_state) -> None
 Clear all rollout state and seed the next episode with its first observation.
 For batched runners, `initial_state` contains one observation per row.
 
-Use `reset` for a new single episode or when every batch row restarts together.
-Use [`reset_rows`](#reset_rows) when only some rows have finished.
+`reset` and [`reset_rows`](#reset_rows) always erase session history, including
+in retain mode. Use [`restart_episode`](#restart_episode) for a natural retain
+episode boundary, or [`advance`](#advance) for a vector step with reset observations.
 
 ### `act`
 
@@ -223,7 +224,7 @@ supported; modifying the returned array does not update the runner's feedback.
 ### `observe`
 
 ```python
-observe(state) -> None
+observe(state, *, active_mask=None) -> None
 ```
 
 Record an observation with the previously emitted action. Before the first
@@ -243,8 +244,63 @@ Like [`act`](#act), but also returns an info dict. Its `termination_prob` key
 holds the model's termination estimate — one value per row for batched runners —
 or `None` when the bundle has no termination head.
 
+When every retain row is paused after `finish_episode`, no inference runs and
+the key is still present with value `None`. In a mixed batch, paused rows carry
+zero placeholders in the returned array; those entries are not predictions.
+
 The estimate is model output only; it does not reset the runner or override the
 environment's `terminated` and `truncated` values.
+
+### `restart_episode`
+
+```python
+restart_episode(initial_state, *, terminal_state=None, done_mask=None) -> None
+```
+
+Start natural next episodes. With `bos_cache_mode="retain"`, finalize the last
+actual action exactly once, keep history, and append the new observation with
+zero action and `is_bos=1`. With discard, start fresh. `reset` always starts fresh.
+Inputs use full-batch observation shapes; `done_mask` selects rows and defaults
+to all rows. Actual terminal observations are optional: the last action is paired
+with the state already staged when that action was selected. A preceding
+`observe(terminal_state)` is supported without duplicating its token.
+
+In discard mode, restarting a nonempty proper subset raises `ValueError` before
+changing rollout state. Use `advance(observations, done_mask=...)` to consume
+survivors and reset rows together. An all-false mask is a no-op; an all-true mask
+performs a full reset.
+
+### `finish_episode`
+
+```python
+finish_episode(terminal_state=None, *, done_mask=None) -> None
+```
+
+Retain only: finalize selected rows without sampling another action or inserting
+a new BOS. These rows pause until `restart_episode` receives reset observations.
+`act()` returns placeholders for paused rows, intended only for adapters such as
+Gymnasium NEXT_STEP that ignore those actions. Paused rows do not advance their
+window, KV, or position. Calling finish twice, or restarting before an episode
+emits any action, raises `RuntimeError`.
+
+### `advance`
+
+```python
+advance(observations, *, done_mask, terminal_states=None) -> None
+```
+
+Consume one vector step: observations contain reset observations for done rows
+and next observations for survivors. Only done rows receive a new BOS. Do not
+also call `observe` or `reset_rows` for this step. For NEXT_STEP, call
+`finish_episode` on termination, then `restart_episode` when reset observations
+arrive; `observe(..., active_mask=continuing)` consumes only continuing rows.
+The `active_mask` argument is retain-only.
+
+Retain requires each emitted action to be observed or finalized before the next
+action request. Explicit resets can abandon pending feedback. Model or normalizer
+replacement requires a session reset; in-place weight/statistic changes also
+require a reset and are the caller's responsibility. See [cross-episode
+retention](cross-episode-retain.md) for examples and host support.
 
 ### `reset_rows`
 

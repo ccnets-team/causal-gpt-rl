@@ -146,4 +146,9 @@ and rejects these bundles.
 The graph is stateless, so the host also owns the BOS retention convention.
 Bundles default to `serving.bos_cache_mode: "discard"`: use the BOS token for
 the first action, then mask it out of every later window. The Unity evaluators
-do this by default; select `--bos-cache-mode retain` only when required.
+do this by default. `retain` now also requires cross-episode history management.
+Retain exports carry `causal_gpt_rl.bos_cache_mode` and
+`causal_gpt_rl.requires_capabilities` ONNX metadata. The shipped Unity C# runtime
+and Python Unity ONNX evaluators reject this mode until their hosts implement
+the lifecycle. The tensor I/O is unchanged; see
+[cross-episode retention](cross-episode-retain.md).
