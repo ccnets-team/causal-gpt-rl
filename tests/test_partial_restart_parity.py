@@ -216,6 +216,8 @@ def test_add_rows_keeps_the_existing_rows_retention_past_the_window():
     before = runner.buffer.get_kv_valid_lengths().copy()
     assert before[0] > runner.context_length, "test needs history past the window"
 
+    # Retain consumes real transitions exactly once, also when the batch grows.
+    runner.observe(obs[20].copy())
     runner.add_rows(np.array([[0.1, 0.2]], dtype=np.float32))
     runner.act()
 

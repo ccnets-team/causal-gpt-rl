@@ -102,7 +102,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--time-scale", type=float, default=20.0)
     p.add_argument("--graphics", action="store_true", help="Render the Unity window (default headless).")
     p.add_argument("--max-ticks", type=int, default=20000)
-    p.add_argument("--bos-cache-mode", choices=("discard", "retain"), default="discard")
+    p.add_argument("--bos-cache-mode", choices=("discard",), default="discard",
+                   help="BOS mode; this Unity host currently supports discard only.")
     return p.parse_args()
 
 
@@ -111,6 +112,10 @@ def main() -> None:
     from unity_env import UnityEnv
 
     sess = ort.InferenceSession(str(args.onnx), providers=["CPUExecutionProvider"])
+    metadata = sess.get_modelmeta().custom_metadata_map
+    if (metadata.get("causal_gpt_rl.bos_cache_mode") == "retain"
+            or "cross_episode_context" in metadata.get("causal_gpt_rl.requires_capabilities", "")):
+        raise SystemExit("This Unity ONNX host does not support cross-episode retain.")
     acts = sess.get_inputs()[1].shape[-1]  # actions channel width
 
     UnityEnv.register(args.env_id, None, str(args.build))

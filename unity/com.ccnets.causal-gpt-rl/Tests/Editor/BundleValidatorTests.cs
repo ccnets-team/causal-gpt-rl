@@ -131,6 +131,7 @@ namespace CCNets.CausalGPTRL.Tests
         }
 
         [TestCase("hybrid_action", TestName = "RefusesCapability_HybridAction")]
+        [TestCase("cross_episode_context", TestName = "RefusesCapability_CrossEpisodeContext")]
         [TestCase("time_axis", TestName = "RefusesCapability_Unknown")]
         public void RefusesUnimplementedCapability(string capability)
         {

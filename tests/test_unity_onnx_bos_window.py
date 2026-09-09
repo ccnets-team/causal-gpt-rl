@@ -1,11 +1,15 @@
 """BOS retention parity for the stateless Unity ONNX window."""
 
 import importlib.util
+import argparse
+import ast
 import sys
 import types
 from pathlib import Path
 
 import numpy as np
+import pytest
+import torch
 
 
 def _window_class():
@@ -23,6 +27,28 @@ def _window_class():
         else:
             sys.modules["onnxruntime"] = previous_ort
     return module.Window
+
+
+@pytest.mark.parametrize('relative,required', [
+    ('examples/deploy/mlagents.py', ['--build', 'build.exe', '--onnx', 'policy.onnx']),
+    ('examples/unity/evaluate_onnx.py', ['--build', 'build.exe', '--onnx', 'policy.onnx']),
+    ('examples/unity/evaluate_matchup.py', ['--build', 'build.exe', '--causal-onnx', 'policy.onnx', '--stock-onnx', 'stock.onnx']),
+])
+def test_unity_cli_accepts_discard_and_rejects_retain(relative, required, monkeypatch, capsys):
+    # Execute the real parser without importing optional Unity launch dependencies.
+    path = Path(__file__).resolve().parents[1] / relative
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    parser = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'parse_args')
+    namespace = {'argparse': argparse, 'Path': Path, 'torch': torch, '__doc__': ast.get_docstring(tree)}
+    exec(compile(ast.Module(body=[parser], type_ignores=[]), str(path), 'exec'), namespace)
+    for option in ([], ['--bos-cache-mode', 'discard']):
+        monkeypatch.setattr(sys, 'argv', [str(path), *required, *option])
+        assert namespace['parse_args']().bos_cache_mode == 'discard'
+    monkeypatch.setattr(sys, 'argv', [str(path), *required, '--bos-cache-mode', 'retain'])
+    with pytest.raises(SystemExit) as error:
+        namespace['parse_args']()
+    assert error.value.code == 2
+    assert "invalid choice: 'retain'" in capsys.readouterr().err
 
 
 def test_discard_masks_bos_after_first_action():

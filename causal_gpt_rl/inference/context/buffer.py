@@ -208,6 +208,23 @@ class ContextBuffer:
         self.masks = np.roll(self.masks, shift=-1, axis=1)
         self.masks[:, -2] = 1.0
 
+    def update_rows(self, next_states, actions, rows, *, is_bos=0.0):
+        """Append only selected rows; inputs use full-batch canonical shapes."""
+        rows = np.asarray(rows, dtype=bool)
+        if not rows.any():
+            return
+        self.states[rows] = np.roll(self.states[rows], -1, axis=1)
+        self.states[rows, -1] = next_states[rows]
+        bos = np.broadcast_to(np.asarray(is_bos, dtype=np.float32), (self.num_agents,))
+        bos_rows = rows & (bos != 0)
+        self.states[bos_rows, -2] = next_states[bos_rows]
+        self.actions[rows] = np.roll(self.actions[rows], -1, axis=1)
+        self.actions[rows, -2] = actions[rows]
+        self.is_bos[rows] = np.roll(self.is_bos[rows], -1, axis=1)
+        self.is_bos[rows, -2, 0] = bos[rows]
+        self.masks[rows] = np.roll(self.masks[rows], -1, axis=1)
+        self.masks[rows, -2] = 1.0
+
     def get_context(self):
         # IMPORTANT: keep project-specific ordering as (state, action), not (next_state, action)
         states  = self.states.copy()

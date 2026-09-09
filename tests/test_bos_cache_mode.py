@@ -122,6 +122,8 @@ def _set_serving(tmp_path, serving: dict) -> None:
     cfg_path = tmp_path / "config.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     cfg["serving"] = serving
+    if serving.get("bos_cache_mode") == "retain":
+        cfg["requires_capabilities"] = sorted(set(cfg.get("requires_capabilities", [])) | {bundle.CROSS_EPISODE_CAPABILITY})
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
 
 

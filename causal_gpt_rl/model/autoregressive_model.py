@@ -508,6 +508,7 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         self, states, actions, is_bos, padding_mask=None, past_key_values=None,
         cache_max_len=None, return_info=False, past_valid_len=None, *,
         action_context_coordinate=ENVIRONMENT_ACTION_COORDINATE,
+        ingest_only=False,
     ):
         """Eval one incremental cached step for policy inference.
 
@@ -566,6 +567,8 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
                 past_key_values, max_len=int(cache_max_len)
             )
 
+        if ingest_only:
+            return past_key_values
         info = self._build_info(out) if return_info else None
         if action_context_coordinate == PRE_TANH_ACTION_COORDINATE:
             action, context_action = self._action_and_context_from_heads(out)

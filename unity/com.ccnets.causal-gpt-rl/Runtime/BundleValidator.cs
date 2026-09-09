@@ -72,6 +72,10 @@ namespace CCNets.CausalGPTRL
             new Dictionary<string, string>
             {
                 {
+                    "cross_episode_context",
+                    "this runtime does not support retaining history across episode boundaries"
+                },
+                {
                     "hybrid_action",
                     "the action schedule mixes head families (e.g. continuous + discrete); " +
                     "this runtime decodes one family per bundle"

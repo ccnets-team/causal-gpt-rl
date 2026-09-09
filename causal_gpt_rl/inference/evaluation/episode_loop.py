@@ -31,19 +31,23 @@ def run_episodes(
 
     returns: list[float] = []
     lengths: list[int] = []
+    retain = getattr(runner, "bos_cache_mode", "discard") == "retain"
 
     for ep in range(num_episodes):
         # Seed once on the first reset; subsequent resets advance env RNG naturally.
         reset_kwargs = {"seed": int(seed)} if (ep == 0 and seed is not None) else {}
         reset_out = env.reset(**reset_kwargs)
         obs = reset_out[0] if isinstance(reset_out, tuple) else reset_out
-        runner.reset(obs)
+        if retain and ep > 0:
+            runner.restart_episode(obs)
+        else:
+            runner.reset(obs)
 
         ep_return = 0.0
         ep_length = 0
         done = False
         while not done:
-            action = runner.act(obs)
+            action = runner.act() if retain else runner.act(obs)
             step_out = env.step(action)
             if len(step_out) == 5:
                 obs, reward, term, trunc, _ = step_out
@@ -53,6 +57,11 @@ def run_episodes(
                 done = bool(done_flag)
             ep_return += float(reward)
             ep_length += 1
+            if retain:
+                if done or (max_steps is not None and ep_length >= max_steps):
+                    runner.finish_episode(obs)
+                else:
+                    runner.observe(obs)
             if max_steps is not None and ep_length >= max_steps:
                 break
 

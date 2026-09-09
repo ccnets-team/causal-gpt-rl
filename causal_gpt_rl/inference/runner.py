@@ -33,6 +33,8 @@ from ..model.utils.action_normalization import (
 from .adapters import make_action_output_adapter, make_state_input_adapter
 from .checkpoint import load_inference_checkpoint
 from .context.buffer import ContextBuffer
+from .context.retained_cache import RetainedCache
+from .episode_lifecycle import RetainEpisodeLifecycle
 from .state_normalizer import StateNormalizer
 
 # How much past a cached rollout retains when the caller passes no explicit
@@ -57,7 +59,7 @@ DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER = 1
 CACHED_CONTEXT_BUFFER_SLOTS = 2
 
 
-class PolicyRunner:
+class PolicyRunner(RetainEpisodeLifecycle):
     """Step-wise interface for running a trained autoregressive policy."""
 
     def __init__(
@@ -182,20 +184,16 @@ class PolicyRunner:
         # the path decides how much rolling window the buffer below allocates.
         # See the `use_windowed` property for what an assignment does instead.
         self._use_windowed = bool(use_windowed)
-        # BOS KV-cache retention (serving convention — NOT a weight/architecture
-        # property). "discard" (default) reproduces legacy behavior: the
-        # episode-start bos token's KV is dropped after the first act, so the
-        # persisted cache carries only bos=0 tokens. "retain" keeps the bos
-        # token's KV so it coexists with bos=0 (matches full-window / training
-        # exposure and fixes the 1-step position offset). None -> "discard".
-        # Cached path only; no effect when use_windowed=True (no KV cache).
+        # Discard preserves the original BOS/episode lifecycle. Retain keeps
+        # BOS and history across restart_episode in cached and windowed modes.
+        # Explicit reset/reset_rows always erase the selected session history.
         mode = "discard" if bos_cache_mode is None else str(bos_cache_mode)
         if mode not in ("discard", "retain"):
             raise ValueError(
                 f"bos_cache_mode must be 'discard' or 'retain', got "
                 f"{bos_cache_mode!r}"
             )
-        self.bos_cache_mode = mode
+        self._bos_cache_mode = mode
         if self.context_length <= 0:
             raise ValueError(f"context_length must be > 0, got {context_length}")
         if self.num_envs <= 0:
@@ -235,10 +233,19 @@ class PolicyRunner:
         # so `bos_cache_mode="discard"` means the same thing for one row as it
         # does for a whole-batch `reset()`. Empty under "retain".
         self._pending_bos_discard_mask = np.zeros(self.num_envs, dtype=bool)
+        self._retain_pending_action = np.zeros(self.num_envs, dtype=bool)
+        self._retain_dirty = np.zeros(self.num_envs, dtype=bool)
+        self._retain_awaiting = np.zeros(self.num_envs, dtype=bool)
+        self._retain_has_action = np.zeros(self.num_envs, dtype=bool)
 
         self.model.eval()
         if self.state_normalizer is not None:
             self.state_normalizer.to(self.model.device).eval()
+
+    @property
+    def bos_cache_mode(self) -> str:
+        """Fixed mode: retain keeps BOS and history across natural episodes."""
+        return self._bos_cache_mode
 
     @property
     def use_windowed(self) -> bool:
@@ -298,6 +305,11 @@ class PolicyRunner:
         self._reset_kv_after_next_act = self.bos_cache_mode == "discard"
         self._pending_bos_mask[:] = False
         self._pending_bos_discard_mask[:] = False
+        self._retain_pending_action[:] = False
+        self._retain_dirty[:] = True
+        self._retain_awaiting[:] = False
+        self._retain_has_action[:] = False
+        self._session_components = (id(self.model), id(self.state_normalizer))
 
     def reset_rows(self, done_mask) -> None:
         """Restart the episodes of a subset of envs; leave the rest untouched.
@@ -331,6 +343,10 @@ class PolicyRunner:
             return
         # Wipe the flagged rows' buffered trajectory and disown their cached history.
         self.buffer.reset_context_rows(mask)
+        self._retain_pending_action[mask] = False
+        self._retain_dirty[mask] = False
+        self._retain_awaiting[mask] = False
+        self._retain_has_action[mask] = False
         # Seed those rows as BOS on the next observe, and clear any stale action
         # so the fresh episode does not inherit the previous step's action.
         self._pending_bos_mask |= mask
@@ -382,6 +398,8 @@ class PolicyRunner:
         k = int(new_states.shape[0])
         cache_survived = self.buffer.add_rows(new_states)
         self.num_envs += k
+        for name in ("_retain_pending_action", "_retain_dirty", "_retain_awaiting", "_retain_has_action"):
+            setattr(self, name, np.concatenate([getattr(self, name), np.full(k, name == "_retain_dirty", dtype=bool)]))
         # New rows are already seeded with their BOS observation, so they are not
         # pending; existing rows keep their pending flags.
         self._pending_bos_mask = np.concatenate(
@@ -424,6 +442,8 @@ class PolicyRunner:
         The info dict carries `termination_prob` (float for `num_envs == 1`,
         else a per-env array; `None` when the model has no EOS head). This is
         the opt-in companion to `act()` — the action contract is unchanged.
+        When all retain rows are paused, no inference runs and termination_prob
+        is None even if the model has an EOS head.
         """
         return self._step(state, return_info=True)
 
@@ -451,6 +471,18 @@ class PolicyRunner:
         elif not self._is_reset:
             raise RuntimeError("Call reset(initial_state) before act().")
 
+        active = ~self._retain_awaiting
+        if self.bos_cache_mode == "retain":
+            if self._session_components != (id(self.model), id(self.state_normalizer)):
+                raise RuntimeError("Model/normalizer replacement requires reset() before inference.")
+            if (active & ~self._retain_dirty).any():
+                raise RuntimeError("Observe the emitted action's result before requesting another action.")
+            if not active.any():
+                action, _ = self._decode(np.zeros((self.num_envs, self.action_size), np.float32))
+                return action, {"termination_prob": None} if return_info else {}
+            if not self.use_windowed and not active.all():
+                self._retain_cache_bank()
+
         states, actions, is_bos, mask, past_kv = self.buffer.get_context()
         device = self.model.device
         states_t = torch.as_tensor(states, dtype=torch.float32, device=device)
@@ -468,17 +500,33 @@ class PolicyRunner:
         info_raw: Optional[dict] = None
         if self.use_windowed:
             predict = self.model._predict_with_window if direct else self.model.predict_with_window
+            window_rows = torch.as_tensor(active, device=device) if self.bos_cache_mode == "retain" else slice(None)
             result = predict(
-                states=states_t,
-                actions=actions_t,
-                is_bos=is_bos_t,
-                padding_mask=mask_t,
+                states=states_t[window_rows],
+                actions=actions_t[window_rows],
+                is_bos=is_bos_t[window_rows],
+                padding_mask=mask_t[window_rows],
                 **prediction_options,
             )
             if return_info or direct:
                 next_action, info_raw = result
             else:
                 next_action = result
+            if self.bos_cache_mode == "retain" and not active.all():
+                values = ensure_tensor_heads(next_action)
+                next_action = values.new_zeros((self.num_envs, *values.shape[1:]))
+                next_action[window_rows] = values
+                for key, value in (info_raw or {}).items():
+                    if value is not None:
+                        full = value.new_zeros((self.num_envs, *value.shape[1:]))
+                        full[window_rows] = value
+                        info_raw[key] = full
+        elif isinstance(past_kv, RetainedCache):
+            next_action, info_raw = past_kv.predict(
+                self.model, states_t, actions_t, is_bos_t, mask_t,
+                active=active, max_len=self.kv_cache_max_len,
+                coordinate=self.rollout_action_context_coordinate,
+            )
         else:
             had_history = cache_has_history(past_kv)
             # Every row grows by the same number of tokens, which is all the
@@ -540,6 +588,10 @@ class PolicyRunner:
             # Own the original z independently of the returned environment value.
             buffer_action = info_raw["_context_action"][:, -1].detach().cpu().numpy().copy()
         self._last_buffer_action = buffer_action
+        if self.bos_cache_mode == "retain":
+            self._retain_pending_action[active] = True
+            self._retain_has_action[active] = True
+            self._retain_dirty[active] = False
         return env_action, self._build_step_info(info_raw)
 
     def _build_step_info(self, info_raw: Optional[dict]) -> dict:
@@ -555,12 +607,17 @@ class PolicyRunner:
             info["termination_prob"] = float(t[0]) if self.num_envs == 1 else t
         return info
 
-    def observe(self, state) -> None:
+    def observe(self, state, *, active_mask=None) -> None:
         """Record a new observation after the previously emitted action."""
         state_arr = self._format_state(state)
         if not self._is_reset:
             self.reset(state_arr)
             return
+        if self.bos_cache_mode == "retain":
+            self._observe_retain(state_arr, self._episode_mask(active_mask))
+            return
+        if active_mask is not None:
+            raise ValueError("active_mask is supported only in retain mode.")
         if self._last_buffer_action is not None:
             is_bos = (
                 self._pending_bos_mask.astype(np.float32)
@@ -586,6 +643,7 @@ class PolicyRunner:
         num_envs: int = 1,
         kv_cache_max_len: Optional[int] = None,
         use_windowed: bool = False,
+        bos_cache_mode: Optional[str] = None,
     ) -> "PolicyRunner":
         """Load weights and the checkpoint's fixed rollout coordinate.
 
@@ -593,6 +651,12 @@ class PolicyRunner:
         coordinates are validated against the loaded normalization state.
         """
         ckpt = load_inference_checkpoint(checkpoint_path, map_location=map_location)
+        declared_mode = (ckpt.get("serving") or {}).get("bos_cache_mode", "discard")
+        capabilities = ckpt.get("requires_capabilities") or []
+        if (declared_mode == "retain") != ("cross_episode_context" in capabilities):
+            raise ValueError("Checkpoint retain metadata requires cross_episode_context and bos_cache_mode='retain' together.")
+        if bos_cache_mode is None:
+            bos_cache_mode = declared_mode
         rollout_coordinate = ENVIRONMENT_ACTION_COORDINATE
         if "rollout_context" in ckpt:
             metadata = ckpt["rollout_context"]
@@ -616,6 +680,7 @@ class PolicyRunner:
             num_envs=num_envs,
             kv_cache_max_len=kv_cache_max_len,
             use_windowed=use_windowed,
+            bos_cache_mode=bos_cache_mode,
             rollout_action_context_coordinate=rollout_coordinate,
         )
 

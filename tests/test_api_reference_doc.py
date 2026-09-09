@@ -213,6 +213,28 @@ def test_run_episodes_returns_documented_keys():
     assert set(stats) == documented
 
 
+def test_run_episodes_defaults_duck_typed_runner_to_discard():
+    class RunnerWithoutMode:
+        num_envs = 1
+
+        def __init__(self):
+            self.inner = _runner()
+            self.resets = 0
+
+        def reset(self, state):
+            self.resets += 1
+            self.inner.reset(state)
+
+        def act(self, state):
+            return self.inner.act(state)
+
+    runner = RunnerWithoutMode()
+    expected = api.run_episodes(_StubEnv(), _runner(), num_episodes=2, seed=0)
+    actual = api.run_episodes(_StubEnv(), runner, num_episodes=2, seed=0)
+    assert actual == expected
+    assert runner.resets == 2
+
+
 def test_documented_exceptions():
     """Each exception the document names is raised where it says it is."""
     with pytest.raises(FileNotFoundError):

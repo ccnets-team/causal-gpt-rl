@@ -34,7 +34,7 @@ Format versions:
       },
       "serving": {                      # runtime serving conventions, weight-
                                         # independent; absent -> legacy defaults
-        "bos_cache_mode": "discard" | "retain"  # bos token KV retention
+        "bos_cache_mode": "discard" | "retain"  # BOS and episode history retention
       },
       "env_id":          "<gymnasium env id>"  # optional, added 0.2.0+
     }
@@ -109,8 +109,10 @@ _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 # the output adapter shipped (P5): `load_runner` wires `make_action_output_adapter`
 # onto the runner, which restores the container via gym.spaces.unflatten. Older
 # runtimes that only decode per head (flat) still refuse such bundles loudly.
+CROSS_EPISODE_CAPABILITY = "cross_episode_context"
+
 _SUPPORTED_CAPABILITIES: frozenset[str] = frozenset(
-    {"hybrid_action", "hybrid_state", "action_container", "action_normalization", PRE_TANH_ROLLOUT_CAPABILITY}
+    {"hybrid_action", "hybrid_state", "action_container", "action_normalization", PRE_TANH_ROLLOUT_CAPABILITY, CROSS_EPISODE_CAPABILITY}
 )
 SUPPORTED_CAPABILITIES = _SUPPORTED_CAPABILITIES
 
@@ -221,17 +223,17 @@ def export_bundle(
 ) -> Path:
     """Write the bundle to `bundle_dir`. Creates the directory if needed.
 
-    `bos_cache_mode` ("discard" | "retain") bakes the bos KV-cache retention
-    serving convention into the bundle under `serving.bos_cache_mode`, so the
-    runner picks it up automatically at load. Leave it None to omit the field
-    entirely — loaders then default to "discard" (legacy, byte-identical), and
-    every existing bundle behaves exactly as before.
+    `bos_cache_mode="retain"` keeps BOS and cross-episode history, and adds
+    the cross_episode_context capability automatically. None omits the field
+    and preserves the original discard bundle and execution behavior.
     """
     if bos_cache_mode is not None and bos_cache_mode not in ("discard", "retain"):
         raise ValueError(
             f"bos_cache_mode must be 'discard' or 'retain', got {bos_cache_mode!r}"
         )
     requires_capabilities = tuple(requires_capabilities or ())
+    if CROSS_EPISODE_CAPABILITY in requires_capabilities and bos_cache_mode != "retain":
+        raise ValueError("cross_episode_context requires bos_cache_mode='retain'")
     model._validate_action_normalization(
         model.action_normalization_enabled,
         model.action_normalization_mean,
@@ -275,6 +277,8 @@ def export_bundle(
     # load on any runtime.
     action_types = [s.type for s in action_specs]
     capabilities = set(requires_capabilities or [])
+    if bos_cache_mode == "retain":
+        capabilities.add(CROSS_EPISODE_CAPABILITY)
     if direct_context:
         capabilities.add(PRE_TANH_ROLLOUT_CAPABILITY)
     if action_normalized:
@@ -404,9 +408,8 @@ def load_runner(
     `context_length` as the cached inference cap, keeping the rollout inside
     the model's trained window. Pass a larger value to retain more history.
 
-    `bos_cache_mode` selects whether the episode-start bos token's KV is kept
-    in the cache ("retain") or dropped after the first act ("discard"). It is a
-    serving convention, resolved as: explicit argument > bundle
+    `bos_cache_mode="retain"` keeps BOS and history across natural episode
+    restarts. "discard" preserves the original behavior. Resolved as: explicit argument > bundle
     `serving.bos_cache_mode` > "discard" (legacy). Passing it here overrides
     whatever the bundle declares; leave it None to honor the bundle.
     """
@@ -434,6 +437,9 @@ def load_runner(
     # this runtime does not implement, rather than silently mis-decoding. A
     # missing/empty list means "needs only baseline capabilities".
     required_caps = config_payload.get("requires_capabilities") or []
+    declared_mode = (config_payload.get("serving") or {}).get("bos_cache_mode", "discard")
+    if (declared_mode == "retain") != (CROSS_EPISODE_CAPABILITY in required_caps):
+        raise ValueError("Retain bundles must declare cross_episode_context and bos_cache_mode='retain' together; re-export the bundle.")
     missing_caps = sorted(set(required_caps) - _SUPPORTED_CAPABILITIES)
     if missing_caps:
         details = [

@@ -8,6 +8,7 @@ Copyright (c) 2026 CCNets, Inc. All rights reserved.
 
 import numpy as np
 import torch
+from .retained_cache import RetainedCache
 
 
 def can_grow_cache_batch(past_key_values) -> bool:
@@ -17,6 +18,8 @@ def can_grow_cache_batch(past_key_values) -> bool:
     A caller that cannot recover from a dropped cache asks this first and
     refuses before it has changed anything, rather than unwinding afterwards.
     """
+    if isinstance(past_key_values, RetainedCache):
+        return True
     if past_key_values is None:
         return True
     if getattr(past_key_values, "layers", None):
@@ -147,6 +150,8 @@ class ContextCache:
 
     def valid_lengths(self) -> np.ndarray:
         """Per row, how many cached positions belong to its current episode."""
+        if isinstance(self.past_key_values, RetainedCache):
+            return self.past_key_values.valid_lengths()
         return np.minimum(self._valid_len, self.get_kv_cache_length())
 
     def has_partial_rows(self) -> bool:
@@ -160,6 +165,9 @@ class ContextCache:
         it was: a caller that only stores a cache is unaffected, and one that
         also tracks rows says so in its own call.
         """
+        if isinstance(self.past_key_values, RetainedCache):
+            self.set_valid_lengths(self.valid_lengths() + int(appended))
+            return
         self._valid_len = np.minimum(
             self._valid_len + int(appended), self.get_kv_cache_length()
         )
@@ -171,6 +179,10 @@ class ContextCache:
             raise ValueError(
                 f"Expected valid lengths for {self.num_agents} agents, got {lengths.shape[0]}"
             )
+        if isinstance(self.past_key_values, RetainedCache):
+            from ...model.utils.kv_cache import cached_position_count
+            for group in self.past_key_values.groups:
+                group.valid = np.clip(lengths[group.rows], 0, cached_position_count(group.cache))
         self._valid_len = np.minimum(lengths, self.get_kv_cache_length())
 
     def invalidate_rows(self, reset_mask) -> None:
@@ -180,6 +192,8 @@ class ContextCache:
             raise ValueError(
                 f"Expected reset_mask for {self.num_agents} agents, got {mask.shape[0]}"
             )
+        if isinstance(self.past_key_values, RetainedCache):
+            self.past_key_values.invalidate_rows(mask)
         self._valid_len[mask] = 0
 
     def can_grow_agent_rows(self) -> bool:
@@ -204,6 +218,9 @@ class ContextCache:
         self._valid_len = np.concatenate(
             [self._valid_len, np.zeros(k, dtype=np.int64)]
         )
+        if isinstance(self.past_key_values, RetainedCache):
+            self.past_key_values.add_rows(k)
+            return True
         if self.past_key_values is None:
             return True
         if _grow_cache_batch(self.past_key_values, k):

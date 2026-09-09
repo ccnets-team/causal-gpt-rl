@@ -25,15 +25,16 @@ def load_inference_checkpoint(
 ) -> dict:
     """Load a training checkpoint and return only inference-relevant pieces.
 
-    Returns `model_state` plus `state_normalizer_state` and `rollout_context`
-    when present. The runner validates the coordinate against the loaded model.
+    Returns model/normalizer state, rollout_context, serving conventions and
+    requires_capabilities when present. The runner validates serving metadata
+    and the coordinate against the loaded model.
     """
     checkpoint = torch.load(str(path), map_location=map_location)
     if "model_state" not in checkpoint:
         raise KeyError(f"Checkpoint at {path} has no 'model_state' entry.")
 
     out: dict = {"model_state": checkpoint["model_state"]}
-    for key in ("state_normalizer_state", "rollout_context"):
+    for key in ("state_normalizer_state", "rollout_context", "serving", "requires_capabilities"):
         if key in checkpoint:
             out[key] = checkpoint[key]
     return out

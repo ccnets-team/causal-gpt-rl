@@ -51,7 +51,8 @@ class _StubRunner:
         self.action_schedule = action_schedule or _BOX_SCHEDULE
         self.context_length = 8
         self.kv_cache_max_len = 16
-        self.bos_cache_mode = "retain"
+        # This fixture exercises the original episode-discard lifecycle.
+        self.bos_cache_mode = "discard"
         self.use_windowed = False
         self._actions = list(actions)
         self._emitted = 0
@@ -427,7 +428,7 @@ def test_spec_json_declares_the_spaces_and_keeps_the_provenance(tmp_path):
     assert entry["bundle"] == "ccnets/causal-gpt-rl@ant-v5"
     assert entry["context_length"] == runner.context_length
     assert entry["kv_cache_max_len"] == runner.kv_cache_max_len
-    assert entry["bos_cache_mode"] == "retain"
+    assert entry["bos_cache_mode"] == "discard"
     assert entry["recorder"] == "collection.CollectionRunner"
     assert entry["action_space"]["type"] == "Box"
 

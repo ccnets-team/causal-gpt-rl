@@ -483,8 +483,24 @@ class CollectionRunner:
         `record` sits on this call because it is already the episode boundary —
         the same call clears the runner's context, so the two spans coincide.
         """
+        self._start_episode(observation, record=record, restart=False)
+
+    def restart_episode(self, observation, *, record: bool = True) -> None:
+        """Start the next recorded episode after its terminal observe.
+
+        Unlike reset(), retain runners keep inference history. Recording still
+        starts a separate episode file. Vector NEXT_STEP restarts are automatic.
+        """
+        if self._started:
+            raise RuntimeError("Finish the current episode before restart_episode().")
+        self._start_episode(observation, record=record, restart=True)
+
+    def _start_episode(self, observation, *, record: bool, restart: bool) -> None:
         self._close_open_rows(aborted=True)
-        self.runner.reset(observation)
+        if restart and getattr(self.runner, "bos_cache_mode", "discard") == "retain":
+            self.runner.restart_episode(observation)
+        else:
+            self.runner.reset(observation)
         self._started = True
         self._recording = bool(record)
         self._awaiting[:] = False
@@ -547,8 +563,12 @@ class CollectionRunner:
         # first. Restart them in the runner before it is fed, so the ended
         # episode leaves their context instead of preceding the new one.
         restarting = self._awaiting.copy()
+        retain = getattr(self.runner, "bos_cache_mode", "discard") == "retain"
         if restarting.any():
-            self.runner.reset_rows(restarting)
+            if retain:
+                self.runner.restart_episode(observation, done_mask=restarting)
+            else:
+                self.runner.reset_rows(restarting)
             self._awaiting[:] = False
 
         rows = self._observation_rows(observation) if self._recording else None
@@ -588,7 +608,13 @@ class CollectionRunner:
             self._recording = False
             self._started = False
 
-        if not done.all():
+        if retain:
+            if closing.any():
+                self.runner.finish_episode(observation, done_mask=closing)
+            continuing = ~(closing | restarting)
+            if continuing.any():
+                self.runner.observe(observation, active_mask=continuing)
+        elif not done.all():
             # The runner has no use for a terminal state; the contract does. It
             # is fed the whole batch or none of it, so a row that ended keeps its
             # terminal observation until the `reset_rows` above wipes the row.

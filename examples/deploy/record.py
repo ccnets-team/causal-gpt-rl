@@ -164,7 +164,10 @@ def record_episodes(
     results = []
     for index in range(episodes):
         observation, _ = env.reset(seed=seed_start + index)
-        collector.reset(observation, record=True)
+        if index > 0 and getattr(collector.runner, "bos_cache_mode", "discard") == "retain":
+            collector.restart_episode(observation, record=True)
+        else:
+            collector.reset(observation, record=True)
         total = 0.0
         for step in range(max_steps):
             action = collector.act()

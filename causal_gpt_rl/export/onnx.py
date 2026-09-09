@@ -8,6 +8,7 @@ Legacy bundles may additionally carry ``state_normalizer.safetensors``.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import warnings
 from dataclasses import dataclass
@@ -320,6 +321,13 @@ def export_onnx(
     # artifact and remove its temporary sidecar.
     model = onnx.load(str(output_path), load_external_data=True)
     _strip_exporter_stack_traces(model)
+    if runner.bos_cache_mode == "retain":
+        properties = {p.key: p.value for p in model.metadata_props}
+        properties.update({
+            "causal_gpt_rl.bos_cache_mode": "retain",
+            "causal_gpt_rl.requires_capabilities": json.dumps(["cross_episode_context"]),
+        })
+        onnx.helper.set_model_props(model, properties)
     if direct_context:
         properties = {p.key: p.value for p in model.metadata_props}
         properties.update({

@@ -158,6 +158,9 @@ def _run_onnx(session: ort.InferenceSession, inputs: dict[str, np.ndarray], batc
 def _run_onnx_with_context(session, inputs, batch):
     """Read both representations from one graph execution per batch."""
     metadata = session.get_modelmeta().custom_metadata_map
+    if (metadata.get("causal_gpt_rl.bos_cache_mode") == "retain"
+            or "cross_episode_context" in metadata.get("causal_gpt_rl.requires_capabilities", "")):
+        raise ValueError("This Unity ONNX host does not support cross-episode retain.")
     coordinate = metadata.get("causal_gpt_rl.rollout_action_context_coordinate", "environment_action_v1")
     if coordinate not in ("environment_action_v1", "standardized_pre_tanh_v1"):
         raise ValueError(f"Unknown ONNX rollout coordinate: {coordinate!r}")
@@ -213,9 +216,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graphics", action="store_true")
     parser.add_argument(
         "--bos-cache-mode",
-        choices=("discard", "retain"),
+        choices=("discard",),
         default="discard",
-        help="Drop or retain the BOS token after the first action (default: discard).",
+        help="BOS mode; this Unity host currently supports discard only.",
     )
     return parser.parse_args()
 

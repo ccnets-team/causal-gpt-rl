@@ -120,14 +120,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graphics", action="store_true")
     parser.add_argument(
         "--bos-cache-mode",
-        choices=("discard", "retain"),
+        choices=("discard",),
         default="discard",
-        help="Drop or retain the Causal policy BOS token after act#0 (default: discard).",
+        help="BOS mode; this Unity host currently supports discard only.",
     )
     return parser.parse_args()
 
 
 def _session_contract(session: ort.InferenceSession) -> tuple[int, int, int, int]:
+    metadata = session.get_modelmeta().custom_metadata_map
+    if (metadata.get("causal_gpt_rl.bos_cache_mode") == "retain"
+            or "cross_episode_context" in metadata.get("causal_gpt_rl.requires_capabilities", "")):
+        raise ValueError("This Unity ONNX host does not support cross-episode retain.")
     inputs = {item.name: item for item in session.get_inputs()}
     required = {"states", "actions", "is_bos", "mask"}
     if set(inputs) != required:
