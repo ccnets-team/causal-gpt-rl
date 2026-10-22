@@ -131,6 +131,38 @@ Two worked builds:
 | Crawler | `Tuple(Box(126), Box(32))` | `Box(20, [-1, 1])` |
 | PushBlock | `Tuple(Box(105), Box(105))` | `Discrete(7)` |
 
+## WallJump with changing behaviors
+
+WallJump selects `SmallWallJump.onnx` for no/low walls and `BigWallJump.onnx`
+for high walls at episode reset. Use the dedicated collector so a physical agent
+can change behavior without joining two episodes or applying the wrong policy:
+
+```bash
+python examples/unity_collection/collect_walljump.py \
+  --build path/to/WallJump.exe \
+  --small-onnx path/to/SmallWallJump.onnx \
+  --big-onnx path/to/BigWallJump.onnx \
+  --out raw_walljump_expert --quality expert --target 1000000
+python -m collection.build_minari --raw raw_walljump_expert \
+  --dataset-id unity/walljump/expert-v0 --author ccnets
+python -m collection.compress_minari unity/walljump/expert-v0
+python -m collection.validate_walljump --raw raw_walljump_expert \
+  --target 1000000 --dataset-id unity/walljump/expert-v0
+```
+
+Each transition starts at a submitted decision and ends at that agent's next
+decision or terminal observation. ML-Agents accumulates rewards while repeating
+the action between decisions. The raw arrays and episode sidecar retain Unity
+tick deltas. Observation leaves are `(210,)`, `(210,)`, `(24,)`; actions are
+`MultiDiscrete([3, 3, 3, 2])`. Metadata preserves behavior, policy, temperature,
+and goal/fall/timeout outcome; no/low walls share the SmallWallJump behavior and
+cannot be distinguished by the behavior label alone.
+
+For temperature tiers, expose logits in both models with `expose_tier_logits.py`
+and pass `--small-temperature-range lo,hi` and `--big-temperature-range lo,hi`.
+Each episode draws one temperature. Calibrate and report the two behaviors
+separately because their episode lengths and expert efficiency differ.
+
 ## Quality tiers (simple / medium)
 
 The MuJoCo Minari datasets ship a `simple` / `medium` / `expert` ladder where each

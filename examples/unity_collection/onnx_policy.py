@@ -45,9 +45,10 @@ _RECURRENT_INPUT = "recurrent_in"
 class OnnxPolicy:
     def __init__(self, onnx_path, num_agents, obs_shapes, action_spec,
                  providers=None, rng=None, temperature=1.0, beta_jitter=0.0,
-                 beta_seed=0):
+                 beta_seed=0, session_options=None):
         self.session = ort.InferenceSession(
-            onnx_path, providers=providers or ["CPUExecutionProvider"]
+            onnx_path, sess_options=session_options,
+            providers=providers or ["CPUExecutionProvider"]
         )
         self.num_agents = num_agents
         self.obs_shapes = [tuple(int(d) for d in shape) for shape in obs_shapes]

@@ -49,6 +49,16 @@ python -m collection.validate_unity_group --raw <raw-dir> --group-size 3 \
 This checks that all agents in each match have complete, synchronized
 trajectories and shared rewards.
 
+For WallJump's changing behavior policies, use the specialized validator:
+
+```bash
+python -m collection.validate_walljump --raw <raw-dir> --target 1000000 \
+    --dataset-id unity/walljump/expert-v0 --report validation.json
+```
+
+It checks both behavior identities, per-episode temperature bands, decision tick
+deltas, outcome labels, and sampled Minari arrays against their raw episodes.
+
 ## Record with one of our bundles
 
 Record straight from the command line:
