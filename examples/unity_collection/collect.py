@@ -16,6 +16,7 @@ returned by `step(a_t)` is the consequence of `a_t`, paired with obs_t. Use
 `--probe K` to confirm this empirically before the full run.
 """
 import argparse
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -492,6 +493,7 @@ def main():
     ap.add_argument("--onnx", required=True, help="Path to the baked policy .onnx.")
     ap.add_argument("--out", required=True, help="Output dir for raw episode .npz files.")
     ap.add_argument("--env-id", default="crawler")
+    ap.add_argument("--source-revision", help="Pinned source environment repository revision.")
     ap.add_argument("--target", type=int, default=1_000_000, help="Transitions to collect.")
     ap.add_argument(
         "--complete-matches",
@@ -820,11 +822,20 @@ def main():
     # two-player group per team per field. Pair the sorted team groups to recover
     # the shared field without relying on raw agent IDs.
     agent_context, field_sizes, field_members = _assign_field_ids(env.agent_context)
+    field_teams = {
+        key: {agent_context[g]["team_id"] for g in members}
+        for key, members in field_members.items()
+    }
+    cooperative_fields = {
+        key for key, size in field_sizes.items()
+        if size > 1 and len(field_teams[key]) == 1
+    }
     print(f"[env] fields={len(field_sizes)} agents_per_field={sorted(set(field_sizes.values()))}")
 
     policy = OnnxPolicy(
         args.onnx, num_agents=n, obs_shapes=env.observation_shapes,
         action_spec=action_spec, temperature=args.temperature,
+        rng=np.random.default_rng(args.noise_seed + 17),
         beta_jitter=beta_jitter, beta_seed=args.noise_seed,
     )
     if args.temperature != 1.0:
@@ -924,8 +935,12 @@ def main():
     spec_meta = {
         "obs_dim": int(sum(obs_dims)),
         "obs_channels": [int(d) for d in obs_dims],
+        "obs_shapes": [[int(x) for x in shape] for shape in env.observation_shapes],
         "action_kind": policy.kind,
+        "onnx_sha256": hashlib.sha256(Path(args.onnx).read_bytes()).hexdigest(),
     }
+    if args.source_revision:
+        spec_meta["source_revision"] = args.source_revision
     if args.dataset_quality is not None:
         spec_meta["dataset_quality"] = args.dataset_quality
     if args.temperature != 1.0:
@@ -993,6 +1008,14 @@ def main():
     else:  # hybrid: continuous head(s) + discrete branch(es), read from the spec
         spec_meta["continuous_size"] = int(action_spec.continuous_size)
         spec_meta["branches"] = [int(b) for b in policy.branches]
+    if args.resume:
+        previous_spec = json.loads((out_dir / "spec.json").read_text(encoding="utf-8"))
+        for key in ("obs_dim", "obs_channels", "obs_shapes", "action_kind",
+                    "noise", "branches", "continuous_size", "onnx_sha256",
+                    "source_revision"):
+            if key in previous_spec and previous_spec[key] != spec_meta.get(key):
+                raise ValueError(f"Resume spec mismatch for {key}: "
+                                 f"{previous_spec[key]!r} != {spec_meta.get(key)!r}")
     (out_dir / "spec.json").write_text(json.dumps(spec_meta, indent=2), encoding="utf-8")
     print(f"[env] action_kind={policy.kind} obs_channels={obs_dims} spec={spec_meta}")
 
@@ -1142,7 +1165,11 @@ def main():
         trunc = np.zeros(T, dtype=bool)
         term[-1] = terminated
         trunc[-1] = truncated
-        np.savez(
+        # Binary occupancy grids are highly compressible.  Without compression,
+        # one million 5x40x40 float32 observations exceed 30 GB per tier before
+        # Minari writes its copy of the same data.
+        save_episode = np.savez_compressed if any(len(shape) > 1 for shape in env.observation_shapes) else np.savez
+        save_episode(
             out_dir / f"ep_{ep_count:06d}.npz",
             observations=obs_arr,
             actions=act_arr,
@@ -1154,7 +1181,12 @@ def main():
         field_key = (context["env_index"], context["field_id"])
         match_index = field_episode_counts[field_key] // field_sizes[field_key]
         episode_return = float(rew_arr.sum())
-        result = "win" if episode_return > 0 else "loss" if episode_return < 0 else "draw"
+        # Return sign is a win/loss proxy in competitive scenes. Cooperative
+        # group rewards can be positive even when the group times out, so no
+        # per-agent win label can be inferred there.
+        result = (None if field_key in cooperative_fields else
+                  "win" if episode_return > 0 else
+                  "loss" if episode_return < 0 else "draw")
         metadata = {
             "episode_file": f"ep_{ep_count:06d}.npz",
             "episode_index": ep_count,

@@ -56,8 +56,9 @@ observation and action spaces mirror the build's sensors and action spec (see
 packager expects on its input side, and how to check what came out, is in
 [`collection/docs/`](../../collection/docs/README.md).
 
-The same two commands collect **any** build — point `--build`/`--onnx` at it and
-pick a `--dataset-id`. For example the discrete **PushBlock** build (a single
+The same two commands collect builds whose behaviors share one observation and
+action schema and use a feedforward policy. Multi-role or recurrent scenes need
+their own collector. For example the discrete **PushBlock** build (a single
 `Discrete(7)` move/turn action):
 
 ```bash
@@ -93,14 +94,26 @@ python ../../collection/build_minari.py \
 
 The collector writes each ego-agent trajectory as one episode and writes match
 relationships (`match_id`, `field_id`, `team_id`, `group_id`) to the adjacent
-`manifest.jsonl`. `--ego-agent` is the packager flag that names whose trajectory
+`episode_metadata.jsonl`. `--ego-agent` is the packager flag that names whose trajectory
 each episode holds; see
 [Multi-agent recordings](../../collection/docs/03-packaging.md#multi-agent-recordings).
 
-The packager consumes the episode arrays, not the `manifest.jsonl` sidecar;
-decentralized shared-policy training therefore sees independent per-agent
-episodes. Retain the manifest for W/D/L, team-return, provenance, and future
-group-aware processing.
+The packager validates and copies `episode_metadata.jsonl` beside the Minari
+`data/` directory. Decentralized shared-policy training still sees independent
+per-agent episodes; join them by `match_id` for group-aware processing.
+
+**PushBlockCollab** uses four independent three-agent groups per build. Its
+`(6, 20, 20)` grid and `(10,)` vector stay separate in Minari, nested under
+the ego-agent key. Record with `--complete-matches`, then validate with
+`collection.validate_unity_group` using `--group-size 3 --target 1000000`.
+For lower tiers, run `expose_tier_logits.py` on the matching
+stock ONNX and pass `--group-temperature-range lo,hi --noise-seed 2310000` to
+`collect.py`. The sampled temperature is shared by all three agents for a
+whole group match. Cooperative `match_result` is `null`: a positive shaped
+reward does not prove that the group solved the task. Package with
+`--ego-agent agent_0 --batch-episodes 16` and
+compress the large spatial HDF5 file with `collection.compress_minari`. Run
+the `python -m collection.*` commands from the repository root.
 
 ## Observation & action spaces
 

@@ -13,11 +13,10 @@ gym env is attached, so `minari.load_dataset(id)` returns a dataset with no
 
 Spaces follow the declared structure, not a forced flat layout:
 
-  - **observation** — `obs_channels` (per-sensor dims) becomes a `Tuple` of one
-    `Box` per sensor, so distinct sensors stay distinguished; a single channel
-    stays a bare `Box` (the flat MuJoCo-Minari convention). A consumer that wants
-    one flat vector just concatenates the leaves, so the `Tuple` loses nothing —
-    it is simply the honest, per-sensor form.
+  - **observation** — `obs_channels` gives each sensor's flattened width;
+    optional `obs_shapes` restores a visual or grid sensor's native dimensions.
+    Multiple sensors become a `Tuple` of `Box` leaves; a single channel stays a
+    bare `Box` (the flat MuJoCo-Minari convention).
   - **action** — a declared `Box` (continuous; defaults to `[-1, 1]`),
     `Discrete`/`MultiDiscrete` (discrete), or
     `Tuple(Box, Discrete/MultiDiscrete)` (hybrid).
@@ -31,11 +30,15 @@ dims into the structured leaf arrays Minari stores. Older raw dirs without
 `obs_channels` fall back to a single flat `Box` observation.
 """
 import argparse
+import json
+import shutil
+from pathlib import Path
 import numpy as np
 import gymnasium as gym
 import minari
 from minari import create_dataset_from_buffers
 from minari.data_collector import EpisodeBuffer
+from minari.storage.datasets_root_dir import get_dataset_path
 
 try:  # Supports both ``python -m collection.build_minari`` and the documented path.
     from ._internal.contract import ContractError, validate_dataset_id, validate_raw_directory
@@ -43,23 +46,28 @@ except ImportError:  # pragma: no cover - exercised by CLI subprocess tests
     from _internal.contract import ContractError, validate_dataset_id, validate_raw_directory
 
 
-def _build_observation_space(obs_channels):
+def _build_observation_space(obs_shapes):
     """Per-sensor `Tuple(Box, ...)`; a single channel stays a bare `Box`."""
+    # Accept widths as well as shapes for callers of this small internal helper.
+    shapes = [(int(shape),) if isinstance(shape, (int, np.integer)) else tuple(shape)
+              for shape in obs_shapes]
     boxes = [
-        gym.spaces.Box(-np.inf, np.inf, shape=(int(d),), dtype=np.float32)
-        for d in obs_channels
+        gym.spaces.Box(-np.inf, np.inf, shape=shape, dtype=np.float32)
+        for shape in shapes
     ]
     return boxes[0] if len(boxes) == 1 else gym.spaces.Tuple(boxes)
 
 
-def _split_obs(flat, obs_channels):
-    """Flat `[T+1, sum]` -> per-sensor tuple of `[T+1, d]` (or the flat array)."""
-    if len(obs_channels) == 1:
-        return flat.astype(np.float32)
+def _split_obs(flat, obs_shapes):
+    """Restore each declared sensor shape from flat episode rows."""
+    shapes = [(int(shape),) if isinstance(shape, (int, np.integer)) else tuple(shape)
+              for shape in obs_shapes]
+    if len(shapes) == 1:
+        return flat.reshape((len(flat), *shapes[0])).astype(np.float32)
     out, off = [], 0
-    for d in obs_channels:
-        d = int(d)
-        out.append(flat[:, off:off + d].astype(np.float32))
+    for shape in shapes:
+        d = int(np.prod(shape))
+        out.append(flat[:, off:off + d].reshape((len(flat), *shape)).astype(np.float32))
         off += d
     return tuple(out)
 
@@ -163,6 +171,7 @@ def build_dataset(
         raise ContractError("batch_episodes must be at least 1")
     if ego_agent is not None and not ego_agent.strip():
         raise ContractError("ego_agent must be a non-empty key (e.g. 'agent_0')")
+    raw = Path(raw)
     validate_dataset_id(dataset_id)
     if dataset_id in minari.list_local_datasets():
         raise ContractError(f"Dataset {dataset_id!r} already exists; choose a new id")
@@ -172,9 +181,18 @@ def build_dataset(
 
     action_kind = spec["action_kind"]
     obs_channels = spec["obs_channels"]
+    obs_shapes = spec["obs_shapes"]
+
+    manifest_path = raw / "episode_metadata.jsonl"
+    manifest = None
+    if manifest_path.is_file():
+        manifest = [json.loads(line) for line in manifest_path.read_text(
+            encoding="utf-8").splitlines() if line.strip()]
+        if len(manifest) != len(files):
+            raise ContractError("episode metadata count differs from raw episode count")
 
     observation_space = _wrap_ego_space(
-        _build_observation_space(obs_channels), ego_agent
+        _build_observation_space(obs_shapes), ego_agent
     )
     action_space = _wrap_ego_space(_build_action_space(action_kind, spec), ego_agent)
 
@@ -203,12 +221,17 @@ def build_dataset(
 
     for i, f in enumerate(files):
         with np.load(f, allow_pickle=False) as d:
-            obs = _split_obs(d["observations"].astype(np.float32), obs_channels)
+            obs = _split_obs(d["observations"].astype(np.float32), obs_shapes)
             act = _split_actions(d["actions"], action_kind, spec)
             rew = d["rewards"].astype(np.float32)
             term = d["terminations"].astype(bool)
             trunc = d["truncations"].astype(bool)
         T = len(rew)
+        if manifest is not None:
+            row = manifest[i]
+            if (row.get("episode_index") != i or row.get("episode_file") != f.name
+                    or row.get("transition_count") != T):
+                raise ContractError(f"episode metadata mismatch for {f.name}")
         buffers.append(
             EpisodeBuffer(
                 id=i,
@@ -237,6 +260,11 @@ def build_dataset(
         or loaded.action_space != action_space
     ):
         raise RuntimeError("Load-back spaces differ from the declared spaces")
+    if manifest is not None:
+        destination = get_dataset_path(dataset_id)
+        shutil.copyfile(manifest_path, destination / "episode_metadata.jsonl")
+        if (raw / "spec.json").is_file():
+            shutil.copyfile(raw / "spec.json", destination / "collection_spec.json")
     return {
         "dataset_id": dataset_id,
         "episodes": len(files),

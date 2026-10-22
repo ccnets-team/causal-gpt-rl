@@ -29,6 +29,26 @@ multi-agent recordings, and how to read what came out are in
 [Packaging](docs/03-packaging.md); what the directory must contain is
 [The Input Contract](docs/01-the-input-contract.md).
 
+For Unity recordings, `spec.json` may include each sensor's `obs_shapes` so a
+flattened raw grid is restored as a spatial Minari `Box`. When an
+`episode_metadata.jsonl` companion is present, the packager validates its
+episode order and transition counts and copies it beside the Minari `data/`
+directory with `collection_spec.json`. This keeps `match_id` and per-match
+quality settings available after packaging.
+
+For large Unity grids, use a small `--batch-episodes` value (for example 16)
+when packaging. `python -m collection.compress_minari <dataset-id>` then
+losslessly compresses the HDF5 arrays in bounded blocks and verifies a Minari
+load-back. For cooperative scenes, run:
+
+```bash
+python -m collection.validate_unity_group --raw <raw-dir> --group-size 3 \
+    --target 1000000 --dataset-id <dataset-id>
+```
+
+This checks that all agents in each match have complete, synchronized
+trajectories and shared rewards.
+
 ## Record with one of our bundles
 
 Record straight from the command line:

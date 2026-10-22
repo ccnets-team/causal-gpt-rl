@@ -1,9 +1,10 @@
 """Validation for the recorded-episode contract used by ``collection/``.
 
-The contract is intentionally small: typed-vector observations, actions,
-rewards, and episode boundaries. Source-specific encoding stays with the user;
-these helpers only verify that the recorded values match the spaces they
-declare before Minari writes anything.
+The contract is intentionally small: numeric observations, actions, rewards,
+and episode boundaries. Raw observations are rows of flat values; optional
+``obs_shapes`` restores each sensor's spatial shape when packaging. These
+helpers verify that recorded values match the declared spaces before Minari
+writes anything.
 """
 
 from __future__ import annotations
@@ -123,6 +124,18 @@ def normalize_spec(
             f"stored observation width {observation_width}"
         )
     normalized["obs_channels"] = obs_channels
+
+    shapes_value = normalized.get("obs_shapes")
+    if shapes_value is None:
+        obs_shapes = [[width] for width in obs_channels]
+    else:
+        if not isinstance(shapes_value, (list, tuple)) or len(shapes_value) != len(obs_channels):
+            raise ContractError("obs_shapes must contain one shape per obs channel")
+        obs_shapes = [_positive_int_list(shape, f"obs_shapes[{i}]") for i, shape in enumerate(shapes_value)]
+        for i, (shape, width) in enumerate(zip(obs_shapes, obs_channels)):
+            if int(np.prod(shape)) != width:
+                raise ContractError(f"obs_shapes[{i}] {shape} does not match obs_channels[{i}]={width}")
+    normalized["obs_shapes"] = obs_shapes
 
     if action_kind == "continuous":
         act_dim = _positive_int(normalized.get("act_dim", action_width), "act_dim")

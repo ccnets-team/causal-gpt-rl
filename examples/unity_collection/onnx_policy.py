@@ -6,11 +6,11 @@ both ONNX observation layouts:
   - per-sensor inputs (`obs_0`, `obs_1`, …), fed channel by channel, and
   - a single concatenated `vector_observation`, fed the concatenated channels.
 
-The rule is uniform: concatenate the build's obs channels in spec order into one
-flat vector, then split that vector across the ONNX obs inputs by their declared
-dims. (Crawler: 126+32 -> two inputs; PushBlock: 105+105 -> one 210
-input.) This concatenation is only how the *driver policy* is fed — it is
-independent of how the dataset declares its observation space (per-sensor).
+Vector-only policies concatenate the build's channels in spec order and split
+the result across ONNX obs inputs by declared widths (Crawler: 126+32 -> two
+inputs; PushBlock: 105+105 -> one 210 input). Policies with grid/visual sensors
+match ONNX inputs by full sensor shape and retain the spatial tensor. This is
+only the driver policy's input layout; Minari records the declared sensor leaves.
 
 Discrete `discrete_actions` comes in two encoding flavors, detected by width vs the
 build's branch sizes:
@@ -50,6 +50,8 @@ class OnnxPolicy:
             onnx_path, providers=providers or ["CPUExecutionProvider"]
         )
         self.num_agents = num_agents
+        self.obs_shapes = [tuple(int(d) for d in shape) for shape in obs_shapes]
+        self.has_spatial_obs = any(len(shape) > 1 for shape in self.obs_shapes)
         self.obs_dims = [int(np.prod(s)) for s in obs_shapes]
         self.total_obs = sum(self.obs_dims)
         self._rng = rng if rng is not None else np.random.default_rng()
@@ -90,19 +92,42 @@ class OnnxPolicy:
         # the unsupported recurrent input.
         self.obs_inputs = []   # (name, dim), in order
         self.mask_inputs = []  # (name, dim)
+        self.spatial_mapping = []  # (name, sensor index, channels-last transpose)
+        remaining_sensors = list(range(len(self.obs_shapes)))
         for inp in self.session.get_inputs():
-            dim = int(inp.shape[-1])
             if inp.name == _MASK_INPUT:
-                self.mask_inputs.append((inp.name, dim))
+                self.mask_inputs.append((inp.name, int(inp.shape[-1])))
             elif inp.name == _RECURRENT_INPUT:
                 raise NotImplementedError(
                     f"Recurrent policy ('{_RECURRENT_INPUT}') is not supported."
                 )
             else:
-                self.obs_inputs.append((inp.name, dim))
+                if self.has_spatial_obs:
+                    input_shape = tuple(int(d) for d in inp.shape[1:])
+                    matches = []
+                    for index in remaining_sensors:
+                        sensor_shape = self.obs_shapes[index]
+                        if input_shape == sensor_shape:
+                            matches.append((index, False))
+                        elif len(sensor_shape) == 3 and input_shape == (
+                            sensor_shape[2], sensor_shape[0], sensor_shape[1]
+                        ):
+                            matches.append((index, True))
+                    if not matches:
+                        raise ValueError(
+                            f"ONNX input {inp.name} {input_shape} does not match "
+                            f"live sensor shapes {self.obs_shapes}."
+                        )
+                    index, transpose = matches[0]
+                    remaining_sensors.remove(index)
+                    self.spatial_mapping.append((inp.name, index, transpose))
+                else:
+                    self.obs_inputs.append((inp.name, int(inp.shape[-1])))
 
         packed = sum(d for _, d in self.obs_inputs)
-        if packed != self.total_obs:
+        if self.has_spatial_obs and remaining_sensors:
+            raise ValueError(f"ONNX did not consume sensors {remaining_sensors}.")
+        if not self.has_spatial_obs and packed != self.total_obs:
             raise ValueError(
                 f"ONNX obs inputs total {packed} != build obs total {self.total_obs} "
                 f"(inputs={self.obs_inputs}, channels={self.obs_dims})."
@@ -111,7 +136,10 @@ class OnnxPolicy:
         out = {o.name: o for o in self.session.get_outputs()}
         # Patched tier_policies onnx exposes per-branch pre-softmax `logits`,
         # enabling temperature sampling. Stock onnx lacks it (temperature errors loud).
-        self.has_logits = "logits" in out
+        self.logits_name = "tier_logits" if "tier_logits" in out else (
+            "logits" if "logits" in out else None
+        )
+        self.has_logits = self.logits_name is not None
         cont_size = int(getattr(action_spec, "continuous_size", 0) or 0)
         branches = tuple(int(b) for b in (getattr(action_spec, "discrete_branches", ()) or ()))
 
@@ -157,21 +185,26 @@ class OnnxPolicy:
             )
 
     def _build_feeds(self, present, observations):
-        flat = np.stack(
-            [
-                np.concatenate(
+        feeds = {}
+        if self.has_spatial_obs:
+            for name, index, transpose in self.spatial_mapping:
+                values = np.stack(
+                    [np.asarray(observations[index][g], np.float32) for g in present],
+                    axis=0,
+                )
+                feeds[name] = values.transpose(0, 3, 1, 2) if transpose else values
+        else:
+            flat = np.stack(
+                [np.concatenate(
                     [np.asarray(observations[c][g], np.float32).reshape(-1)
                      for c in range(len(self.obs_dims))]
-                )
-                for g in present
-            ],
-            axis=0,
-        )  # [P, total_obs]
-        feeds = {}
-        off = 0
-        for name, dim in self.obs_inputs:
-            feeds[name] = flat[:, off:off + dim]
-            off += dim
+                ) for g in present],
+                axis=0,
+            )  # [P, total_obs]
+            off = 0
+            for name, dim in self.obs_inputs:
+                feeds[name] = flat[:, off:off + dim]
+                off += dim
         for name, dim in self.mask_inputs:
             feeds[name] = np.ones((len(present), dim), np.float32)
         return feeds
@@ -315,7 +348,7 @@ class OnnxPolicy:
                     "temperature sampling requires a 'logits' output; use the patched "
                     "tier_policies onnx (stock onnx only emits the sampled index)."
                 )
-            raw = self.session.run(["logits"], feeds)[0]
+            raw = self.session.run([self.logits_name], feeds)[0]
             vals = self._decode_temperature(raw, present).astype(np.float32)
         else:
             raw = self.session.run([self.out_name], feeds)[0]

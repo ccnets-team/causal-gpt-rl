@@ -7,6 +7,9 @@ termination that lands on an action-repeat gap (a step with empty
 `decision_steps`) is processed rather than skipped, so episodes are not silently
 merged. Runs against mlagents_envs 1.1.0.
 """
+import os
+from pathlib import Path
+
 import numpy as np
 from gymnasium import Env
 from gymnasium import spaces
@@ -130,6 +133,10 @@ class UnityEnv(Env):
     @staticmethod
     def create_unity_env(channel, no_graphics, seed, worker_id):
         base_port = UnityEnvironment.BASE_ENVIRONMENT_PORT
+        log_folder = os.environ.get("UNITY_PLAYER_LOG_DIR")
+        if log_folder:
+            log_folder = str(Path(log_folder).resolve())
+            Path(log_folder).mkdir(parents=True, exist_ok=True)
         env = UnityEnvironment(
             file_name=UnityEnv.env_dir,
             base_port=base_port,
@@ -137,6 +144,7 @@ class UnityEnv(Env):
             seed=seed,
             side_channels=[channel],
             worker_id=worker_id,
+            log_folder=log_folder,
         )
         return env
 
@@ -191,10 +199,9 @@ class UnityEnv(Env):
         # Define the observation space per agent
         observation_shapes = reference_shapes  # Use the consistent shapes from the first spec
 
-        # Check if any observation shape is an image
-        if any(len(shape) == 3 for shape in observation_shapes):
-            raise ValueError("Image observations are not supported.")
-
+        # Keep visual/grid sensors in their native shape.  The collector writes
+        # flat raw rows for bounded, source-agnostic validation, then records
+        # these shapes in spec.json so Minari restores the spatial leaves.
         # Since the assumption of RayPerceptionSensor is removed,
         # default to an infinite observation range for all observations
         self.observation_space = spaces.Tuple(
