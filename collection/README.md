@@ -56,7 +56,7 @@ python -m collection.validate_walljump --raw <raw-dir> --target 1000000 \
     --dataset-id unity/walljump/expert-v0 --report validation.json
 ```
 
-It checks both behavior identities, per-episode temperature bands, decision tick
+It checks both behavior identities, per-episode temperature bands, external step
 deltas, outcome labels, and sampled Minari arrays against their raw episodes.
 
 ## Record with one of our bundles

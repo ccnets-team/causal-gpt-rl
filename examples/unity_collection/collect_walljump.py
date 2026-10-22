@@ -86,6 +86,8 @@ def collect(args):
                           "ranges": bands, "seed": args.seed},
                 "random_policy": args.random,
                 "transition_clock": "agent decision to next decision or terminal; rewards accumulated by ML-Agents",
+                "timing_field": "unity_tick_deltas",
+                "timing_units": "UnityEnvironment.step communication calls, not physics updates",
                 "seed": args.seed, "time_scale": args.time_scale}
         (out / "spec.json").write_bytes((json.dumps(spec, indent=2) + "\n").encode())
         manifest = (out / "episode_metadata.jsonl").open("w", encoding="utf-8", newline="\n")

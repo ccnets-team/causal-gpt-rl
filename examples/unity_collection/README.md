@@ -152,8 +152,9 @@ python -m collection.validate_walljump --raw raw_walljump_expert \
 
 Each transition starts at a submitted decision and ends at that agent's next
 decision or terminal observation. ML-Agents accumulates rewards while repeating
-the action between decisions. The raw arrays and episode sidecar retain Unity
-tick deltas. Observation leaves are `(210,)`, `(210,)`, `(24,)`; actions are
+the action between decisions. The raw arrays and episode sidecar retain
+`unity_tick_deltas`: counts of external `UnityEnvironment.step()` calls, not
+physics updates. Observation leaves are `(210,)`, `(210,)`, `(24,)`; actions are
 `MultiDiscrete([3, 3, 3, 2])`. Metadata preserves behavior, policy, temperature,
 and goal/fall/timeout outcome; no/low walls share the SmallWallJump behavior and
 cannot be distinguished by the behavior label alone.
