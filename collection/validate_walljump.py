@@ -7,12 +7,17 @@ from pathlib import Path
 
 import numpy as np
 
-from collection._internal.contract import ContractError, validate_raw_directory
+from collection._internal.contract import (
+    ContractError, REQUIRED_ARRAYS, load_spec, normalize_spec, validate_episode,
+)
 
 
 def validate(raw, target, dataset_id=None):
     raw = Path(raw)
-    files, spec = validate_raw_directory(raw)
+    files = sorted(raw.glob("ep_*.npz"))
+    if not files:
+        raise ContractError("No WallJump episode files")
+    spec = normalize_spec(load_spec(raw), observation_width=444, action_width=4)
     rows = [json.loads(s) for s in (raw / "episode_metadata.jsonl").read_text(
         encoding="utf-8").splitlines() if s.strip()]
     if len(rows) != len(files):
@@ -29,7 +34,10 @@ def validate(raw, target, dataset_id=None):
             raise ContractError(f"Unknown behavior: {behavior}")
         if row["policy_id"] != ("random" if spec["random_policy"] else behavior + ".onnx"):
             raise ContractError(f"Wrong policy identity: {path.name}")
-        with np.load(path, allow_pickle=False) as episode:
+        with np.load(path, allow_pickle=False) as archive:
+            # Read each compressed member once and run both contracts in one pass.
+            episode = {name: archive[name] for name in (*REQUIRED_ARRAYS, "unity_tick_deltas")}
+            validate_episode(episode, spec, source=path.name)
             length = len(episode["rewards"])
             if length != row["transition_count"] or not np.isclose(
                     episode["rewards"].sum(), row["return"], atol=1e-5):
