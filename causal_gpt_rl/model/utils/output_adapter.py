@@ -12,12 +12,14 @@ from typing import Optional
 
 
 class OutputToInputAdapter(torch.nn.Module):
-    def __init__(self, type: str, output_size: int, squash: Optional[str] = None, low: Optional[float] = None, high: Optional[float] = None):
+    def __init__(self, type: str, output_size: int, squash: Optional[str] = None, low: Optional[float] = None, high: Optional[float] = None, *, use_unsquashed_actions: bool = False):
         super().__init__()
         self._type = type
         self.output_size = output_size
-        assert squash is not None or (low is None and high is None), \
-            "If squash is None, low and high must be None"
+        # Preserve legacy validation unless raw continuous actions were opted in.
+        if not (use_unsquashed_actions and type == "continuous" and squash is None):
+            assert squash is not None or (low is None and high is None), \
+                "If squash is None, low and high must be None"
         self.squash = squash
         # Register low/high as buffers so they follow device/dtype. `.clone()` so
         # each buffer owns its storage: torch.as_tensor on a float32 numpy bound

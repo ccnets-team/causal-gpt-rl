@@ -20,6 +20,7 @@ import torch
 from torch import nn
 
 from causal_gpt_rl.inference import load_runner
+from causal_gpt_rl.inference.bundle import UNSQUASHED_ACTION_CAPABILITY
 from causal_gpt_rl.inference.context.buffer import ContextBuffer
 from causal_gpt_rl.inference.runner import DEFAULT_KV_CACHE_CONTEXT_MULTIPLIER
 from causal_gpt_rl.model.utils.action_normalization import (
@@ -335,6 +336,12 @@ def export_onnx(
             "causal_gpt_rl.rollout_action_context_coordinate": runner.rollout_action_context_coordinate,
             "causal_gpt_rl.context_action_encoding": "continuous_z_categorical_one_hot_binary_bits",
         })
+        onnx.helper.set_model_props(model, properties)
+    if runner.model._uses_raw_continuous_actions:
+        properties = {p.key: p.value for p in model.metadata_props}
+        capabilities = set(json.loads(properties.get("causal_gpt_rl.requires_capabilities", "[]")))
+        capabilities.add(UNSQUASHED_ACTION_CAPABILITY)
+        properties["causal_gpt_rl.requires_capabilities"] = json.dumps(sorted(capabilities))
         onnx.helper.set_model_props(model, properties)
     onnx.save(model, str(output_path), save_as_external_data=False)
     sidecar = Path(str(output_path) + ".data")

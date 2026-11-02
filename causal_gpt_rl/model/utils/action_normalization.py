@@ -106,6 +106,10 @@ class ActionNormalizationMixin:
         for spec, section in zip(self.action_specs, self._action_slices):
             if spec.type != "continuous" and not bool((mean[section] == 0).all() and (std[section] == 1).all()):
                 raise ValueError("Non-continuous action statistics must be identity (mean=0, std=1)")
+        if enabled.item() == 1. and self.use_unsquashed_actions and any(
+            spec.type == "continuous" and spec.squash is None for spec in self.action_specs
+        ):
+            raise ValueError("Unsquashed continuous actions cannot enable bounds-atanh action normalization")
         if enabled.item() == 1. and (not self._normalized_action_indices.numel() or not self._action_normalization_bounds_valid):
             raise ValueError("Action normalization requires finite, increasing continuous action bounds")
 
@@ -165,5 +169,9 @@ class ActionNormalizationMixin:
         return torch.where(self.action_normalization_enabled == 1.0, normalized.to(legacy.dtype), legacy)
 
     def _continuous_sample_to_env(self, z, legacy):
+        # Raw heads cannot enable bounds-atanh normalization. Avoid evaluating
+        # its inactive squash branch as well as preserving the raw result.
+        if self._uses_raw_continuous_actions:
+            return legacy
         normalized = self._denormalize_action_head(z, self._normalized_action_indices)
         return self._normalized_or_legacy(normalized, legacy)

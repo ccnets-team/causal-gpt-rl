@@ -7,6 +7,7 @@ bundle. Load it normally with `load_runner`; no manual configuration is needed.
 |---|---|
 | `action_normalization` | `causal-gpt-rl>=0.19.0` |
 | `pre_tanh_rollout_context` | `causal-gpt-rl>=0.20.0` |
+| `unsquashed_continuous_action` | `causal-gpt-rl>=0.22.0` |
 
 Existing bundles retain their behavior on the newer runtime. An unsupported or
 inconsistent bundle is rejected during loading. Use the runtime version required

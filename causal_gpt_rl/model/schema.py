@@ -326,11 +326,15 @@ class ModelConfig:
     intermediate_size: Optional[int] = None
     max_position_embeddings: Optional[int] = None
     context_length: Optional[int] = None
+    # Opt in to raw continuous actions ONLY for heads declaring squash=None.
+    # False retains legacy adapter validation and sampling behavior.
+    use_unsquashed_actions: bool = False
 
     def __post_init__(self) -> None:
         self.rope_theta = float(self.rope_theta)
         self.use_eos = bool(self.use_eos)
         self.use_bos_action_gate = bool(self.use_bos_action_gate)
+        self.use_unsquashed_actions = bool(self.use_unsquashed_actions)
 
         if self.context_length is None:
             self.context_length = 32

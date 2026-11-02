@@ -110,9 +110,10 @@ _SUPPORTED_BUNDLE_VERSIONS = (1, 2)
 # onto the runner, which restores the container via gym.spaces.unflatten. Older
 # runtimes that only decode per head (flat) still refuse such bundles loudly.
 CROSS_EPISODE_CAPABILITY = "cross_episode_context"
+UNSQUASHED_ACTION_CAPABILITY = "unsquashed_continuous_action"
 
 _SUPPORTED_CAPABILITIES: frozenset[str] = frozenset(
-    {"hybrid_action", "hybrid_state", "action_container", "action_normalization", PRE_TANH_ROLLOUT_CAPABILITY, CROSS_EPISODE_CAPABILITY}
+    {"hybrid_action", "hybrid_state", "action_container", "action_normalization", PRE_TANH_ROLLOUT_CAPABILITY, CROSS_EPISODE_CAPABILITY, UNSQUASHED_ACTION_CAPABILITY}
 )
 SUPPORTED_CAPABILITIES = _SUPPORTED_CAPABILITIES
 
@@ -253,6 +254,15 @@ def export_bundle(
 
     state_specs = list(state_specs)
     action_specs = list(action_specs)
+    if bool(getattr(model_config, "use_unsquashed_actions", False)) != model.use_unsquashed_actions:
+        raise ValueError("Unsquashed action export config must match the model")
+    if model.use_unsquashed_actions and [s.to_json_dict() for s in action_specs] != [s.to_json_dict() for s in model.action_specs]:
+        raise ValueError("Unsquashed action export specs must match model action specs")
+    uses_raw_actions = model.use_unsquashed_actions and any(
+        s.type == "continuous" and s.squash is None for s in action_specs
+    )
+    if UNSQUASHED_ACTION_CAPABILITY in requires_capabilities and not uses_raw_actions:
+        raise ValueError("Unsquashed action capability requires an enabled raw continuous head")
     if action_normalized and [s.to_json_dict() for s in action_specs] != [s.to_json_dict() for s in model.action_specs]:
         raise ValueError("Action normalization export specs must match model action specs")
 
@@ -285,6 +295,8 @@ def export_bundle(
         capabilities.add("action_normalization")
     if len(set(action_types)) > 1:
         capabilities.add("hybrid_action")
+    if uses_raw_actions:
+        capabilities.add(UNSQUASHED_ACTION_CAPABILITY)
 
     # Serialized declared Gymnasium spaces — the lossless schema gym.spaces
     # .unflatten needs. The model stores only flat head sizes; structure (Dict
@@ -466,6 +478,11 @@ def load_runner(
     model_config = ModelConfig.from_dict(config_payload["model_config"])
     state_specs = [SpaceSpec.from_dict(d) for d in config_payload["state_specs"]]
     action_specs = [SpaceSpec.from_dict(d) for d in config_payload["action_specs"]]
+    unsquashed = model_config.use_unsquashed_actions and any(
+        s.type == "continuous" and s.squash is None for s in action_specs
+    )
+    if unsquashed != (UNSQUASHED_ACTION_CAPABILITY in required_caps):
+        raise ValueError("Unsquashed continuous action specs and capability metadata must agree; re-export the bundle.")
     context_length = int(config_payload["context_length"])
 
     torch_device = torch.device(device)

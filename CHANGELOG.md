@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.22.0
+
+- Add default-off `ModelConfig.use_unsquashed_actions`. Only when enabled,
+  continuous heads declaring `squash=None` accept unbounded Box specs and
+  preserve raw means/samples without tanh or bounds scaling. Existing tanh
+  heads and default-off behavior retain their transforms and weight layout.
+- Persist the option in bundles and automatically require
+  `unsquashed_continuous_action` for active raw heads. Older runtimes refuse
+  these bundles. Cached/windowed feedback and ONNX export preserve the raw
+  coordinate. Bounds-atanh action normalization cannot be enabled on raw heads.
+
 ## 0.21.0
 
 - Extend `bos_cache_mode="retain"` to preserve BOS and history across natural

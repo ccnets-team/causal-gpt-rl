@@ -37,6 +37,39 @@ Loading or running such a space raises a self-describing error that names the
 offending type and the supported set, so the boundary is explicit rather than a
 silent mis-decode.
 
+## Unsquashed continuous actions (0.22.0+)
+
+`ModelConfig.use_unsquashed_actions` defaults to `False`, preserving the legacy
+path, including its validation limits. Set it to `True` to enable raw continuous
+heads **only where the action spec declares `squash=None`**:
+
+```python
+import gymnasium as gym
+import numpy as np
+from causal_gpt_rl.model import ModelConfig
+from causal_gpt_rl.inference.spaces import extract_data_specs_from_space
+
+action_space = gym.spaces.Box(-np.inf, np.inf, shape=(32,), dtype=np.float32)
+action_specs = extract_data_specs_from_space(action_space)  # squash=None
+model_config = ModelConfig(use_unsquashed_actions=True)
+```
+
+A raw head reads its previous action unchanged, returns its
+Gaussian mean unchanged, and samples without tanh or bounds scaling. Tanh heads
+retain their existing transforms even when the option is enabled; mixed raw,
+tanh and categorical heads are supported.
+
+This option is separate from statistical action normalization. The existing
+`action_normalization` capability specifically implements bounds → atanh →
+standardize and cannot be enabled on an active raw head. Declared finite bounds
+still constrain the runner's external action decode; an unbounded Box imposes
+no clipping.
+
+The option is stored in the model config. Bundles using active raw heads require
+`unsquashed_continuous_action`; `load_runner` restores the setting automatically,
+and older runtimes reject the bundle. The existing bundle format versions and
+bounded-model weight layout are unchanged.
+
 ## Loading a policy
 
 ```python

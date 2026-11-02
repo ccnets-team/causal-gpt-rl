@@ -76,12 +76,16 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         super().__init__()
         self.network_name = model_config.network_name
         self.use_eos = bool(getattr(model_config, "use_eos", False))
+        self.use_unsquashed_actions = bool(getattr(model_config, "use_unsquashed_actions", False))
         # BOS action gate: neutralize the (absent) previous-action channel at
         # episode start. Serving capability (persisted); default-off is
         # byte-identical.
         self.use_bos_action_gate = bool(getattr(model_config, "use_bos_action_gate", False))
         self.state_specs = list(state_specs)
         self.action_specs = list(action_specs)
+        self._uses_raw_continuous_actions = self.use_unsquashed_actions and any(
+            s.type == "continuous" and s.squash is None for s in self.action_specs
+        )
         input_specs, output_specs = build_model_specs(
             state_specs, action_specs, use_eos=self.use_eos
         )
@@ -122,7 +126,8 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
             for spec in self.flat_output_specs
         ])
         self.output_adapter = nn.ModuleList(
-            [OutputToInputAdapter(spec.type, spec.size, spec.squash, spec.low, spec.high)
+            [OutputToInputAdapter(spec.type, spec.size, spec.squash, spec.low, spec.high,
+                                  use_unsquashed_actions=self.use_unsquashed_actions)
              for spec in self.flat_output_specs]
         )
 
@@ -164,11 +169,20 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
                 spec for spec, is_cont in zip(mean_specs, self._mean_is_continuous)
                 if is_cont
             ]
+            # Unsquashed heads have no bounds transform. Keep safe identity
+            # placeholders in the legacy buffers: inf - inf would create NaNs
+            # even in an unselected torch.where branch during export/backward.
             lows = torch.cat([
-                torch.as_tensor(s.low, dtype=torch.float32).reshape(-1) for s in cont_specs
+                torch.as_tensor(s.low, dtype=torch.float32).reshape(-1)
+                if not (self.use_unsquashed_actions and s.squash is None)
+                else torch.full((s.size,), -1.0)
+                for s in cont_specs
             ]).reshape(1, -1)
             highs = torch.cat([
-                torch.as_tensor(s.high, dtype=torch.float32).reshape(-1) for s in cont_specs
+                torch.as_tensor(s.high, dtype=torch.float32).reshape(-1)
+                if not (self.use_unsquashed_actions and s.squash is None)
+                else torch.ones(s.size)
+                for s in cont_specs
             ]).reshape(1, -1)
             self.register_buffer("_action_scale", (highs - lows) / 2.0)
             self.register_buffer("_action_bias", (highs + lows) / 2.0)
@@ -275,7 +289,9 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         for i, spec in enumerate(self.flat_input_specs):
             if spec.role != "action":
                 continue
-            if spec.type == "continuous":
+            if spec.type == "continuous" and not (
+                self.use_unsquashed_actions and spec.squash is None
+            ):
                 direct = action_context_coordinate == PRE_TANH_ACTION_COORDINATE
                 normalized = input_heads[i] if direct else self._normalize_action_head(
                     input_heads[i], self._action_slices[action_position],
@@ -313,7 +329,9 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
         """Apply per-spec post-processing (e.g., tanh squash) to head outputs."""
         adapted = [adapter(out) for out, adapter in zip(outputs, self.output_adapter)]
         for pos, i in enumerate(self.mean_action_indices):
-            if self._mean_is_continuous[pos]:
+            if self._mean_is_continuous[pos] and not (
+                self.use_unsquashed_actions and self.flat_output_specs[i].squash is None
+            ):
                 normalized = self._denormalize_action_head(outputs[i], self._action_slices[pos])
                 adapted[i] = self._normalized_or_legacy(normalized, adapted[i])
         return adapted
@@ -662,10 +680,7 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
             log_std = torch.cat([out[i] for i in self.log_std_action_indices], dim=-1)
             log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
             z = mean + std_scale * log_std.exp() * torch.randn_like(mean)
-            squashed = torch.tanh(z)
-            scale = self._action_scale.to(dtype=squashed.dtype)
-            bias = self._action_bias.to(dtype=squashed.dtype)
-            cont_actions = self._continuous_sample_to_env(z, squashed * scale + bias)
+            cont_actions = self._continuous_sample_to_env(z, self._squash_continuous_action(z))
 
         parts = []
         offset = 0
@@ -691,15 +706,32 @@ class AutoregressiveModel(ActionNormalizationMixin, nn.Module):
                 parts.append(self._sample_categorical_onehot(out[i], std_scale))
         return torch.cat(parts, dim=-1)
 
+    def _squash_continuous_action(self, z: torch.Tensor) -> torch.Tensor:
+        """Apply each continuous head's declared transform, preserving raw heads."""
+        if not self._uses_raw_continuous_actions:
+            squashed = torch.tanh(z)
+            scale = self._action_scale.to(dtype=squashed.dtype)
+            bias = self._action_bias.to(dtype=squashed.dtype)
+            return squashed * scale + bias
+        parts = []
+        offset = 0
+        for pos in self._continuous_mean_positions:
+            spec = self.action_specs[pos]
+            head = z[..., offset:offset + spec.size]
+            if spec.squash is not None:
+                scale = self._action_scale[..., offset:offset + spec.size].to(z.dtype)
+                bias = self._action_bias[..., offset:offset + spec.size].to(z.dtype)
+                head = torch.tanh(head) * scale + bias
+            parts.append(head)
+            offset += spec.size
+        return torch.cat(parts, dim=-1)
+
     def _sample_continuous(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         mean = torch.cat([out[i] for i in self.mean_action_indices], dim=-1)
         log_std = torch.cat([out[i] for i in self.log_std_action_indices], dim=-1)
         log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
         z = mean + std_scale * log_std.exp() * torch.randn_like(mean)
-        squashed = torch.tanh(z)
-        scale = self._action_scale.to(dtype=squashed.dtype)
-        bias = self._action_bias.to(dtype=squashed.dtype)
-        return self._continuous_sample_to_env(z, squashed * scale + bias)
+        return self._continuous_sample_to_env(z, self._squash_continuous_action(z))
 
     def _sample_discrete(self, out: list[torch.Tensor], std_scale: float = 1.0) -> torch.Tensor:
         sampled_actions = []
